@@ -332,6 +332,21 @@ type YearEndPreview = {
   }>;
   yearEndId?: number;
 };
+type LoanEmiPreview = {
+  paymentDate: string;
+  selected: number | "all-active";
+  processed: number;
+  totalDeducted: number;
+  rows: Array<{
+    LoanID: number;
+    EmployeeCode: string;
+    FullName: string;
+    RemainingBalance: number;
+    EMI: number;
+    NextDeduction: number;
+    BalanceAfter: number;
+  }>;
+};
 
 const nav: { label: ViewKey; icon: React.ElementType }[] = [
   { label: "Overview", icon: LayoutDashboard },
@@ -623,6 +638,7 @@ export default function DashboardPage() {
     note: ""
   });
   const [selectedLoanIds, setSelectedLoanIds] = useState<number[]>([]);
+  const [monthlyEmiRunPreview, setMonthlyEmiRunPreview] = useState<LoanEmiPreview | null>(null);
   const [loanOpsForm, setLoanOpsForm] = useState({
     deferMonths: "1",
     newEmi: "",
@@ -1703,6 +1719,7 @@ export default function DashboardPage() {
 
   function toggleSelectedLoan(loanId: number) {
     setSelectedLoanIds((current) => current.includes(loanId) ? current.filter((id) => id !== loanId) : [...current, loanId]);
+    setMonthlyEmiRunPreview(null);
   }
 
   function selectedLoanRows() {
@@ -1724,31 +1741,61 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleRunSelectedEmis() {
-    if (!session) return setMessage("Please sign in before running EMI.");
+  function getEmiRunLoanIds() {
     const selected = selectedLoanIds.length ? selectedLoanIds : filteredLoans.filter((loan) => loan.Status === "active").map((loan) => Number(loan.LoanID));
+    return [...new Set(selected.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+  }
+
+  async function handlePreviewSelectedEmis() {
+    if (!session) return setMessage("Please sign in before previewing EMI.");
+    const selected = getEmiRunLoanIds();
     if (selected.length === 0) return setMessage("No active loans selected for EMI run.");
+    setBusy(true);
+    setMessage("");
     try {
-      const preview = await atlasMutation<{ processed: number; totalDeducted: number; rows: Array<{ LoanID: number; FullName: string; NextDeduction: number; BalanceAfter: number }> }>(
+      const preview = await atlasMutation<LoanEmiPreview>(
         "/loans/run-emis/preview",
         session.token,
         session.sessionId,
         "POST",
         { loanIds: selected, paymentDate: loanOpsForm.actionDate }
       );
-      const sample = (preview.rows || []).slice(0, 5).map((row) => `${row.FullName}: ${money.format(row.NextDeduction)}`).join("\n");
-      const ok = window.confirm(
-        `Run monthly EMI for ${preview.processed} loan(s)?\nTotal deduction: ${money.format(preview.totalDeducted || 0)}\n\n${sample}${preview.processed > 5 ? "\n..." : ""}\n\nClick OK to confirm.`
-      );
-      if (!ok) return setMessage("Monthly EMI run cancelled.");
-      await handleLoanAction("/loans/run-emis", `System confirmation: monthly EMI processed for ${preview.processed} loan(s).`, {
-        loanIds: selected,
-        paymentDate: loanOpsForm.actionDate,
-        confirm: "RUN_EMI"
-      });
-      setSelectedLoanIds([]);
+      setMonthlyEmiRunPreview(preview);
+      setMessage(`EMI preview ready for ${preview.processed} loan(s). Review and process from the preview panel.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "EMI preview failed");
+      setMonthlyEmiRunPreview(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRunSelectedEmis() {
+    if (!session) return setMessage("Please sign in before running EMI.");
+    const selected = getEmiRunLoanIds();
+    if (selected.length === 0) return setMessage("No active loans selected for EMI run.");
+    if (!monthlyEmiRunPreview) {
+      await handlePreviewSelectedEmis();
+      return;
+    }
+    if (monthlyEmiRunPreview.processed === 0) return setMessage("Preview has no loans to process.");
+    setBusy(true);
+    setMessage("");
+    try {
+      const processed = monthlyEmiRunPreview.processed;
+      await atlasMutation("/loans/run-emis", session.token, session.sessionId, "POST", {
+          loanIds: selected,
+          paymentDate: loanOpsForm.actionDate,
+          confirm: "RUN_EMI"
+        });
+      await loadLiveData();
+      setMonthlyEmiRunPreview(null);
+      setSelectedLoanIds([]);
+      setMessage(`System confirmation: monthly EMI processed for ${processed} loan(s).`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "EMI processing failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -4391,16 +4438,21 @@ export default function DashboardPage() {
               <div className="glass-panel table-card">
                 <div className="card-title"><WalletCards size={18} /> Loan Register</div>
                 <div className="button-row compact">
-                  <select className="compact-select" value={loanStatusFilter} onChange={(event) => setLoanStatusFilter(event.target.value)}>
+                  <select className="compact-select" value={loanStatusFilter} onChange={(event) => {
+                    setLoanStatusFilter(event.target.value);
+                    setMonthlyEmiRunPreview(null);
+                  }}>
                     <option value="">All loans</option>
                     <option value="active">Active</option>
                     <option value="deferred">Deferred</option>
                     <option value="settled">Settled</option>
                   </select>
                   <button className="soft-button" disabled={busy} onClick={handleExportLoans}><Download size={16} /> Export Loans</button>
-                  <button className="shine-button" disabled={busy} onClick={handleRunSelectedEmis}>Run selected EMI</button>
+                  <button className="soft-button" disabled={busy} onClick={handlePreviewSelectedEmis}><Eye size={16} /> Preview selected EMI</button>
+                  <button className="shine-button" disabled={busy || !monthlyEmiRunPreview || monthlyEmiRunPreview.processed === 0} onClick={handleRunSelectedEmis}>Process preview</button>
                   <button className="soft-button" disabled={busy} onClick={() => {
                     const activeIds = filteredLoans.filter((loan) => loan.Status === "active").map((loan) => Number(loan.LoanID));
+                    setMonthlyEmiRunPreview(null);
                     setSelectedLoanIds(selectedLoanIds.length === activeIds.length ? [] : activeIds);
                   }}>{selectedLoanIds.length ? "Clear selection" : "Select active"}</button>
                 </div>
@@ -4411,7 +4463,10 @@ export default function DashboardPage() {
                   </div>
                   <div className="loan-action-fields">
                     <Field label="Action date">
-                      <input type="date" value={loanOpsForm.actionDate} onChange={(event) => setLoanOpsForm({ ...loanOpsForm, actionDate: event.target.value })} />
+                      <input type="date" value={loanOpsForm.actionDate} onChange={(event) => {
+                        setLoanOpsForm({ ...loanOpsForm, actionDate: event.target.value });
+                        setMonthlyEmiRunPreview(null);
+                      }} />
                     </Field>
                     <Field label="Deferment months">
                       <input type="number" min="1" max="24" placeholder="1" value={loanOpsForm.deferMonths} onChange={(event) => setLoanOpsForm({ ...loanOpsForm, deferMonths: event.target.value })} />
@@ -4427,6 +4482,37 @@ export default function DashboardPage() {
                     </Field>
                   </div>
                 </div>
+                {monthlyEmiRunPreview && (
+                  <div className="emi-preview-panel" role="region" aria-label="Monthly EMI preview">
+                    <div className="emi-preview-head">
+                      <div>
+                        <strong>Monthly EMI preview</strong>
+                        <span>{monthlyEmiRunPreview.processed} loan(s) selected for {formatExportDate(String(monthlyEmiRunPreview.paymentDate || loanOpsForm.actionDate))}</span>
+                      </div>
+                      <button className="mini-soft" disabled={busy} onClick={() => setMonthlyEmiRunPreview(null)}>Clear preview</button>
+                    </div>
+                    <div className="emi-preview-summary">
+                      <span><small>Total deduction</small><strong>{money.format(monthlyEmiRunPreview.totalDeducted || 0)}</strong></span>
+                      <span><small>Selected loans</small><strong>{monthlyEmiRunPreview.processed}</strong></span>
+                      <span><small>Payment date</small><strong>{formatExportDate(String(monthlyEmiRunPreview.paymentDate || loanOpsForm.actionDate))}</strong></span>
+                    </div>
+                    <div className="preview-grid emi-preview-grid">
+                      <div className="preview-row emi-preview-row emi-preview-row-head"><span>Employee</span><span>Outstanding</span><span>EMI deduction</span><span>After payment</span></div>
+                      {monthlyEmiRunPreview.rows.length === 0 && <p className="muted">No active loan is ready for this EMI run.</p>}
+                      {monthlyEmiRunPreview.rows.map((row) => (
+                        <div className="preview-row emi-preview-row" key={row.LoanID}>
+                          <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / Loan #{row.LoanID}</small></span>
+                          <span><strong>{money.format(row.RemainingBalance || 0)}</strong></span>
+                          <span><strong>{money.format(row.NextDeduction || row.EMI || 0)}</strong><small>Regular EMI {money.format(row.EMI || 0)}</small></span>
+                          <span><strong>{money.format(row.BalanceAfter || 0)}</strong></span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="button-row compact">
+                      <button className="shine-button" disabled={busy || monthlyEmiRunPreview.processed === 0} onClick={handleRunSelectedEmis}>Process selected loan EMI</button>
+                    </div>
+                  </div>
+                )}
                 <div className="premium-table">
                   <div className="table-row loan-head"><span>Employee</span><span>Loan</span><span>Progress</span><span>EMI</span><span>Action</span></div>
                   {filteredLoans.length === 0 && <p className="muted">No loans found for this filter.</p>}

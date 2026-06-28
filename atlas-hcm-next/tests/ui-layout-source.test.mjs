@@ -28,6 +28,9 @@ assert.match(css, /\.airfare-layout\s*{[\s\S]*minmax\(620px,\s*1fr\)[\s\S]*minma
 assert.match(css, /\.attachment-row\s+\.mini-danger\s*{[\s\S]*width:\s*auto[\s\S]*min-width:\s*86px/, "recent allocation delete button should fit icon and label");
 assert.match(css, /\.loan-action-panel\s*{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*\.75fr\)\s*minmax\(0,\s*1\.8fr\)/, "loan action controls should separate instruction text from editable fields");
 assert.match(css, /\.loan-action-fields\s*{[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(132px,\s*1fr\)\)/, "loan action fields should use clear labeled columns on desktop");
+assert.match(css, /\.emi-preview-panel\s*{[\s\S]*border-radius:\s*8px/, "monthly EMI preview should use an aligned in-screen panel");
+assert.match(css, /\.preview-row\.emi-preview-row\s*{[\s\S]*grid-template-columns/, "monthly EMI preview rows should use dedicated readable columns");
+assert.match(css, /@media \(max-width:\s*720px\)[\s\S]*\.emi-preview-summary\s*{[\s\S]*grid-template-columns:\s*1fr/, "monthly EMI preview summary should stack cleanly on mobile");
 assert.match(css, /\.standard-note\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*max-content/, "standard note should reserve readable text space and a separate action");
 assert.match(css, /\.standard-note\s*>\s*div\s*{[\s\S]*min-width:\s*0/, "standard note text should wrap inside its own content block");
 assert.match(css, /@media \(max-width:\s*1280px\)[\s\S]*\.airfare-layout\s*{[\s\S]*grid-template-columns:\s*1fr/, "airfare page should stack before the side panel becomes cramped");
@@ -125,6 +128,10 @@ assert.match(server, /Updated allocation #/, "allocation update should be audite
 assert.match(server, /app\.put\('\/api\/loans\/:id/, "backend should support updating loans");
 assert.match(source, /handleEditLoan/, "loan register should have an edit action");
 assert.match(source, /Update loan/, "loan form should switch to update mode");
+assert.match(source, /handlePreviewSelectedEmis/, "loan register should preview selected EMI before processing");
+assert.match(source, /Monthly EMI preview/, "loan register should show an in-screen EMI preview");
+assert.match(source, /Process selected loan EMI/, "loan preview should provide an explicit process button");
+assert.doesNotMatch(source, /Run monthly EMI for[\s\S]{0,220}window\.confirm|window\.confirm[\s\S]{0,220}Run monthly EMI for/, "monthly EMI processing should not use browser confirm popup");
 assert.match(source, /handleEditUser/, "users and rights should have an edit action");
 assert.match(source, /Update user rights/, "user form should switch to update mode");
 assert.match(source, /printPremiumReport/, "reports should share a premium print layout");

@@ -1078,6 +1078,69 @@ h3 { font-size: 20px; letter-spacing: 0; }
   margin-top: 3px;
   color: var(--muted);
 }
+.emi-preview-panel {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0 18px;
+  padding: 16px;
+  border: 1px solid rgba(20, 184, 166, .28);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(240, 253, 250, .96), rgba(255, 255, 255, .98));
+}
+.emi-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.emi-preview-head strong,
+.emi-preview-head span {
+  display: block;
+}
+.emi-preview-head span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.emi-preview-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
+  gap: 10px;
+}
+.emi-preview-summary span {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 8px;
+  background: #ffffff;
+}
+.emi-preview-summary small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.emi-preview-summary strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+.preview-row.emi-preview-row {
+  grid-template-columns: minmax(230px, 1.45fr) repeat(3, minmax(130px, .8fr));
+  min-width: 760px;
+}
+.preview-row.emi-preview-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.emi-preview-row-head {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
 .table-row.policy-rate-row {
   grid-template-columns: minmax(190px, 1fr) minmax(150px, .8fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(115px, .6fr);
   min-width: 920px;
@@ -2716,6 +2779,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .support-guide-actions .soft-button { width: 100%; }
   .help-steps { grid-template-columns: 1fr; }
   .import-preview-head { align-items: stretch; flex-direction: column; }
+  .emi-preview-head { align-items: stretch; flex-direction: column; }
+  .emi-preview-summary { grid-template-columns: 1fr; }
   .metric-strip { grid-template-columns: 1fr; }
   .mapping-grid, .preview-row { grid-template-columns: 1fr; }
   .premium-table { overflow-x: visible; }
