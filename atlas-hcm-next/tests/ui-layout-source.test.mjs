@@ -64,6 +64,9 @@ assert.match(source, /Manager WhatsApp for airfare allocation/, "airfare allocat
 assert.match(source, /Open manager WhatsApp/, "airfare allocation should open normal WhatsApp for manager approval");
 assert.match(source, /allocationWhatsAppMessageText/, "airfare allocation manager WhatsApp should build from live allocation preview values");
 assert.match(source, /printAllocationManagerWhatsApp/, "airfare allocation manager WhatsApp should provide a print-format output");
+assert.match(source, /PDF \/ print A4/, "airfare allocation manager WhatsApp should expose an A4 PDF print path");
+assert.match(source, /Download A4 image/, "airfare allocation manager WhatsApp should expose an A4 image attachment path");
+assert.match(source, /downloadAllocationManagerWhatsAppImage/, "airfare allocation manager WhatsApp should generate a downloadable image");
 assert.match(css, /\.whatsapp-panel\s*{[\s\S]*border-radius:\s*8px/, "WhatsApp composer should use an aligned in-screen panel");
 assert.match(css, /\.whatsapp-grid\s*{[\s\S]*repeat\(3,\s*minmax\(160px,\s*1fr\)\)/, "WhatsApp composer should align fields in readable columns");
 assert.match(css, /\.allocation-whatsapp-card\s*{[\s\S]*border-radius:\s*8px/, "airfare allocation manager WhatsApp should use an aligned in-screen panel");

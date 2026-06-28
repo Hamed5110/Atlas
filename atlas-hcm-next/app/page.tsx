@@ -3831,16 +3831,24 @@ export default function DashboardPage() {
     const printWindow = window.open("", "_blank", "width=860,height=960");
     if (!printWindow) return setMessage("Popup blocked. Allow popups to print the manager WhatsApp format.");
     const companyName = activeCompany?.CompanyName || "ATLAS";
+    const logoMarkup = companyLogoUrl
+      ? `<img class="logo" src="${escapeHtml(companyLogoUrl)}" alt="${escapeHtml(companyName)} logo" />`
+      : `<div class="logo-mark">ATLAS</div>`;
     const rows = [
       ["Manager WhatsApp", formatWhatsAppDisplayNumber(allocationWhatsAppForm.managerNumber)],
       ["Employee", `${selectedEmployee.EmployeeCode} - ${selectedEmployee.FullName}`],
       ["Department", selectedEmployee.Department || "-"],
       ["Reporting To", selectedEmployee.ReportingTo || "-"],
       ["Allocation Date", formatReportDate(allocationForm.date)],
+      ["Allocation Year", allocationForm.year || "-"],
       ["Ticket / PNR", allocationForm.ticketNo || "-"],
       ["Route", allocationForm.route || "-"],
+      ["Supplier", allocationForm.supplier || "-"],
       ["Ticket Amount", money.format(ticketCost)],
       ["Eligibility Amount", money.format(selectedEntitlement)],
+      ["Company Pays", money.format(displayedCompanySettlementAmount)],
+      ["Self Paid", money.format(selfPaidAmount)],
+      ["Loan Amount", money.format(loanExcessAmount)],
       ["Payment Mode", formatPaymentModeLabel(allocationForm.paymentMode)]
     ];
     printWindow.document.write(`
@@ -3849,34 +3857,217 @@ export default function DashboardPage() {
       <head>
         <title>Airfare Manager WhatsApp - ${escapeHtml(companyName)}</title>
         <style>
-          @page { size: A4; margin: 16mm; }
-          body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
-          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 14px; margin-bottom: 18px; }
-          .brand strong { display: block; font-size: 22px; }
+          @page { size: A4; margin: 14mm; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, Helvetica, sans-serif; color: #111827; margin: 0; background: #f1f5f9; }
+          .sheet { min-height: 269mm; background: #fff; padding: 0; }
+          .head { display: grid; grid-template-columns: 1fr 92px; gap: 18px; align-items: center; border-bottom: 3px solid #2563eb; padding: 0 0 14px; margin-bottom: 16px; }
+          .brand strong { display: block; font-size: 25px; letter-spacing: .2px; }
           .brand span, .meta { color: #475569; font-size: 12px; line-height: 1.5; }
-          h1 { font-size: 20px; margin: 0 0 14px; }
+          .logo { width: 86px; height: 86px; object-fit: contain; justify-self: end; }
+          .logo-mark { width: 86px; height: 86px; display: grid; place-items: center; justify-self: end; color: #fff; background: #2563eb; border-radius: 16px; font-weight: 800; }
+          .title-row { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+          h1 { font-size: 22px; margin: 0; color: #0f172a; }
+          .doc-pill { border: 1px solid #bfdbfe; color: #1d4ed8; background: #eff6ff; border-radius: 999px; padding: 7px 12px; font-weight: 700; font-size: 12px; white-space: nowrap; }
+          .amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 14px; }
+          .amounts div { border: 1px solid #dbe3ef; border-radius: 10px; padding: 11px; background: #f8fafc; }
+          .amounts small { display: block; color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 700; }
+          .amounts strong { display: block; margin-top: 5px; font-size: 15px; color: #0f172a; }
           table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
-          td { border: 1px solid #dbe3ef; padding: 9px 10px; vertical-align: top; }
+          td { border: 1px solid #dbe3ef; padding: 8px 10px; vertical-align: top; font-size: 12px; }
           td:first-child { width: 170px; background: #f8fafc; font-weight: 700; color: #334155; }
-          .message { min-height: 260px; white-space: pre-wrap; border: 1px solid #dbe3ef; padding: 16px; line-height: 1.55; }
+          .message { min-height: 190px; white-space: pre-wrap; border: 1px solid #dbe3ef; border-radius: 10px; padding: 16px; line-height: 1.55; font-size: 12px; }
+          .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
+          .signatures div { border-top: 1px solid #94a3b8; padding-top: 8px; color: #475569; font-size: 12px; min-height: 38px; }
           .foot { margin-top: 20px; color: #64748b; font-size: 12px; }
+          @media print { body { background: #fff; } }
         </style>
       </head>
       <body>
+        <div class="sheet">
         <div class="head">
-          <div class="brand"><strong>${escapeHtml(companyName)}</strong><span>Airfare Allocation Manager WhatsApp</span></div>
-          <div class="meta">Prepared: ${escapeHtml(new Date().toLocaleString())}<br/>Manual WhatsApp send</div>
+          <div class="brand">
+            <strong>${escapeHtml(companyName)}</strong>
+            <span>${escapeHtml(activeCompany?.Address || "ATLAS HCM")}</span><br/>
+            <span>${escapeHtml(activeCompany?.Phone || "")}${activeCompany?.Email ? ` | ${escapeHtml(activeCompany.Email)}` : ""}</span>
+          </div>
+          ${logoMarkup}
         </div>
-        <h1>${escapeHtml(allocationWhatsAppForm.subject || "Airfare Allocation Approval")}</h1>
+        <div class="title-row">
+          <div>
+            <h1>${escapeHtml(allocationWhatsAppForm.subject || "Airfare Allocation Approval")}</h1>
+            <div class="meta">Prepared: ${escapeHtml(new Date().toLocaleString())} | Manual WhatsApp attachment</div>
+          </div>
+          <div class="doc-pill">A4 APPROVAL FORMAT</div>
+        </div>
+        <div class="amounts">
+          <div><small>Ticket amount</small><strong>${escapeHtml(money.format(ticketCost))}</strong></div>
+          <div><small>Eligibility</small><strong>${escapeHtml(money.format(selectedEntitlement))}</strong></div>
+          <div><small>Company pays</small><strong>${escapeHtml(money.format(displayedCompanySettlementAmount))}</strong></div>
+          <div><small>Loan amount</small><strong>${escapeHtml(money.format(loanExcessAmount))}</strong></div>
+        </div>
         <table>${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>
         <div class="message">${escapeHtml(allocationWhatsAppMessageText)}</div>
+        <div class="signatures">
+          <div>Prepared by</div>
+          <div>Manager approval</div>
+          <div>Accounts / HR confirmation</div>
+        </div>
         <div class="foot">This page is prepared by ATLAS. Normal WhatsApp requires the sender to press Send manually.</div>
+        </div>
         <script>window.print();</script>
       </body>
       </html>
     `);
     printWindow.document.close();
-    setMessage("Airfare manager WhatsApp print format opened.");
+    setMessage("A4 manager approval PDF format opened. Use Print / Save as PDF, then attach in WhatsApp.");
+  }
+
+  async function downloadAllocationManagerWhatsAppImage() {
+    if (!selectedEmployee) {
+      setMessage("Select employee before creating the A4 manager image.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = 2480;
+    canvas.height = 3508;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return setMessage("Image export is not available in this browser.");
+    const companyName = activeCompany?.CompanyName || "ATLAS";
+    const margin = 150;
+    const pageRight = canvas.width - margin;
+    let y = 150;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(0, 0, canvas.width, 360);
+    ctx.fillStyle = "#2563eb";
+    ctx.fillRect(margin, 330, canvas.width - margin * 2, 10);
+
+    const logo = await loadCanvasImage(companyLogoUrl);
+    if (logo) {
+      ctx.drawImage(logo, pageRight - 220, y, 210, 210);
+    } else {
+      ctx.fillStyle = "#2563eb";
+      ctx.fillRect(pageRight - 220, y, 210, 210);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 46px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("ATLAS", pageRight - 115, y + 124);
+      ctx.textAlign = "left";
+    }
+
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "700 62px Arial";
+    ctx.fillText(companyName, margin, y + 62);
+    ctx.fillStyle = "#475569";
+    ctx.font = "30px Arial";
+    const companyLine = [activeCompany?.Address, activeCompany?.Phone, activeCompany?.Email].filter(Boolean).join(" | ") || "ATLAS HCM";
+    drawWrappedCanvasText(ctx, companyLine, margin, y + 118, 1540, 36, 2);
+    ctx.font = "28px Arial";
+    ctx.fillText(`Prepared: ${new Date().toLocaleString()}`, margin, y + 210);
+
+    y = 430;
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "700 58px Arial";
+    ctx.fillText(allocationWhatsAppForm.subject || "Airfare Allocation Approval", margin, y);
+    ctx.fillStyle = "#eff6ff";
+    ctx.fillRect(pageRight - 520, y - 54, 520, 78);
+    ctx.fillStyle = "#1d4ed8";
+    ctx.font = "700 28px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("A4 WHATSAPP ATTACHMENT", pageRight - 260, y - 8);
+    ctx.textAlign = "left";
+
+    y += 90;
+    const amountCards = [
+      ["Ticket amount", money.format(ticketCost)],
+      ["Eligibility", money.format(selectedEntitlement)],
+      ["Company pays", money.format(displayedCompanySettlementAmount)],
+      ["Loan amount", money.format(loanExcessAmount)]
+    ];
+    const cardGap = 24;
+    const cardWidth = (canvas.width - margin * 2 - cardGap * 3) / 4;
+    amountCards.forEach(([label, value], index) => {
+      const x = margin + index * (cardWidth + cardGap);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(x, y, cardWidth, 150);
+      ctx.strokeStyle = "#dbe3ef";
+      ctx.strokeRect(x, y, cardWidth, 150);
+      ctx.fillStyle = "#64748b";
+      ctx.font = "700 25px Arial";
+      ctx.fillText(label.toUpperCase(), x + 26, y + 48);
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "700 36px Arial";
+      ctx.fillText(value, x + 26, y + 105);
+    });
+
+    y += 210;
+    const rows = [
+      ["Manager WhatsApp", formatWhatsAppDisplayNumber(allocationWhatsAppForm.managerNumber)],
+      ["Employee", `${selectedEmployee.EmployeeCode} - ${selectedEmployee.FullName}`],
+      ["Department", selectedEmployee.Department || "-"],
+      ["Reporting To", selectedEmployee.ReportingTo || "-"],
+      ["Allocation Date", formatReportDate(allocationForm.date)],
+      ["Allocation Year", allocationForm.year || "-"],
+      ["Ticket / PNR", allocationForm.ticketNo || "-"],
+      ["Route", allocationForm.route || "-"],
+      ["Supplier", allocationForm.supplier || "-"],
+      ["Payment Mode", formatPaymentModeLabel(allocationForm.paymentMode)]
+    ];
+    const labelWidth = 430;
+    const rowHeight = 82;
+    ctx.font = "28px Arial";
+    rows.forEach(([label, value], index) => {
+      const rowY = y + index * rowHeight;
+      ctx.fillStyle = index % 2 ? "#ffffff" : "#f8fafc";
+      ctx.fillRect(margin, rowY, canvas.width - margin * 2, rowHeight);
+      ctx.strokeStyle = "#dbe3ef";
+      ctx.strokeRect(margin, rowY, canvas.width - margin * 2, rowHeight);
+      ctx.fillStyle = "#334155";
+      ctx.font = "700 27px Arial";
+      ctx.fillText(label, margin + 28, rowY + 50);
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "30px Arial";
+      drawWrappedCanvasText(ctx, value, margin + labelWidth, rowY + 50, canvas.width - margin * 2 - labelWidth - 24, 34, 1);
+    });
+
+    y += rows.length * rowHeight + 70;
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "700 34px Arial";
+    ctx.fillText("Message Preview", margin, y);
+    y += 35;
+    ctx.strokeStyle = "#dbe3ef";
+    ctx.strokeRect(margin, y, canvas.width - margin * 2, 760);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(margin + 2, y + 2, canvas.width - margin * 2 - 4, 756);
+    ctx.fillStyle = "#111827";
+    ctx.font = "30px Arial";
+    drawWrappedCanvasText(ctx, allocationWhatsAppMessageText.replace(/\*/g, ""), margin + 42, y + 62, canvas.width - margin * 2 - 84, 42, 17);
+
+    y += 850;
+    const signatureWidth = (canvas.width - margin * 2 - 80) / 3;
+    ["Prepared by", "Manager approval", "Accounts / HR confirmation"].forEach((label, index) => {
+      const x = margin + index * (signatureWidth + 40);
+      ctx.strokeStyle = "#94a3b8";
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + signatureWidth, y);
+      ctx.stroke();
+      ctx.fillStyle = "#475569";
+      ctx.font = "28px Arial";
+      ctx.fillText(label, x, y + 48);
+    });
+
+    ctx.fillStyle = "#64748b";
+    ctx.font = "25px Arial";
+    ctx.fillText("Prepared by ATLAS. Attach this A4 image in WhatsApp after opening the manager chat.", margin, canvas.height - 120);
+    const link = document.createElement("a");
+    link.download = `ATLAS-Airfare-Manager-WhatsApp-${selectedEmployee.EmployeeCode || "employee"}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    setMessage("A4 manager approval image downloaded. Attach the image in WhatsApp after opening the manager chat.");
   }
 
   const employeeTypeOptions = useMemo(() => (
@@ -4707,7 +4898,7 @@ export default function DashboardPage() {
                 <div className="whatsapp-panel-head">
                   <div>
                     <strong>Manager WhatsApp for airfare allocation</strong>
-                    <span>Type manager WhatsApp number, review the approval message, then open normal WhatsApp.</span>
+                    <span>Type manager WhatsApp number, create the A4 PDF/image approval format, then attach it in normal WhatsApp.</span>
                   </div>
                   <span className={`pill ${allocationWhatsAppReady ? "ok" : ""}`}>{allocationWhatsAppReady ? "Ready" : "Needs manager number"}</span>
                 </div>
@@ -4738,7 +4929,8 @@ export default function DashboardPage() {
                   <pre>{allocationWhatsAppMessageText}</pre>
                 </div>
                 <div className="button-row compact">
-                  <button className="soft-button" type="button" disabled={!selectedEmployee} onClick={printAllocationManagerWhatsApp}><Printer size={16} /> Print manager format</button>
+                  <button className="soft-button" type="button" disabled={!selectedEmployee} onClick={printAllocationManagerWhatsApp}><Printer size={16} /> PDF / print A4</button>
+                  <button className="soft-button" type="button" disabled={!selectedEmployee} onClick={downloadAllocationManagerWhatsAppImage}><Download size={16} /> Download A4 image</button>
                   <button className="shine-button" type="button" disabled={!allocationWhatsAppReady} onClick={openAllocationManagerWhatsApp}>Open manager WhatsApp</button>
                 </div>
               </div>
@@ -6605,6 +6797,46 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function loadCanvasImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    if (!src) return resolve(null);
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+function drawWrappedCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number
+) {
+  const words = String(text || "-").split(/\s+/);
+  let line = "";
+  let lineCount = 0;
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      lineCount += 1;
+      if (lineCount >= maxLines) {
+        ctx.fillText(`${line.slice(0, Math.max(0, line.length - 3))}...`, x, y);
+        return;
+      }
+      ctx.fillText(line, x, y);
+      line = word;
+      y += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line && lineCount < maxLines) ctx.fillText(line, x, y);
 }
 
 function printAllocationLetter(employee: Employee, allocation: Allocation | null, payload: Record<string, unknown>) {
