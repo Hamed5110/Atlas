@@ -1,0 +1,33 @@
+﻿{
+    "name":  "atlas-airfare-loan-manager",
+    "version":  "2.1.0",
+    "description":  "ATLAS Airfare and Loan Manager backend for MSSQL.",
+    "main":  "server.js",
+    "scripts":  {
+                    "start":  "node server.js",
+                    "check":  "node --check server.js",
+                    "setup":  "powershell -ExecutionPolicy Bypass -File .\\setup-atlas.ps1",
+                    "test:smoke":  "node tests/atlas-smoke-test.js",
+                    "test:loan-sql":  "node tests/loan-sql-objects.test.js",
+                    "test:attachments-sql":  "node tests/allocation-attachments-sql.test.js",
+                    "test:company-admin":  "node tests/company-admin-sql.test.js",
+                    "test:full":  "node tests/full-system-test.js",
+                    "test:phase1":  "node tests/phase1-smoke-test.js",
+                    "test:employee-status":  "node tests/employee-status-eligibility.test.js",
+                    "deploy:devops":  "powershell -ExecutionPolicy Bypass -File .\\tools\\Deploy-ATLAS-DevOps.ps1",
+                    "verify:env":  "powershell -ExecutionPolicy Bypass -File .\\tools\\Verify-ATLAS-Environment.ps1"
+                },
+    "dependencies":  {
+                         "bcryptjs":  "^2.4.3",
+                         "cors":  "^2.8.5",
+                         "dotenv":  "^16.4.7",
+                         "express":  "^4.21.2",
+                         "express-rate-limit":  "^7.5.0",
+                         "helmet":  "^8.0.0",
+                         "joi":  "^17.13.3",
+                         "jsonwebtoken":  "^9.0.2",
+                         "mssql":  "^11.0.1",
+                         "uuid":  "^11.0.5",
+                         "winston":  "^3.17.0"
+                     }
+}
