@@ -577,6 +577,48 @@ async function main() {
       return { previewed: preview.processed, processed: run.processed, totalDeducted: run.totalDeducted };
     });
 
+    await testStep('Preview and return wrong monthly EMI with SQL history', async () => {
+      const preview = await request('/loans/reverse-emis/preview', {
+        method: 'POST',
+        body: JSON.stringify({ loanIds: [operationsLoan.loanId] })
+      });
+      assert.equal(Number(preview.selected), 1);
+      assert.equal(Number(preview.reversible), 1);
+      assert.equal(Number(preview.totalReturned), 10);
+      const returned = await request('/loans/reverse-emis', {
+        method: 'POST',
+        body: JSON.stringify({
+          loanIds: [operationsLoan.loanId],
+          reversalDate: '2026-06-21',
+          note: 'QA wrong EMI return',
+          confirm: 'REVERSE_EMI'
+        })
+      });
+      assert.equal(Number(returned.processed), 1);
+      assert.equal(Number(returned.totalReturned), 10);
+      const loan = await request(`/loans/${operationsLoan.loanId}`);
+      assert.equal(Number(loan.RemainingBalance), 60);
+      assert.equal(Number(loan.TotalPaid), 0);
+      assert.equal(Number(loan.MonthsPaid), 0);
+      const history = await request(`/loans/${operationsLoan.loanId}/history`);
+      assert.ok(history.some((row) => row.PaymentType === 'reversal'), 'EMI reversal history missing');
+      return { loanId: operationsLoan.loanId, returned: returned.totalReturned, remaining: loan.RemainingBalance };
+    });
+
+    await testStep('Re-run monthly EMI after wrong EMI return', async () => {
+      const run = await request('/loans/run-emis', {
+        method: 'POST',
+        body: JSON.stringify({ loanIds: [operationsLoan.loanId], paymentDate: '2026-06-21', confirm: 'RUN_EMI' })
+      });
+      assert.equal(Number(run.processed), 1);
+      assert.equal(Number(run.totalDeducted), 10);
+      const loan = await request(`/loans/${operationsLoan.loanId}`);
+      assert.equal(Number(loan.RemainingBalance), 50);
+      assert.equal(Number(loan.TotalPaid), 10);
+      assert.equal(Number(loan.MonthsPaid), 1);
+      return { loanId: operationsLoan.loanId, processed: run.processed, totalDeducted: run.totalDeducted };
+    });
+
     await testStep('Restructure loan EMI with SQL history', async () => {
       const result = await request(`/loans/${operationsLoan.loanId}/restructure`, {
         method: 'POST',

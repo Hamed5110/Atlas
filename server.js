@@ -1244,7 +1244,7 @@ async function ensureLoanOperationSql(db) {
             FROM sys.check_constraints
             WHERE parent_object_id = OBJECT_ID('dbo.LoanHistory')
               AND definition LIKE '%PaymentType%'
-              AND definition NOT LIKE '%restructure%'
+              AND (definition NOT LIKE '%restructure%' OR definition NOT LIKE '%reversal%')
         )
         BEGIN
             DECLARE @constraintName SYSNAME;
@@ -1252,7 +1252,7 @@ async function ensureLoanOperationSql(db) {
             FROM sys.check_constraints
             WHERE parent_object_id = OBJECT_ID('dbo.LoanHistory')
               AND definition LIKE '%PaymentType%'
-              AND definition NOT LIKE '%restructure%';
+              AND (definition NOT LIKE '%restructure%' OR definition NOT LIKE '%reversal%');
             IF @constraintName IS NOT NULL
             BEGIN
                 DECLARE @sql NVARCHAR(MAX) = N'ALTER TABLE dbo.LoanHistory DROP CONSTRAINT ' + QUOTENAME(@constraintName);
@@ -1264,10 +1264,11 @@ async function ensureLoanOperationSql(db) {
             FROM sys.check_constraints
             WHERE parent_object_id = OBJECT_ID('dbo.LoanHistory')
               AND definition LIKE '%restructure%'
+              AND definition LIKE '%reversal%'
         )
         BEGIN
             ALTER TABLE dbo.LoanHistory WITH CHECK ADD CONSTRAINT CK_ATLAS_LoanHistory_PaymentType
-                CHECK (PaymentType IN ('create', 'emi', 'add', 'settle', 'defer', 'bulk', 'restructure'));
+                CHECK (PaymentType IN ('create', 'emi', 'add', 'settle', 'defer', 'bulk', 'restructure', 'reversal'));
         END;
     `);
 }
@@ -3755,6 +3756,174 @@ app.post('/api/loans/run-emis', authenticateToken, requireRole('admin', 'manager
     } catch (err) {
         logger.error('Run EMIs error:', err);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/loans/reverse-emis/preview
+app.post('/api/loans/reverse-emis/preview', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+    const schema = Joi.object({
+        loanIds: Joi.array().items(Joi.number().integer().min(1)).min(1).required()
+    });
+    const { error, value } = schema.validate(req.body || {});
+    if (error) return res.status(400).json(toApiValidationError(error));
+
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const loanIdsCsv = toLoanIdsCsv(value.loanIds);
+        const result = await db.request()
+            .input('LoanIDsCsv', sql.NVarChar(sql.MAX), loanIdsCsv)
+            .query(`
+                DECLARE @Selected TABLE (LoanID BIGINT PRIMARY KEY);
+                INSERT INTO @Selected (LoanID)
+                SELECT DISTINCT TRY_CONVERT(BIGINT, value)
+                FROM STRING_SPLIT(@LoanIDsCsv, ',')
+                WHERE TRY_CONVERT(BIGINT, value) IS NOT NULL;
+
+                WITH LatestHistory AS (
+                    SELECT
+                        lh.*,
+                        ROW_NUMBER() OVER (PARTITION BY lh.LoanID ORDER BY lh.PaymentDate DESC, lh.HistoryID DESC) AS rn
+                    FROM LoanHistory lh
+                    JOIN @Selected s ON s.LoanID = lh.LoanID
+                )
+                SELECT
+                    l.LoanID,
+                    r.EmployeeCode,
+                    r.FullName,
+                    l.Status,
+                    l.RemainingBalance,
+                    l.TotalPaid,
+                    l.MonthsPaid,
+                    lh.HistoryID,
+                    lh.PaymentDate,
+                    lh.Amount AS AmountToReturn,
+                    CAST(l.RemainingBalance + lh.Amount AS DECIMAL(12,2)) AS BalanceAfterReturn,
+                    CAST(CASE WHEN l.TotalPaid - lh.Amount > 0 THEN l.TotalPaid - lh.Amount ELSE 0 END AS DECIMAL(12,2)) AS TotalPaidAfterReturn,
+                    CASE
+                        WHEN lh.HistoryID IS NULL THEN 'No loan history found.'
+                        WHEN lh.PaymentType <> 'emi' THEN CONCAT('Latest loan history is ', lh.PaymentType, ', not EMI.')
+                        WHEN lh.Amount <= 0 THEN 'Latest EMI amount is not valid for return.'
+                        ELSE 'Ready'
+                    END AS ReturnStatus
+                FROM @Selected s
+                JOIN Loans l ON l.LoanID = s.LoanID
+                JOIN dbo.vw_ATLAS_LoanRegister r ON r.LoanID = l.LoanID
+                OUTER APPLY (SELECT TOP 1 * FROM LatestHistory h WHERE h.LoanID = l.LoanID AND h.rn = 1) lh
+                ORDER BY r.FullName, l.LoanID;
+            `);
+        const rows = result.recordset;
+        const reversibleRows = rows.filter((row) => row.ReturnStatus === 'Ready');
+        res.json({
+            selected: rows.length,
+            reversible: reversibleRows.length,
+            totalReturned: reversibleRows.reduce((sum, row) => sum + Number(row.AmountToReturn || 0), 0),
+            rows
+        });
+    } catch (err) {
+        logger.error('Preview EMI reversal error:', err);
+        res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
+    }
+});
+
+// POST /api/loans/reverse-emis
+app.post('/api/loans/reverse-emis', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+    const schema = Joi.object({
+        loanIds: Joi.array().items(Joi.number().integer().min(1)).min(1).required(),
+        reversalDate: Joi.date().default(() => new Date()),
+        note: Joi.string().allow('', null).max(255),
+        confirm: Joi.string().valid('REVERSE_EMI').required()
+    });
+    const { error, value } = schema.validate(req.body || {});
+    if (error) return res.status(428).json(toApiValidationError(error));
+
+    const db = await getConnection();
+    await ensureAtlasSqlObjects(db);
+    const tx = new sql.Transaction(db);
+    try {
+        const loanIdsCsv = toLoanIdsCsv(value.loanIds);
+        await tx.begin();
+        const preview = await new sql.Request(tx)
+            .input('LoanIDsCsv', sql.NVarChar(sql.MAX), loanIdsCsv)
+            .query(`
+                DECLARE @Selected TABLE (LoanID BIGINT PRIMARY KEY);
+                INSERT INTO @Selected (LoanID)
+                SELECT DISTINCT TRY_CONVERT(BIGINT, value)
+                FROM STRING_SPLIT(@LoanIDsCsv, ',')
+                WHERE TRY_CONVERT(BIGINT, value) IS NOT NULL;
+
+                WITH LatestHistory AS (
+                    SELECT
+                        lh.*,
+                        ROW_NUMBER() OVER (PARTITION BY lh.LoanID ORDER BY lh.PaymentDate DESC, lh.HistoryID DESC) AS rn
+                    FROM LoanHistory lh WITH (UPDLOCK, HOLDLOCK)
+                    JOIN @Selected s ON s.LoanID = lh.LoanID
+                )
+                SELECT
+                    l.LoanID,
+                    l.Status,
+                    l.RemainingBalance,
+                    l.TotalPaid,
+                    l.MonthsPaid,
+                    lh.HistoryID,
+                    lh.Amount AS AmountToReturn
+                FROM @Selected s
+                JOIN Loans l WITH (UPDLOCK, HOLDLOCK) ON l.LoanID = s.LoanID
+                JOIN LatestHistory lh ON lh.LoanID = l.LoanID AND lh.rn = 1
+                WHERE lh.PaymentType = 'emi'
+                  AND lh.Amount > 0;
+            `);
+
+        if (!preview.recordset.length) {
+            await tx.rollback();
+            return res.status(409).json({ error: 'No selected loan has a latest EMI entry available for return.' });
+        }
+
+        const processed = [];
+        for (const row of preview.recordset) {
+            const amount = Number(row.AmountToReturn || 0);
+            const newBalance = Number(row.RemainingBalance || 0) + amount;
+            const newTotalPaid = Math.max(0, Number(row.TotalPaid || 0) - amount);
+            const newMonthsPaid = Math.max(0, Number(row.MonthsPaid || 0) - 1);
+            await new sql.Request(tx)
+                .input('LoanID', sql.BigInt, row.LoanID)
+                .input('RemainingBalance', sql.Decimal(12, 2), newBalance)
+                .input('TotalPaid', sql.Decimal(12, 2), newTotalPaid)
+                .input('MonthsPaid', sql.Int, newMonthsPaid)
+                .query(`
+                    UPDATE Loans
+                    SET RemainingBalance = @RemainingBalance,
+                        TotalPaid = @TotalPaid,
+                        MonthsPaid = @MonthsPaid,
+                        Status = 'active',
+                        SettledDate = NULL
+                    WHERE LoanID = @LoanID;
+                `);
+            await new sql.Request(tx)
+                .input('LoanID', sql.BigInt, row.LoanID)
+                .input('PaymentDate', sql.Date, value.reversalDate)
+                .input('Amount', sql.Decimal(12, 2), amount)
+                .input('BalanceAfter', sql.Decimal(12, 2), newBalance)
+                .input('Note', sql.NVarChar(255), value.note || `Returned EMI history #${row.HistoryID}`)
+                .input('CreatedBy', sql.Int, req.user.userId)
+                .query(`
+                    INSERT INTO LoanHistory (LoanID, PaymentDate, PaymentType, Amount, BalanceAfter, Note, CreatedBy)
+                    VALUES (@LoanID, @PaymentDate, 'reversal', @Amount, @BalanceAfter, @Note, @CreatedBy);
+                `);
+            processed.push({ loanId: row.LoanID, amountReturned: amount, balanceAfter: newBalance });
+        }
+
+        await tx.commit();
+        const totalReturned = processed.reduce((sum, row) => sum + row.amountReturned, 0);
+        await logAudit(req.user.userId, req.user.username, 'LOAN_EMI_REVERSAL', 'Loan', null, null,
+            { processed: processed.length, totalReturned, loans: processed }, `Returned EMIs for ${processed.length} loan(s)`, req);
+        res.json({ processed: processed.length, totalReturned: Number(totalReturned.toFixed(2)), loans: processed });
+    } catch (err) {
+        try {
+            if (tx._aborted !== true) await tx.rollback();
+        } catch {}
+        logger.error('Reverse EMI error:', err);
+        res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
     }
 });
 

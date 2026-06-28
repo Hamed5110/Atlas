@@ -30,6 +30,7 @@ assert.match(css, /\.loan-action-panel\s*{[\s\S]*grid-template-columns:\s*minmax
 assert.match(css, /\.loan-action-fields\s*{[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(132px,\s*1fr\)\)/, "loan action fields should use clear labeled columns on desktop");
 assert.match(css, /\.emi-preview-panel\s*{[\s\S]*border-radius:\s*8px/, "monthly EMI preview should use an aligned in-screen panel");
 assert.match(css, /\.preview-row\.emi-preview-row\s*{[\s\S]*grid-template-columns/, "monthly EMI preview rows should use dedicated readable columns");
+assert.match(css, /\.emi-return-panel\s*{[\s\S]*border-color/, "monthly EMI return preview should have a distinct reversal treatment");
 assert.match(css, /@media \(max-width:\s*720px\)[\s\S]*\.emi-preview-summary\s*{[\s\S]*grid-template-columns:\s*1fr/, "monthly EMI preview summary should stack cleanly on mobile");
 assert.match(css, /\.standard-note\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*max-content/, "standard note should reserve readable text space and a separate action");
 assert.match(css, /\.standard-note\s*>\s*div\s*{[\s\S]*min-width:\s*0/, "standard note text should wrap inside its own content block");
@@ -131,6 +132,9 @@ assert.match(source, /Update loan/, "loan form should switch to update mode");
 assert.match(source, /handlePreviewSelectedEmis/, "loan register should preview selected EMI before processing");
 assert.match(source, /Monthly EMI preview/, "loan register should show an in-screen EMI preview");
 assert.match(source, /Process selected loan EMI/, "loan preview should provide an explicit process button");
+assert.match(source, /handlePreviewReturnSelectedEmis/, "loan register should preview selected EMI returns before processing");
+assert.match(source, /Return EMI preview/, "loan register should show an in-screen EMI return preview");
+assert.match(source, /Process selected EMI return/, "loan return preview should provide an explicit process button");
 assert.doesNotMatch(source, /Run monthly EMI for[\s\S]{0,220}window\.confirm|window\.confirm[\s\S]{0,220}Run monthly EMI for/, "monthly EMI processing should not use browser confirm popup");
 assert.match(source, /handleEditUser/, "users and rights should have an edit action");
 assert.match(source, /Update user rights/, "user form should switch to update mode");

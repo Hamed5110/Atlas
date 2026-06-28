@@ -347,6 +347,26 @@ type LoanEmiPreview = {
     BalanceAfter: number;
   }>;
 };
+type LoanEmiReturnPreview = {
+  selected: number;
+  reversible: number;
+  totalReturned: number;
+  rows: Array<{
+    LoanID: number;
+    EmployeeCode: string;
+    FullName: string;
+    Status: string;
+    RemainingBalance: number;
+    TotalPaid: number;
+    MonthsPaid: number;
+    HistoryID?: number;
+    PaymentDate?: string;
+    AmountToReturn?: number;
+    BalanceAfterReturn?: number;
+    TotalPaidAfterReturn?: number;
+    ReturnStatus: string;
+  }>;
+};
 
 const nav: { label: ViewKey; icon: React.ElementType }[] = [
   { label: "Overview", icon: LayoutDashboard },
@@ -639,6 +659,7 @@ export default function DashboardPage() {
   });
   const [selectedLoanIds, setSelectedLoanIds] = useState<number[]>([]);
   const [monthlyEmiRunPreview, setMonthlyEmiRunPreview] = useState<LoanEmiPreview | null>(null);
+  const [monthlyEmiReturnPreview, setMonthlyEmiReturnPreview] = useState<LoanEmiReturnPreview | null>(null);
   const [loanOpsForm, setLoanOpsForm] = useState({
     deferMonths: "1",
     newEmi: "",
@@ -1720,6 +1741,7 @@ export default function DashboardPage() {
   function toggleSelectedLoan(loanId: number) {
     setSelectedLoanIds((current) => current.includes(loanId) ? current.filter((id) => id !== loanId) : [...current, loanId]);
     setMonthlyEmiRunPreview(null);
+    setMonthlyEmiReturnPreview(null);
   }
 
   function selectedLoanRows() {
@@ -1761,6 +1783,7 @@ export default function DashboardPage() {
         { loanIds: selected, paymentDate: loanOpsForm.actionDate }
       );
       setMonthlyEmiRunPreview(preview);
+      setMonthlyEmiReturnPreview(null);
       setMessage(`EMI preview ready for ${preview.processed} loan(s). Review and process from the preview panel.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "EMI preview failed");
@@ -1790,10 +1813,69 @@ export default function DashboardPage() {
         });
       await loadLiveData();
       setMonthlyEmiRunPreview(null);
+      setMonthlyEmiReturnPreview(null);
       setSelectedLoanIds([]);
       setMessage(`System confirmation: monthly EMI processed for ${processed} loan(s).`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "EMI processing failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePreviewReturnSelectedEmis() {
+    if (!session) return setMessage("Please sign in before previewing EMI return.");
+    if (selectedLoanIds.length === 0) return setMessage("Select processed loan rows before previewing EMI return.");
+    setBusy(true);
+    setMessage("");
+    try {
+      const preview = await atlasMutation<LoanEmiReturnPreview>(
+        "/loans/reverse-emis/preview",
+        session.token,
+        session.sessionId,
+        "POST",
+        { loanIds: selectedLoanIds }
+      );
+      setMonthlyEmiReturnPreview(preview);
+      setMonthlyEmiRunPreview(null);
+      setMessage(`EMI return preview ready: ${preview.reversible} of ${preview.selected} selected loan(s) can be returned.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "EMI return preview failed");
+      setMonthlyEmiReturnPreview(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReturnSelectedEmis() {
+    if (!session) return setMessage("Please sign in before returning EMI.");
+    if (!monthlyEmiReturnPreview) {
+      await handlePreviewReturnSelectedEmis();
+      return;
+    }
+    if (monthlyEmiReturnPreview.reversible === 0) return setMessage("No selected loan has a latest EMI available for return.");
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await atlasMutation<{ processed: number; totalReturned: number }>(
+        "/loans/reverse-emis",
+        session.token,
+        session.sessionId,
+        "POST",
+        {
+          loanIds: selectedLoanIds,
+          reversalDate: loanOpsForm.actionDate,
+          note: loanOpsForm.note || "Wrong monthly EMI returned",
+          confirm: "REVERSE_EMI"
+        }
+      );
+      await loadLiveData();
+      setMonthlyEmiReturnPreview(null);
+      setMonthlyEmiRunPreview(null);
+      setSelectedLoanIds([]);
+      setMessage(`System confirmation: returned EMI for ${result.processed} loan(s), total ${money.format(result.totalReturned || 0)}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "EMI return failed");
     } finally {
       setBusy(false);
     }
@@ -4441,6 +4523,7 @@ export default function DashboardPage() {
                   <select className="compact-select" value={loanStatusFilter} onChange={(event) => {
                     setLoanStatusFilter(event.target.value);
                     setMonthlyEmiRunPreview(null);
+                    setMonthlyEmiReturnPreview(null);
                   }}>
                     <option value="">All loans</option>
                     <option value="active">Active</option>
@@ -4450,9 +4533,12 @@ export default function DashboardPage() {
                   <button className="soft-button" disabled={busy} onClick={handleExportLoans}><Download size={16} /> Export Loans</button>
                   <button className="soft-button" disabled={busy} onClick={handlePreviewSelectedEmis}><Eye size={16} /> Preview selected EMI</button>
                   <button className="shine-button" disabled={busy || !monthlyEmiRunPreview || monthlyEmiRunPreview.processed === 0} onClick={handleRunSelectedEmis}>Process preview</button>
+                  <button className="soft-button" disabled={busy || selectedLoanIds.length === 0} onClick={handlePreviewReturnSelectedEmis}>Preview return EMI</button>
+                  <button className="danger-button" disabled={busy || !monthlyEmiReturnPreview || monthlyEmiReturnPreview.reversible === 0} onClick={handleReturnSelectedEmis}>Process return</button>
                   <button className="soft-button" disabled={busy} onClick={() => {
                     const activeIds = filteredLoans.filter((loan) => loan.Status === "active").map((loan) => Number(loan.LoanID));
                     setMonthlyEmiRunPreview(null);
+                    setMonthlyEmiReturnPreview(null);
                     setSelectedLoanIds(selectedLoanIds.length === activeIds.length ? [] : activeIds);
                   }}>{selectedLoanIds.length ? "Clear selection" : "Select active"}</button>
                 </div>
@@ -4466,6 +4552,7 @@ export default function DashboardPage() {
                       <input type="date" value={loanOpsForm.actionDate} onChange={(event) => {
                         setLoanOpsForm({ ...loanOpsForm, actionDate: event.target.value });
                         setMonthlyEmiRunPreview(null);
+                        setMonthlyEmiReturnPreview(null);
                       }} />
                     </Field>
                     <Field label="Deferment months">
@@ -4510,6 +4597,36 @@ export default function DashboardPage() {
                     </div>
                     <div className="button-row compact">
                       <button className="shine-button" disabled={busy || monthlyEmiRunPreview.processed === 0} onClick={handleRunSelectedEmis}>Process selected loan EMI</button>
+                    </div>
+                  </div>
+                )}
+                {monthlyEmiReturnPreview && (
+                  <div className="emi-preview-panel emi-return-panel" role="region" aria-label="Monthly EMI return preview">
+                    <div className="emi-preview-head">
+                      <div>
+                        <strong>Return EMI preview</strong>
+                        <span>{monthlyEmiReturnPreview.reversible} of {monthlyEmiReturnPreview.selected} selected loan(s) can be returned on {formatExportDate(loanOpsForm.actionDate)}</span>
+                      </div>
+                      <button className="mini-soft" disabled={busy} onClick={() => setMonthlyEmiReturnPreview(null)}>Clear preview</button>
+                    </div>
+                    <div className="emi-preview-summary">
+                      <span><small>Total return</small><strong>{money.format(monthlyEmiReturnPreview.totalReturned || 0)}</strong></span>
+                      <span><small>Ready</small><strong>{monthlyEmiReturnPreview.reversible}</strong></span>
+                      <span><small>Selected</small><strong>{monthlyEmiReturnPreview.selected}</strong></span>
+                    </div>
+                    <div className="preview-grid emi-preview-grid">
+                      <div className="preview-row emi-preview-row emi-preview-row-head"><span>Employee</span><span>Last EMI</span><span>Return amount</span><span>After return</span></div>
+                      {monthlyEmiReturnPreview.rows.map((row) => (
+                        <div className={`preview-row emi-preview-row ${row.ReturnStatus === "Ready" ? "" : "emi-return-blocked"}`} key={`return-${row.LoanID}`}>
+                          <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / Loan #{row.LoanID}</small></span>
+                          <span><strong>{row.PaymentDate ? formatExportDate(row.PaymentDate) : "-"}</strong><small>{row.ReturnStatus}</small></span>
+                          <span><strong>{money.format(row.AmountToReturn || 0)}</strong><small>History #{row.HistoryID || "-"}</small></span>
+                          <span><strong>{money.format(row.BalanceAfterReturn || row.RemainingBalance || 0)}</strong><small>Total paid after {money.format(row.TotalPaidAfterReturn || 0)}</small></span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="button-row compact">
+                      <button className="danger-button" disabled={busy || monthlyEmiReturnPreview.reversible === 0} onClick={handleReturnSelectedEmis}>Process selected EMI return</button>
                     </div>
                   </div>
                 )}

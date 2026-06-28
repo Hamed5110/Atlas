@@ -208,7 +208,7 @@ CREATE TABLE LoanHistory (
     LoanID BIGINT NOT NULL FOREIGN KEY REFERENCES Loans(LoanID),
     PaymentDate DATE NOT NULL,
     PaymentType NVARCHAR(20) NOT NULL
-        CHECK (PaymentType IN ('create', 'emi', 'add', 'settle', 'defer', 'bulk')),
+        CHECK (PaymentType IN ('create', 'emi', 'add', 'settle', 'defer', 'bulk', 'restructure', 'reversal')),
     Amount DECIMAL(10,2) NOT NULL,
     BalanceAfter DECIMAL(10,2) NOT NULL,
     Note NVARCHAR(255) NULL,
