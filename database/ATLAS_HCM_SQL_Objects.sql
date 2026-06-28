@@ -21,6 +21,7 @@ IF COL_LENGTH('Employees', 'SerialNo') IS NULL ALTER TABLE Employees ADD SerialN
 IF COL_LENGTH('Employees', 'AccountNumber') IS NULL ALTER TABLE Employees ADD AccountNumber NVARCHAR(50) NULL;
 IF COL_LENGTH('Employees', 'PassportExpiryDate') IS NULL ALTER TABLE Employees ADD PassportExpiryDate DATE NULL;
 IF COL_LENGTH('Employees', 'Email') IS NULL ALTER TABLE Employees ADD Email NVARCHAR(120) NULL;
+IF COL_LENGTH('Employees', 'WhatsAppNumber') IS NULL ALTER TABLE Employees ADD WhatsAppNumber NVARCHAR(30) NULL;
 IF COL_LENGTH('Employees', 'EmpGroup') IS NOT NULL ALTER TABLE Employees ALTER COLUMN EmpGroup NVARCHAR(80) NULL;
 GO
 
@@ -1026,6 +1027,7 @@ SELECT
     e.BankCode,
     e.AccountNumber,
     e.Email,
+    e.WhatsAppNumber,
     e.BasicSalary,
     e.HRA,
     e.SpecialDutyAllowance,

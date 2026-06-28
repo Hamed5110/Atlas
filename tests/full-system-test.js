@@ -343,6 +343,7 @@ async function main() {
           department: 'QA Department',
           branch: 'ATLAS QA',
           nationality: 'TEST',
+          whatsappNumber: '97333334444',
           status: 'Active',
           openingDays: 0,
           openingBhd: 0,
@@ -357,8 +358,9 @@ async function main() {
         })
       });
       assert.ok(emp.EmployeeID, 'employee id missing');
+      assert.equal(emp.WhatsAppNumber, '97333334444');
       created.employeeId = emp.EmployeeID;
-      return { employeeId: emp.EmployeeID, employeeCode: emp.EmployeeCode };
+      return { employeeId: emp.EmployeeID, employeeCode: emp.EmployeeCode, whatsappNumber: emp.WhatsAppNumber };
     });
 
     await testStep('Save opening balance value entry', async () => {

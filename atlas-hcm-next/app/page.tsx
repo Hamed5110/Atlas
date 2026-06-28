@@ -436,6 +436,21 @@ function formatBackupSize(sizeBytes: number) {
   return `${Math.ceil(sizeBytes / 1024)} KB`;
 }
 
+function normalizeWhatsAppNumber(value: string) {
+  return String(value || "").replace(/[^\d]/g, "");
+}
+
+function buildWhatsAppUrl(number: string, message: string) {
+  const cleanNumber = normalizeWhatsAppNumber(number);
+  if (!cleanNumber) return "";
+  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+}
+
+function formatWhatsAppDisplayNumber(value: string) {
+  const cleanNumber = normalizeWhatsAppNumber(value);
+  return cleanNumber ? `+${cleanNumber}` : "-";
+}
+
 function getInitials(name: string) {
   const initials = String(name || "AT")
     .trim()
@@ -531,6 +546,7 @@ const emptyEmployeeForm = () => ({
   accountNumber: "",
   passportExpiryDate: "",
   email: "",
+  whatsappNumber: "",
   basicSalary: "",
   hra: "",
   specialDutyAllowance: "",
@@ -627,6 +643,16 @@ export default function DashboardPage() {
     maximumPayout: 150
   });
   const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
+  const [whatsappForm, setWhatsappForm] = useState({
+    employeeId: "",
+    recipientType: "employee" as "employee" | "manager" | "custom",
+    managerNumber: "",
+    customNumber: "",
+    subject: "Airfare / loan process update",
+    reference: "",
+    body: "",
+    footer: "Regards, ATLAS HCM"
+  });
   const [openingForm, setOpeningForm] = useState({
     employeeId: "",
     year: new Date().getFullYear().toString(),
@@ -1398,6 +1424,7 @@ export default function DashboardPage() {
         accountNumber: employeeForm.accountNumber,
         passportExpiryDate: employeeForm.passportExpiryDate || null,
         email: employeeForm.email,
+        whatsappNumber: employeeForm.whatsappNumber,
         basicSalary: toNullableNumber(employeeForm.basicSalary),
         hra: toNullableNumber(employeeForm.hra),
         specialDutyAllowance: toNullableNumber(employeeForm.specialDutyAllowance),
@@ -1482,6 +1509,7 @@ export default function DashboardPage() {
       accountNumber: employee.AccountNumber || "",
       passportExpiryDate: employee.PassportExpiryDate ? String(employee.PassportExpiryDate).slice(0, 10) : "",
       email: employee.Email || "",
+      whatsappNumber: employee.WhatsAppNumber || "",
       basicSalary: String(employee.BasicSalary ?? ""),
       hra: String(employee.HRA ?? ""),
       specialDutyAllowance: String(employee.SpecialDutyAllowance ?? ""),
@@ -3641,6 +3669,28 @@ export default function DashboardPage() {
     return text.includes(searchText);
   });
   const activeCompany = companies.find((company) => String(company.CompanyID) === selectedCompanyId) || companies[0];
+  const whatsappEmployeeOptions = employeeMasterSourceRows;
+  const selectedWhatsAppEmployee = whatsappEmployeeOptions.find((employee) => Number(employee.EmployeeID) === Number(whatsappForm.employeeId));
+  const whatsappRecipientNumber = whatsappForm.recipientType === "employee"
+    ? selectedWhatsAppEmployee?.WhatsAppNumber || ""
+    : whatsappForm.recipientType === "manager" ? whatsappForm.managerNumber : whatsappForm.customNumber;
+  const whatsappRecipientLabel = whatsappForm.recipientType === "employee"
+    ? `${selectedWhatsAppEmployee?.EmployeeCode || ""} ${selectedWhatsAppEmployee?.FullName || "Employee"}`.trim()
+    : whatsappForm.recipientType === "manager" ? "Manager" : "Custom contact";
+  const whatsappMessageText = [
+    `*${activeCompany?.CompanyName || "ATLAS"}*`,
+    `*${whatsappForm.subject || "Airfare / loan process update"}*`,
+    "",
+    selectedWhatsAppEmployee ? `Employee: ${selectedWhatsAppEmployee.EmployeeCode} - ${selectedWhatsAppEmployee.FullName}` : "",
+    selectedWhatsAppEmployee?.Department ? `Department: ${selectedWhatsAppEmployee.Department}` : "",
+    selectedWhatsAppEmployee?.ReportingTo ? `Reporting To: ${selectedWhatsAppEmployee.ReportingTo}` : "",
+    whatsappForm.reference ? `Reference: ${whatsappForm.reference}` : "",
+    "",
+    whatsappForm.body || "Please review the attached/printed ATLAS process details.",
+    "",
+    whatsappForm.footer || "Regards, ATLAS HCM"
+  ].filter((line, index, lines) => line || (lines[index - 1] && lines[index + 1])).join("\n");
+  const whatsappReady = Boolean(normalizeWhatsAppNumber(whatsappRecipientNumber) && whatsappMessageText.trim());
   const employeeMasterRows = employeeMasterEmployees;
   const allocationEmployeeRows = filteredAllocationEmployees;
   const masterEmployeeIds = employeeMasterRows.map((employee) => employee.EmployeeID);
@@ -3669,6 +3719,64 @@ export default function DashboardPage() {
     }
   ];
   const notificationCount = notificationItems.filter((item) => item.tone !== "success").length || notificationItems.length;
+
+  function openWhatsAppMessage() {
+    if (!whatsappReady) {
+      setMessage("Select a WhatsApp recipient and enter a valid WhatsApp number before opening WhatsApp.");
+      return;
+    }
+    window.open(buildWhatsAppUrl(whatsappRecipientNumber, whatsappMessageText), "_blank", "noopener,noreferrer");
+    setMessage(`WhatsApp message prepared for ${whatsappRecipientLabel}. Press Send in WhatsApp to complete.`);
+  }
+
+  function printWhatsAppMessage() {
+    const printWindow = window.open("", "_blank", "width=860,height=960");
+    if (!printWindow) return setMessage("Popup blocked. Allow popups to print the WhatsApp message format.");
+    const companyName = activeCompany?.CompanyName || "ATLAS";
+    const rows = [
+      ["Recipient", whatsappRecipientLabel],
+      ["WhatsApp", formatWhatsAppDisplayNumber(whatsappRecipientNumber)],
+      ["Subject", whatsappForm.subject || "-"],
+      ["Reference", whatsappForm.reference || "-"],
+      ["Employee", selectedWhatsAppEmployee ? `${selectedWhatsAppEmployee.EmployeeCode} - ${selectedWhatsAppEmployee.FullName}` : "-"],
+      ["Department", selectedWhatsAppEmployee?.Department || "-"],
+      ["Reporting To", selectedWhatsAppEmployee?.ReportingTo || "-"]
+    ];
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+      <head>
+        <title>WhatsApp Message - ${escapeHtml(companyName)}</title>
+        <style>
+          @page { size: A4; margin: 16mm; }
+          body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
+          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f766e; padding-bottom: 14px; margin-bottom: 18px; }
+          .brand strong { display: block; font-size: 22px; }
+          .brand span, .meta { color: #475569; font-size: 12px; line-height: 1.5; }
+          h1 { font-size: 20px; margin: 0 0 14px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+          td { border: 1px solid #dbe3ef; padding: 9px 10px; vertical-align: top; }
+          td:first-child { width: 150px; background: #f8fafc; font-weight: 700; color: #334155; }
+          .message { min-height: 260px; white-space: pre-wrap; border: 1px solid #dbe3ef; padding: 16px; line-height: 1.55; }
+          .foot { margin-top: 20px; color: #64748b; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="head">
+          <div class="brand"><strong>${escapeHtml(companyName)}</strong><span>ATLAS HCM WhatsApp Message</span></div>
+          <div class="meta">Prepared: ${escapeHtml(new Date().toLocaleString())}<br/>Manual WhatsApp send</div>
+        </div>
+        <h1>${escapeHtml(whatsappForm.subject || "WhatsApp Message")}</h1>
+        <table>${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>
+        <div class="message">${escapeHtml(whatsappMessageText)}</div>
+        <div class="foot">This page is prepared by ATLAS. Normal WhatsApp requires the sender to press Send manually.</div>
+        <script>window.print();</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    setMessage("WhatsApp print format opened.");
+  }
 
   const employeeTypeOptions = useMemo(() => (
     uniqueOptions([...defaultWorkOptions.status, ...employees.map((item) => item.PayrollStatus || item.Status)])
@@ -4013,6 +4121,67 @@ export default function DashboardPage() {
                   <Trash2 size={16} /> Delete selected ({selectedMasterEmployeesCount})
                 </button>
               </div>
+              <div className="whatsapp-panel">
+                <div className="whatsapp-panel-head">
+                  <div>
+                    <strong>WhatsApp message</strong>
+                    <span>Normal WhatsApp opens with the message filled. Press Send in WhatsApp manually.</span>
+                  </div>
+                  <span className="pill">{whatsappReady ? "Ready" : "Needs number"}</span>
+                </div>
+                <div className="whatsapp-grid">
+                  <Field label="Employee">
+                    <select value={whatsappForm.employeeId} onChange={(event) => setWhatsappForm({ ...whatsappForm, employeeId: event.target.value })}>
+                      <option value="">Select employee</option>
+                      {whatsappEmployeeOptions.map((employee) => (
+                        <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Send to">
+                    <select value={whatsappForm.recipientType} onChange={(event) => setWhatsappForm({ ...whatsappForm, recipientType: event.target.value as "employee" | "manager" | "custom" })}>
+                      <option value="employee">Employee WhatsApp from master</option>
+                      <option value="manager">Manager WhatsApp typed</option>
+                      <option value="custom">Other WhatsApp typed</option>
+                    </select>
+                  </Field>
+                  {whatsappForm.recipientType === "employee" && (
+                    <Field label="Employee WhatsApp">
+                      <input readOnly value={selectedWhatsAppEmployee?.WhatsAppNumber || ""} placeholder="Add number in Employee Master" />
+                    </Field>
+                  )}
+                  {whatsappForm.recipientType === "manager" && (
+                    <Field label="Manager WhatsApp">
+                      <input placeholder="973XXXXXXXX" value={whatsappForm.managerNumber} onChange={(event) => setWhatsappForm({ ...whatsappForm, managerNumber: event.target.value })} />
+                    </Field>
+                  )}
+                  {whatsappForm.recipientType === "custom" && (
+                    <Field label="WhatsApp number">
+                      <input placeholder="973XXXXXXXX" value={whatsappForm.customNumber} onChange={(event) => setWhatsappForm({ ...whatsappForm, customNumber: event.target.value })} />
+                    </Field>
+                  )}
+                  <Field label="Subject">
+                    <input value={whatsappForm.subject} onChange={(event) => setWhatsappForm({ ...whatsappForm, subject: event.target.value })} />
+                  </Field>
+                  <Field label="Reference">
+                    <input placeholder="Ticket, loan, report, or approval reference" value={whatsappForm.reference} onChange={(event) => setWhatsappForm({ ...whatsappForm, reference: event.target.value })} />
+                  </Field>
+                  <Field label="Footer">
+                    <input value={whatsappForm.footer} onChange={(event) => setWhatsappForm({ ...whatsappForm, footer: event.target.value })} />
+                  </Field>
+                </div>
+                <Field label="Message">
+                  <textarea rows={4} placeholder="Type the WhatsApp message" value={whatsappForm.body} onChange={(event) => setWhatsappForm({ ...whatsappForm, body: event.target.value })} />
+                </Field>
+                <div className="whatsapp-preview">
+                  <strong>Preview</strong>
+                  <pre>{whatsappMessageText}</pre>
+                </div>
+                <div className="button-row compact">
+                  <button className="soft-button" disabled={busy} onClick={printWhatsAppMessage}><Printer size={16} /> Print format</button>
+                  <button className="shine-button" disabled={busy || !whatsappReady} onClick={openWhatsAppMessage}>Open WhatsApp</button>
+                </div>
+              </div>
               {importPreview && (
                 <ImportPreviewPanel
                   preview={importPreview}
@@ -4072,6 +4241,7 @@ export default function DashboardPage() {
                 <SelectField placeholder="Employee status" value={employeeForm.payrollStatus} options={workOptions.status} onChange={(value) => setEmployeeForm({ ...employeeForm, payrollStatus: value })} />
                 <Field label="Last working date"><input type="date" value={employeeForm.lastWorkingDate} onChange={(e) => setEmployeeForm({ ...employeeForm, lastWorkingDate: e.target.value })} /></Field>
                 <Field label="Email"><input placeholder="Email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></Field>
+                <Field label="WhatsApp number"><input placeholder="973XXXXXXXX" value={employeeForm.whatsappNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, whatsappNumber: e.target.value })} /></Field>
               </div>
               <div className="form-section-label">Salary and airfare</div>
               <div className="form-grid two">

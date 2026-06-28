@@ -53,6 +53,15 @@ assert.match(source, /entitlementAppliedAmount\s*=\s*allocationForm\.paymentMode
 assert.match(source, /loanExcessAmount\s*=\s*allocationForm\.paymentMode === "loan"\s*\?\s*excessBalance\s*:\s*0/, "loan option should carry only the excess balance when selected");
 assert.doesNotMatch(source, /entitlementFullyCoversTicket[\s\S]{0,180}setAllocationForm\(\(current\)\s*=>\s*\(\{\s*\.\.\.current,\s*paymentMode:\s*"entitlement"/, "entitlement coverage should not force settlement selection back to entitlement");
 assert.match(source, /Opening balance is controlled separately/, "employee master should guide users to separate opening balance process");
+assert.match(source, /WhatsApp number/, "employee master should store a WhatsApp number for normal WhatsApp messaging");
+assert.match(source, /WhatsApp message/, "employee master should expose a WhatsApp message composer");
+assert.match(source, /Employee WhatsApp from master/, "WhatsApp composer should pick up employee number from Employee Master");
+assert.match(source, /Manager WhatsApp typed/, "WhatsApp composer should allow manager WhatsApp number entry");
+assert.match(source, /buildWhatsAppUrl/, "WhatsApp composer should use a normal WhatsApp click-to-chat link");
+assert.match(source, /Press Send in WhatsApp manually/, "normal WhatsApp flow should clearly require manual send");
+assert.match(source, /printWhatsAppMessage/, "WhatsApp composer should provide a print-format message output");
+assert.match(css, /\.whatsapp-panel\s*{[\s\S]*border-radius:\s*8px/, "WhatsApp composer should use an aligned in-screen panel");
+assert.match(css, /\.whatsapp-grid\s*{[\s\S]*repeat\(3,\s*minmax\(160px,\s*1fr\)\)/, "WhatsApp composer should align fields in readable columns");
 assert.match(source, /Special duty allowance/, "employee master should expose Excel special duty allowance field");
 assert.match(source, /Car allowance/, "employee master should expose Excel car allowance field");
 assert.match(source, /Petrol allowance/, "employee master should expose Excel petrol allowance field");

@@ -77,6 +77,7 @@ CREATE TABLE Employees (
     EmployeeID INT IDENTITY(1,1) PRIMARY KEY,
     EmployeeCode NVARCHAR(20) NOT NULL UNIQUE,
     FullName NVARCHAR(100) NOT NULL,
+    WhatsAppNumber NVARCHAR(30) NULL,
     JoinDate DATE NULL,
     CPR NVARCHAR(20) NULL,
     Passport NVARCHAR(20) NULL,

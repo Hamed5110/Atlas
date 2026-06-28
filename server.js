@@ -206,6 +206,11 @@ BEGIN
     ALTER TABLE dbo.Employees WITH CHECK ADD CONSTRAINT CK_ATLAS_Employees_Status
     CHECK (Status IN ('Active', 'Inactive', 'In-active', 'Resign', 'Resigned', 'Separated', 'Probation'));
 END;
+
+IF COL_LENGTH('dbo.Employees', 'WhatsAppNumber') IS NULL
+BEGIN
+    ALTER TABLE dbo.Employees ADD WhatsAppNumber NVARCHAR(30) NULL;
+END;
 `);
 
     await db.request().batch(`
@@ -2208,6 +2213,7 @@ const employeePayloadSchema = Joi.object({
     accountNumber: Joi.string().allow("", null).max(50),
     passportExpiryDate: Joi.date().allow("", null),
     email: Joi.string().email().allow("", null).max(120),
+    whatsappNumber: Joi.string().allow("", null).max(30),
     status: Joi.string().allow("", null).max(20),
     openingDays: Joi.number().min(0).default(0),
     openingBhd: Joi.number().min(0).default(0),
@@ -2248,7 +2254,22 @@ app.get('/api/employees', authenticateToken, async (req, res) => {
         const result = await withSqlRetry(() => db.request()
             .input('StatusScope', sql.NVarChar(20), statusScope)
             .execute('dbo.sp_ATLAS_GetEmployeeMasterForScreen'), 'get employees');
-        res.json(result.recordset);
+        const rows = result.recordset || [];
+        if (rows.length && !Object.prototype.hasOwnProperty.call(rows[0], 'WhatsAppNumber')) {
+            const employeeIds = rows.map((row) => Number(row.EmployeeID)).filter((id) => Number.isInteger(id) && id > 0);
+            if (employeeIds.length) {
+                const whatsappRequest = db.request();
+                const clause = buildInClause(whatsappRequest, employeeIds, 'whatsAppEmployee');
+                const whatsappRows = clause.clause
+                    ? await whatsappRequest.query(`SELECT EmployeeID, WhatsAppNumber FROM Employees WHERE EmployeeID IN (${clause.clause})`)
+                    : { recordset: [] };
+                const byEmployeeId = new Map((whatsappRows.recordset || []).map((row) => [Number(row.EmployeeID), row.WhatsAppNumber || null]));
+                rows.forEach((row) => {
+                    row.WhatsAppNumber = byEmployeeId.get(Number(row.EmployeeID)) || null;
+                });
+            }
+        }
+        res.json(rows);
     } catch (err) {
         logger.error('Get employees error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -2280,6 +2301,7 @@ app.post('/api/employees', authenticateToken, requireRole('admin', 'manager', 'h
     const emp = value;
     try {
         const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
         const result = await db.request()
             .input('EmployeeCode', sql.NVarChar(20), emp.code)
             .input('FullName', sql.NVarChar(100), emp.name)
@@ -2314,6 +2336,7 @@ app.post('/api/employees', authenticateToken, requireRole('admin', 'manager', 'h
             .input('AccountNumber', sql.NVarChar(50), emp.accountNumber || null)
             .input('PassportExpiryDate', sql.Date, emp.passportExpiryDate || null)
             .input('Email', sql.NVarChar(120), emp.email || null)
+            .input('WhatsAppNumber', sql.NVarChar(30), emp.whatsappNumber || null)
             .input('Status', sql.NVarChar(10), emp.status || 'Active')
             .input('OpeningDays', sql.Decimal(10,2), emp.openingDays || 0)
             .input('OpeningBHD', sql.Decimal(10,2), emp.openingBhd || 0)
@@ -2340,13 +2363,13 @@ app.post('/api/employees', authenticateToken, requireRole('admin', 'manager', 'h
             .input('CreatedBy', sql.Int, req.user.userId)
             .query(`INSERT INTO Employees (EmployeeCode, FullName, JoinDate, CPR, Passport, Nationality, BHStatus, Branch, Department, Section, Location, Designation, EmpGroup,
                     BankCode, JobBand, Company, ReportingTo, BasicSalary, HRA, SpecialDutyAllowance, CarAllowance, PetrolAllowance, PhoneAllowance, GrossSalary, GOSIDeduction,
-                    Religion, LastWorkingDate, PayrollStatus, AverageSalary, SerialNo, AccountNumber, PassportExpiryDate, Email, Status,
+                    Religion, LastWorkingDate, PayrollStatus, AverageSalary, SerialNo, AccountNumber, PassportExpiryDate, Email, WhatsAppNumber, Status,
                     OpeningDays, OpeningBHD, CurrentAirfareRate, AirfarePaidDays, RemainingBalance, MaximumPayout, TotalAirfare,
                     JanDays, FebDays, MarDays, AprDays, MayDays, JunDays, JulDays, AugDays, SepDays, OctDays, NovDays, DecDays, TotalWorkingDays, CreatedBy)
                     OUTPUT INSERTED.*
                     VALUES (@EmployeeCode, @FullName, @JoinDate, @CPR, @Passport, @Nationality, @BHStatus, @Branch, @Department, @Section, @Location, @Designation, @EmpGroup,
                     @BankCode, @JobBand, @Company, @ReportingTo, @BasicSalary, @HRA, @SpecialDutyAllowance, @CarAllowance, @PetrolAllowance, @PhoneAllowance, @GrossSalary, @GOSIDeduction,
-                    @Religion, @LastWorkingDate, @PayrollStatus, @AverageSalary, @SerialNo, @AccountNumber, @PassportExpiryDate, @Email, @Status,
+                    @Religion, @LastWorkingDate, @PayrollStatus, @AverageSalary, @SerialNo, @AccountNumber, @PassportExpiryDate, @Email, @WhatsAppNumber, @Status,
                     @OpeningDays, @OpeningBHD, @CurrentAirfareRate, @AirfarePaidDays, @RemainingBalance, @MaximumPayout, @TotalAirfare,
                     @JanDays, @FebDays, @MarDays, @AprDays, @MayDays, @JunDays, @JulDays, @AugDays, @SepDays, @OctDays, @NovDays, @DecDays, @TotalWorkingDays, @CreatedBy)`);
 
@@ -2486,6 +2509,7 @@ app.put('/api/employees/:id', authenticateToken, requireRole('admin', 'manager',
     const emp = value;
     try {
         const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
 
         // Get old values for audit
         const oldResult = await db.request()
@@ -2530,6 +2554,7 @@ app.put('/api/employees/:id', authenticateToken, requireRole('admin', 'manager',
             .input('AccountNumber', sql.NVarChar(50), emp.accountNumber || null)
             .input('PassportExpiryDate', sql.Date, emp.passportExpiryDate || null)
             .input('Email', sql.NVarChar(120), emp.email || null)
+            .input('WhatsAppNumber', sql.NVarChar(30), emp.whatsappNumber || null)
             .input('Status', sql.NVarChar(10), emp.status || 'Active')
             .input('ManageOpening', sql.Bit, manageOpening ? 1 : 0)
             .input('OpeningDays', sql.Decimal(10,2), emp.openingDays || 0)
@@ -2561,7 +2586,7 @@ app.put('/api/employees/:id', authenticateToken, requireRole('admin', 'manager',
                     BasicSalary=@BasicSalary, HRA=@HRA, SpecialDutyAllowance=@SpecialDutyAllowance, CarAllowance=@CarAllowance, PetrolAllowance=@PetrolAllowance,
                     PhoneAllowance=@PhoneAllowance, GrossSalary=@GrossSalary, GOSIDeduction=@GOSIDeduction, Religion=@Religion, LastWorkingDate=@LastWorkingDate,
                     PayrollStatus=@PayrollStatus, AverageSalary=@AverageSalary, SerialNo=@SerialNo, AccountNumber=@AccountNumber, PassportExpiryDate=@PassportExpiryDate,
-                    Email=@Email, Status=@Status,
+                    Email=@Email, WhatsAppNumber=@WhatsAppNumber, Status=@Status,
                     OpeningDays=CASE WHEN @ManageOpening = 1 THEN @OpeningDays ELSE OpeningDays END,
                     OpeningBHD=CASE WHEN @ManageOpening = 1 THEN @OpeningBHD ELSE OpeningBHD END,
                     CurrentAirfareRate=@CurrentAirfareRate, AirfarePaidDays=@AirfarePaidDays,

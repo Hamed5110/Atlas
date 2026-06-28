@@ -4,6 +4,7 @@ export type Employee = {
   EmployeeID: number;
   EmployeeCode: string;
   FullName: string;
+  WhatsAppNumber?: string;
   JoinDate?: string;
   BankCode?: string;
   JobBand?: string;
