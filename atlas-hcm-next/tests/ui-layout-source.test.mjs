@@ -60,8 +60,13 @@ assert.match(source, /Manager WhatsApp typed/, "WhatsApp composer should allow m
 assert.match(source, /buildWhatsAppUrl/, "WhatsApp composer should use a normal WhatsApp click-to-chat link");
 assert.match(source, /Press Send in WhatsApp manually/, "normal WhatsApp flow should clearly require manual send");
 assert.match(source, /printWhatsAppMessage/, "WhatsApp composer should provide a print-format message output");
+assert.match(source, /Manager WhatsApp for airfare allocation/, "airfare allocation screen should expose manager WhatsApp sending");
+assert.match(source, /Open manager WhatsApp/, "airfare allocation should open normal WhatsApp for manager approval");
+assert.match(source, /allocationWhatsAppMessageText/, "airfare allocation manager WhatsApp should build from live allocation preview values");
+assert.match(source, /printAllocationManagerWhatsApp/, "airfare allocation manager WhatsApp should provide a print-format output");
 assert.match(css, /\.whatsapp-panel\s*{[\s\S]*border-radius:\s*8px/, "WhatsApp composer should use an aligned in-screen panel");
 assert.match(css, /\.whatsapp-grid\s*{[\s\S]*repeat\(3,\s*minmax\(160px,\s*1fr\)\)/, "WhatsApp composer should align fields in readable columns");
+assert.match(css, /\.allocation-whatsapp-card\s*{[\s\S]*border-radius:\s*8px/, "airfare allocation manager WhatsApp should use an aligned in-screen panel");
 assert.match(source, /Special duty allowance/, "employee master should expose Excel special duty allowance field");
 assert.match(source, /Car allowance/, "employee master should expose Excel car allowance field");
 assert.match(source, /Petrol allowance/, "employee master should expose Excel petrol allowance field");

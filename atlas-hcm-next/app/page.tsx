@@ -662,6 +662,12 @@ export default function DashboardPage() {
   });
   const [resetEmail, setResetEmail] = useState("");
   const [allocationForm, setAllocationForm] = useState(emptyAllocationForm);
+  const [allocationWhatsAppForm, setAllocationWhatsAppForm] = useState({
+    managerNumber: "",
+    subject: "Airfare Allocation Approval",
+    note: "Please review and approve this airfare allocation.",
+    footer: "Regards, ATLAS HCM"
+  });
   const [policyForm, setPolicyForm] = useState({
     ruleType: "global" as "global" | "company" | "employee" | "department" | "payGroup",
     effectiveFrom: "2026-06-18",
@@ -3691,6 +3697,32 @@ export default function DashboardPage() {
     whatsappForm.footer || "Regards, ATLAS HCM"
   ].filter((line, index, lines) => line || (lines[index - 1] && lines[index + 1])).join("\n");
   const whatsappReady = Boolean(normalizeWhatsAppNumber(whatsappRecipientNumber) && whatsappMessageText.trim());
+  const allocationWhatsAppMessageText = [
+    `*${activeCompany?.CompanyName || "ATLAS"}*`,
+    `*${allocationWhatsAppForm.subject || "Airfare Allocation Approval"}*`,
+    "",
+    selectedEmployee ? `Employee: ${selectedEmployee.EmployeeCode} - ${selectedEmployee.FullName}` : "Employee: Not selected",
+    selectedEmployee?.Department ? `Department: ${selectedEmployee.Department}` : "",
+    selectedEmployee?.ReportingTo ? `Reporting To: ${selectedEmployee.ReportingTo}` : "",
+    `Allocation date: ${formatReportDate(allocationForm.date)}`,
+    `Allocation year: ${allocationForm.year || "-"}`,
+    allocationForm.ticketNo ? `Ticket / PNR: ${allocationForm.ticketNo}` : "",
+    allocationForm.route ? `Route: ${allocationForm.route}` : "",
+    allocationForm.supplier ? `Supplier: ${allocationForm.supplier}` : "",
+    "",
+    `Ticket amount: ${money.format(ticketCost)}`,
+    `Eligibility amount: ${money.format(selectedEntitlement)}`,
+    `Company pays: ${money.format(displayedCompanySettlementAmount)}`,
+    `Paid by self employee: ${money.format(selfPaidAmount)}`,
+    `Loan amount: ${money.format(loanExcessAmount)}`,
+    `Payment mode: ${formatPaymentModeLabel(allocationForm.paymentMode)}`,
+    allocationForm.managerApproval ? `Approval reference: ${allocationForm.managerApproval}` : "",
+    "",
+    allocationWhatsAppForm.note || "Please review and approve this airfare allocation.",
+    "",
+    allocationWhatsAppForm.footer || "Regards, ATLAS HCM"
+  ].filter((line, index, lines) => line || (lines[index - 1] && lines[index + 1])).join("\n");
+  const allocationWhatsAppReady = Boolean(selectedEmployee && normalizeWhatsAppNumber(allocationWhatsAppForm.managerNumber) && allocationWhatsAppMessageText.trim());
   const employeeMasterRows = employeeMasterEmployees;
   const allocationEmployeeRows = filteredAllocationEmployees;
   const masterEmployeeIds = employeeMasterRows.map((employee) => employee.EmployeeID);
@@ -3776,6 +3808,75 @@ export default function DashboardPage() {
     `);
     printWindow.document.close();
     setMessage("WhatsApp print format opened.");
+  }
+
+  function openAllocationManagerWhatsApp() {
+    if (!selectedEmployee) {
+      setMessage("Select employee before sending airfare allocation WhatsApp to manager.");
+      return;
+    }
+    if (!normalizeWhatsAppNumber(allocationWhatsAppForm.managerNumber)) {
+      setMessage("Type manager WhatsApp number before opening WhatsApp.");
+      return;
+    }
+    window.open(buildWhatsAppUrl(allocationWhatsAppForm.managerNumber, allocationWhatsAppMessageText), "_blank", "noopener,noreferrer");
+    setMessage("Airfare allocation WhatsApp prepared for manager. Press Send in WhatsApp to complete.");
+  }
+
+  function printAllocationManagerWhatsApp() {
+    if (!selectedEmployee) {
+      setMessage("Select employee before printing manager WhatsApp format.");
+      return;
+    }
+    const printWindow = window.open("", "_blank", "width=860,height=960");
+    if (!printWindow) return setMessage("Popup blocked. Allow popups to print the manager WhatsApp format.");
+    const companyName = activeCompany?.CompanyName || "ATLAS";
+    const rows = [
+      ["Manager WhatsApp", formatWhatsAppDisplayNumber(allocationWhatsAppForm.managerNumber)],
+      ["Employee", `${selectedEmployee.EmployeeCode} - ${selectedEmployee.FullName}`],
+      ["Department", selectedEmployee.Department || "-"],
+      ["Reporting To", selectedEmployee.ReportingTo || "-"],
+      ["Allocation Date", formatReportDate(allocationForm.date)],
+      ["Ticket / PNR", allocationForm.ticketNo || "-"],
+      ["Route", allocationForm.route || "-"],
+      ["Ticket Amount", money.format(ticketCost)],
+      ["Eligibility Amount", money.format(selectedEntitlement)],
+      ["Payment Mode", formatPaymentModeLabel(allocationForm.paymentMode)]
+    ];
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+      <head>
+        <title>Airfare Manager WhatsApp - ${escapeHtml(companyName)}</title>
+        <style>
+          @page { size: A4; margin: 16mm; }
+          body { font-family: Arial, sans-serif; color: #111827; margin: 0; }
+          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 14px; margin-bottom: 18px; }
+          .brand strong { display: block; font-size: 22px; }
+          .brand span, .meta { color: #475569; font-size: 12px; line-height: 1.5; }
+          h1 { font-size: 20px; margin: 0 0 14px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+          td { border: 1px solid #dbe3ef; padding: 9px 10px; vertical-align: top; }
+          td:first-child { width: 170px; background: #f8fafc; font-weight: 700; color: #334155; }
+          .message { min-height: 260px; white-space: pre-wrap; border: 1px solid #dbe3ef; padding: 16px; line-height: 1.55; }
+          .foot { margin-top: 20px; color: #64748b; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="head">
+          <div class="brand"><strong>${escapeHtml(companyName)}</strong><span>Airfare Allocation Manager WhatsApp</span></div>
+          <div class="meta">Prepared: ${escapeHtml(new Date().toLocaleString())}<br/>Manual WhatsApp send</div>
+        </div>
+        <h1>${escapeHtml(allocationWhatsAppForm.subject || "Airfare Allocation Approval")}</h1>
+        <table>${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</table>
+        <div class="message">${escapeHtml(allocationWhatsAppMessageText)}</div>
+        <div class="foot">This page is prepared by ATLAS. Normal WhatsApp requires the sender to press Send manually.</div>
+        <script>window.print();</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    setMessage("Airfare manager WhatsApp print format opened.");
   }
 
   const employeeTypeOptions = useMemo(() => (
@@ -4602,6 +4703,45 @@ export default function DashboardPage() {
               )}
               {allocationFile && <p className="muted">Attachment ready: {allocationFile.name} ({Math.ceil(allocationFile.size / 1024)} KB)</p>}
               {editingAllocationId && <p className="muted">Editing allocation #{editingAllocationId}. Updating will refresh the linked excess loan if payment mode is loan.</p>}
+              <div className="allocation-whatsapp-card">
+                <div className="whatsapp-panel-head">
+                  <div>
+                    <strong>Manager WhatsApp for airfare allocation</strong>
+                    <span>Type manager WhatsApp number, review the approval message, then open normal WhatsApp.</span>
+                  </div>
+                  <span className={`pill ${allocationWhatsAppReady ? "ok" : ""}`}>{allocationWhatsAppReady ? "Ready" : "Needs manager number"}</span>
+                </div>
+                <div className="whatsapp-grid allocation-whatsapp-grid">
+                  <Field label="Manager WhatsApp">
+                    <input
+                      placeholder="973XXXXXXXX"
+                      value={allocationWhatsAppForm.managerNumber}
+                      onChange={(event) => setAllocationWhatsAppForm({ ...allocationWhatsAppForm, managerNumber: event.target.value })}
+                    />
+                  </Field>
+                  <Field label="Subject">
+                    <input
+                      value={allocationWhatsAppForm.subject}
+                      onChange={(event) => setAllocationWhatsAppForm({ ...allocationWhatsAppForm, subject: event.target.value })}
+                    />
+                  </Field>
+                  <Field label="Approval note">
+                    <input
+                      placeholder="Short manager note"
+                      value={allocationWhatsAppForm.note}
+                      onChange={(event) => setAllocationWhatsAppForm({ ...allocationWhatsAppForm, note: event.target.value })}
+                    />
+                  </Field>
+                </div>
+                <div className="whatsapp-preview">
+                  <label>Manager message preview</label>
+                  <pre>{allocationWhatsAppMessageText}</pre>
+                </div>
+                <div className="button-row compact">
+                  <button className="soft-button" type="button" disabled={!selectedEmployee} onClick={printAllocationManagerWhatsApp}><Printer size={16} /> Print manager format</button>
+                  <button className="shine-button" type="button" disabled={!allocationWhatsAppReady} onClick={openAllocationManagerWhatsApp}>Open manager WhatsApp</button>
+                </div>
+              </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy} onClick={handleCreateAllocation}>{editingAllocationId ? "Update, upload and print" : "Save, upload and print"}</button>
                 {editingAllocationId && <button className="soft-button" disabled={busy} onClick={cancelAllocationEdit}>Cancel edit</button>}
