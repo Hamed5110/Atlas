@@ -123,12 +123,34 @@ async function cleanup() {
     }
   }
 
-  if (!created.employeeId) return;
-  try {
-    await request(`/employees/${created.employeeId}?force=true`, { method: 'DELETE' });
-    addResult('Cleanup temporary employee and linked entries', 'PASS', { employeeId: created.employeeId });
-  } catch (error) {
-    addResult('Cleanup temporary employee and linked entries', 'FAIL', { error: error.message, employeeId: created.employeeId });
+  if (created.employeeId) {
+    try {
+      await request(`/employees/${created.employeeId}?force=true`, { method: 'DELETE' });
+      addResult('Cleanup temporary employee and linked entries', 'PASS', { employeeId: created.employeeId });
+    } catch (error) {
+      addResult('Cleanup temporary employee and linked entries', 'FAIL', { error: error.message, employeeId: created.employeeId });
+    }
+  }
+
+  if (created.companyId) {
+    try {
+      await request(`/companies/${created.companyId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ confirm: 'DELETE_COMPANY_AND_DATABASE' })
+      });
+      addResult('Cleanup temporary company and database', 'PASS', { companyId: created.companyId, databaseName: created.companyDatabase });
+    } catch (error) {
+      addResult('Cleanup temporary company and database', 'FAIL', { error: error.message, companyId: created.companyId, databaseName: created.companyDatabase });
+    }
+  }
+
+  if (created.backupFile) {
+    try {
+      if (fs.existsSync(created.backupFile)) fs.rmSync(created.backupFile, { force: true });
+      addResult('Cleanup temporary backup file', 'PASS', { backupFile: created.backupFile });
+    } catch (error) {
+      addResult('Cleanup temporary backup file', 'FAIL', { error: error.message, backupFile: created.backupFile });
+    }
   }
 }
 

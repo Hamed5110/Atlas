@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ATLAS secure bootstrapper authoring.
+
+  Build with:
+    wix build Bundle.wxs -ext WixToolset.BootstrapperApplications.wixext -ext WixToolset.Util.wixext -arch x64 -o ATLAS-Airfare-Allowance-Setup.exe
+
+  Required preprocessor variables:
+    AppMsi          Full path to the ATLAS application MSI.
+    DeployScript    Full path to deploy.ps1.
+    RunnerExe       Full path to AtlasBootstrapperRunner.exe.
+    SqlExpressSetupExe Full path to SQL2022-SSEI-Expr.exe or SQLEXPR_x64_ENU.exe.
+-->
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+  xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <?define ProductVersion = "2.2.8" ?>
+  <?define UpgradeCode = "9dfb0a1f-8dc4-42f1-86eb-a53f40c898f1" ?>
+
+  <Bundle
+    Name="ATLAS Airfare Allowance"
+    Manufacturer="ATLAS"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="$(var.UpgradeCode)"
+    Compressed="yes">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        Theme="hyperlinkLicense"
+        LicenseUrl=""
+        SuppressOptionsUI="no"
+        SuppressRepair="no" />
+    </BootstrapperApplication>
+
+    <Variable Name="ATLASPORT" Value="3355" bal:Overridable="yes" />
+    <Variable Name="INSTALLSQLEXPRESS" Value="1" bal:Overridable="yes" />
+    <Variable Name="SQLINSTANCE" Value="ATLAS" bal:Overridable="yes" />
+    <Variable Name="SQLSAPASSWORD" Value="" bal:Overridable="yes" Hidden="yes" />
+    <Variable Name="ATLASINSTALLROOT" Value="C:\Program Files\ATLAS Airfare Allowance" bal:Overridable="yes" />
+    <Variable Name="ATLASDATAROOT" Value="C:\ProgramData\ATLAS Airfare Allowance" bal:Overridable="yes" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasApp"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Variable="ATLASAPPINSTALLED"
+      Result="exists" />
+
+    <util:RegistrySearch
+      Id="DetectAnySqlServer"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL"
+      Variable="SQLSERVERINSTALLED"
+      Result="exists" />
+
+    <Chain DisableRollback="no" DisableSystemRestore="no" ParallelCache="yes">
+      <ExePackage
+        Id="AtlasPreflight"
+        CacheId="ATLAS_Preflight_PowerShell"
+        DisplayName="ATLAS pre-install validation"
+        SourceFile="$(var.RunnerExe)"
+        Name="tools\atlas-preflight-runner.exe"
+        PerMachine="yes"
+        Vital="yes"
+        Permanent="yes"
+        DetectCondition="0"
+        InstallArguments="Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;"
+        RepairArguments="Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
+        <Payload SourceFile="$(var.DeployScript)" Name="tools\preflight-deploy.ps1" />
+      </ExePackage>
+
+      <MsiPackage
+        Id="AtlasApplication"
+        CacheId="ATLAS_Application_MSI"
+        DisplayName="ATLAS Airfare Allowance"
+        SourceFile="$(var.AppMsi)"
+        Compressed="yes"
+        Vital="yes"
+        Permanent="no">
+        <MsiProperty Name="ATLASPORT" Value="[ATLASPORT]" />
+        <MsiProperty Name="DB_SERVER" Value="localhost\[SQLINSTANCE]" />
+        <MsiProperty Name="DB_PORT" Value="1433" />
+        <MsiProperty Name="DB_NAME" Value="Atlasairfare010" />
+        <MsiProperty Name="DB_USER" Value="sa" />
+        <MsiProperty Name="DB_PASSWORD" Value="[SQLSAPASSWORD]" />
+        <MsiProperty Name="DB_ODBC_DRIVER" Value="ODBC Driver 18 for SQL Server" />
+        <MsiProperty Name="DB_AUTO_SETUP" Value="1" />
+      </MsiPackage>
+
+      <ExePackage
+        Id="AtlasConfigure"
+        CacheId="ATLAS_Configure_PowerShell"
+        DisplayName="ATLAS database migration and service start"
+        SourceFile="$(var.RunnerExe)"
+        Name="tools\atlas-configure-runner.exe"
+        PerMachine="yes"
+        Vital="yes"
+        Permanent="yes"
+        DetectCondition="0"
+        InstallArguments="Install -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;"
+        RepairArguments="Repair -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;"
+        UninstallArguments="Backup -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
+        <Payload SourceFile="$(var.DeployScript)" Name="tools\configure-deploy.ps1" />
+        <Payload SourceFile="$(var.SqlExpressSetupExe)" Name="tools\SQLEXPR_x64_ENU.exe" />
+      </ExePackage>
+
+      <ExePackage
+        Id="AtlasTroubleshoot"
+        CacheId="ATLAS_Troubleshoot_PowerShell"
+        DisplayName="ATLAS troubleshooter"
+        SourceFile="$(var.RunnerExe)"
+        Name="tools\atlas-troubleshoot-runner.exe"
+        PerMachine="yes"
+        Vital="no"
+        Permanent="yes"
+        DetectCondition="0"
+        InstallCondition="0"
+        RepairArguments="Troubleshoot -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
+        <Payload SourceFile="$(var.DeployScript)" Name="tools\troubleshoot-deploy.ps1" />
+      </ExePackage>
+    </Chain>
+  </Bundle>
+</Wix>

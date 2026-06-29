@@ -78,7 +78,10 @@ BEGIN
         CreatedAt,
         UpdatedAt
     FROM dbo.Companies
-    ORDER BY CompanyName;
+    WHERE IsActive = 1
+    ORDER BY
+        CASE WHEN UPPER(CompanyCode) = N'ATLAS' THEN 0 ELSE 1 END,
+        CompanyName;
 END;
 GO
 
@@ -161,5 +164,41 @@ BEGIN
         (CompanyCode, CompanyName, DatabaseName, Address, IsActive)
     VALUES
         (N'ATLAS', N'ATLAS Airfare HCM', N'Atlasairfare010', N'', 1);
+END;
+ELSE
+BEGIN
+    UPDATE dbo.Companies
+    SET CompanyName = N'ATLAS Airfare HCM',
+        DatabaseName = N'Atlasairfare010',
+        IsActive = 1
+    WHERE CompanyCode = N'ATLAS';
+END;
+GO
+
+IF OBJECT_ID('dbo.Employees', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.Employees', 'Company') IS NOT NULL
+   AND OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NOT NULL
+BEGIN
+    DELETE c
+    FROM dbo.Companies c
+    WHERE (
+            c.CompanyCode LIKE N'QAC%'
+            OR c.CompanyName LIKE N'QA Temporary Company%'
+            OR c.DatabaseName LIKE N'ATLAS_QA_%'
+        )
+      AND NOT EXISTS (
+            SELECT 1
+            FROM dbo.Employees e
+            WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, N'')))) IN (
+                UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, N'')))),
+                UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, N'')))),
+                UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, N''))))
+            )
+        )
+      AND NOT EXISTS (
+            SELECT 1
+            FROM dbo.AirfarePolicyRates r
+            WHERE r.CompanyID = c.CompanyID
+        );
 END;
 GO

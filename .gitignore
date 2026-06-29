@@ -13,6 +13,9 @@ build/
 .next/
 atlas-hcm-next/.next/
 out/
+artifacts/
+installer/stage/
+redist/
 
 # Runtime and generated files
 logs/

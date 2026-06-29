@@ -1,0 +1,735 @@
+param(
+    [ValidateSet("Build", "Preflight", "Install", "Repair", "Troubleshoot", "Backup")]
+    [string]$Mode = "Build",
+
+    [int]$Port = 3355,
+    [string]$SqlInstance = "ATLAS",
+    [string]$SqlSaPassword = "",
+    [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
+    [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
+
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.2.8-x64.msi",
+    [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.2.8-x64.exe"
+)
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+$script:TranscriptStarted = $false
+if ($Mode -ne "Build") {
+    try {
+        $logDir = Join-Path $DataRoot "logs"
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        $logPath = Join-Path $logDir ("bootstrapper-{0}-{1}.log" -f $Mode, (Get-Date -Format "yyyyMMddHHmmss"))
+        Start-Transcript -Path $logPath -Append | Out-Null
+        $script:TranscriptStarted = $true
+        Write-Host "[ATLAS] Detailed bootstrapper log: $logPath"
+    } catch {
+        Write-Host "[ATLAS] Warning: could not start transcript: $($_.Exception.Message)"
+    }
+}
+
+function Write-Step {
+    param([string]$Message)
+    Write-Host "[ATLAS] $Message" -ForegroundColor Cyan
+}
+
+function Assert-Admin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]$identity
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw "Run this installer or script as Administrator."
+    }
+}
+
+function Assert-PortAvailable {
+    param([int]$PortNumber)
+    if ($PortNumber -lt 1 -or $PortNumber -gt 65535) {
+        throw "Port must be between 1 and 65535."
+    }
+    $listeners = @(Get-NetTCPConnection -LocalPort $PortNumber -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -gt 0) {
+        $owners = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+        throw "Port $PortNumber is already in use by process id(s): $($owners -join ', '). Choose another port."
+    }
+}
+
+function Get-BootstrapConfigPath {
+    param([string]$DataPath)
+    return (Join-Path $DataPath "bootstrapper-config.json")
+}
+
+function Read-BootstrapConfig {
+    param([string]$DataPath)
+    $path = Get-BootstrapConfigPath -DataPath $DataPath
+    if (-not (Test-Path $path)) { return $null }
+    try {
+        return (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
+    } catch {
+        return $null
+    }
+}
+
+function Write-BootstrapConfig {
+    param(
+        [string]$DataPath,
+        [int]$PortNumber,
+        [string]$InstanceName,
+        [string]$Password
+    )
+    New-Item -ItemType Directory -Path $DataPath -Force | Out-Null
+    $path = Get-BootstrapConfigPath -DataPath $DataPath
+    [pscustomobject]@{
+        Port = $PortNumber
+        SqlInstance = $InstanceName
+        SqlSaPassword = $Password
+        CreatedAt = (Get-Date).ToString("o")
+    } | ConvertTo-Json | Set-Content -Path $path -Encoding UTF8
+    try {
+        $acl = Get-Acl -LiteralPath $path
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+        foreach ($identity in @("BUILTIN\Administrators", "NT AUTHORITY\SYSTEM")) {
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity, "FullControl", "Allow")
+            $acl.AddAccessRule($rule)
+        }
+        Set-Acl -LiteralPath $path -AclObject $acl
+    } catch {
+        Write-Step "Warning: could not restrict bootstrap config ACL: $($_.Exception.Message)"
+    }
+}
+
+function Remove-BootstrapConfig {
+    param([string]$DataPath)
+    $path = Get-BootstrapConfigPath -DataPath $DataPath
+    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+}
+
+function Convert-SecureStringToPlain {
+    param([Security.SecureString]$Secure)
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
+
+function Get-AtlasHostInfo {
+    $hostName = $env:COMPUTERNAME
+    if (-not $hostName) { $hostName = [System.Net.Dns]::GetHostName() }
+    if (-not $hostName) { $hostName = "localhost" }
+    [pscustomobject]@{
+        HostName = $hostName
+        Loopback = "127.0.0.1"
+    }
+}
+
+function New-Backup {
+    param(
+        [string]$InstallPath,
+        [string]$DataPath
+    )
+    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $backupRoot = Join-Path $DataPath "Backup_$stamp"
+    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+
+    $items = @(
+        (Join-Path $InstallPath ".env"),
+        (Join-Path $InstallPath ".env.local"),
+        (Join-Path $InstallPath "logs"),
+        (Join-Path $InstallPath "backups"),
+        (Join-Path $DataPath "*.mdf"),
+        (Join-Path $DataPath "*.ldf"),
+        (Join-Path $DataPath "*.json"),
+        (Join-Path $DataPath "*.config")
+    )
+
+    foreach ($item in $items) {
+        foreach ($path in (Get-ChildItem -Path $item -Force -ErrorAction SilentlyContinue)) {
+            $target = Join-Path $backupRoot $path.Name
+            if ($path.PSIsContainer) {
+                Copy-Item -LiteralPath $path.FullName -Destination $target -Recurse -Force
+            } else {
+                Copy-Item -LiteralPath $path.FullName -Destination $target -Force
+            }
+        }
+    }
+    Write-Step "Backup complete: $backupRoot"
+    return $backupRoot
+}
+
+function Ensure-DataDirectories {
+    param([string]$InstallPath, [string]$DataPath)
+    foreach ($folder in @($InstallPath, $DataPath, (Join-Path $DataPath "logs"), (Join-Path $DataPath "database"), (Join-Path $DataPath "backups"))) {
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    }
+}
+
+function Get-SqlServiceName {
+    param([string]$InstanceName)
+    if ($InstanceName -eq "MSSQLSERVER") { return "MSSQLSERVER" }
+    return "MSSQL`$$InstanceName"
+}
+
+function Get-InstalledSqlInstances {
+    $instances = @()
+    foreach ($path in @(
+        "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\Instance Names\SQL"
+    )) {
+        if (Test-Path $path) {
+            $props = Get-ItemProperty -Path $path
+            $instances += $props.PSObject.Properties |
+                Where-Object { $_.Name -notmatch "^PS" } |
+                ForEach-Object { $_.Name }
+        }
+    }
+
+    $services = Get-Service -Name "MSSQL*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq "MSSQLSERVER" -or $_.Name -like "MSSQL`$*" } |
+        ForEach-Object {
+            if ($_.Name -eq "MSSQLSERVER") { "MSSQLSERVER" } else { $_.Name.Substring(6) }
+        }
+
+    return @($instances + $services | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+function Resolve-SqlInstance {
+    param([string]$RequestedInstance)
+    $instances = @(Get-InstalledSqlInstances)
+    if ($instances.Count -eq 0) {
+        return $RequestedInstance
+    }
+    if ($instances -contains $RequestedInstance) {
+        Write-Step "Using requested SQL Server instance '$RequestedInstance'."
+        return $RequestedInstance
+    }
+    if ($instances -contains "MSSQLSERVER") {
+        Write-Step "SQL Server is already installed. Using default instance MSSQLSERVER."
+        return "MSSQLSERVER"
+    }
+    if ($instances -contains "SQLEXPRESS") {
+        Write-Step "SQL Server is already installed. Using instance SQLEXPRESS."
+        return "SQLEXPRESS"
+    }
+    $selected = $instances[0]
+    Write-Step "SQL Server is already installed. Using instance '$selected'."
+    return $selected
+}
+
+function Get-SqlServerName {
+    param([string]$InstanceName)
+    if ($InstanceName -eq "MSSQLSERVER") { return "localhost" }
+    return "localhost\$InstanceName"
+}
+
+function Test-SqlLogin {
+    param(
+        [string]$InstanceName,
+        [string]$Password
+    )
+    $server = Get-SqlServerName -InstanceName $InstanceName
+    $connectionString = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=10;"
+    $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = "SELECT @@SERVERNAME"
+        [void]$command.ExecuteScalar()
+        return $true
+    } catch {
+        Write-Step "SQL login failed for '$server' as sa: $($_.Exception.Message)"
+        return $false
+    } finally {
+        $connection.Dispose()
+    }
+}
+
+function Test-StrongSqlPassword {
+    param([string]$Password)
+    return ($Password.Length -ge 8 -and
+        $Password -match "[A-Z]" -and
+        $Password -match "[a-z]" -and
+        $Password -match "\d" -and
+        $Password -match "[^a-zA-Z0-9]")
+}
+
+function Get-SqlExpressPayload {
+    $candidates = Get-ChildItem -Path $PSScriptRoot -Recurse -File -Filter "SQLEXPR*.exe" -ErrorAction SilentlyContinue |
+        Sort-Object Length -Descending
+    return @($candidates | Select-Object -First 1)[0]
+}
+
+function Install-SqlExpressIfMissing {
+    param(
+        [string]$InstanceName,
+        [string]$Password
+    )
+    if (@(Get-InstalledSqlInstances).Count -gt 0) {
+        Write-Step "Existing SQL Server instance detected. SQL Express install skipped."
+        return
+    }
+
+    $payload = Get-SqlExpressPayload
+    if (-not $payload) {
+        throw "Bundled SQL Express installer was not found in bootstrapper cache."
+    }
+
+    Write-Step "No local SQL Server detected. Installing SQL Express instance '$InstanceName'."
+    $arguments = @(
+        "/Q",
+        "/ACTION=Install",
+        "/FEATURES=SQLENGINE",
+        "/INSTANCENAME=$InstanceName",
+        "/SECURITYMODE=SQL",
+        "/SAPWD=`"$Password`"",
+        "/SQLSYSADMINACCOUNTS=`"BUILTIN\Administrators`"",
+        "/TCPENABLED=1",
+        "/IACCEPTSQLSERVERLICENSETERMS"
+    )
+    $process = Start-Process -FilePath $payload.FullName -ArgumentList $arguments -Wait -PassThru
+    if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
+        throw "SQL Express install failed with exit code $($process.ExitCode)."
+    }
+}
+
+function Prompt-AtlasInstallSettings {
+    Assert-Admin
+    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+
+    Write-Host ""
+    Write-Host "ATLAS setup configuration" -ForegroundColor Cyan
+    Write-Host ""
+
+    $selectedPort = $Port
+    while ($true) {
+        $rawPort = Read-Host "ATLAS application port [$selectedPort]"
+        if (-not [string]::IsNullOrWhiteSpace($rawPort)) {
+            if (-not [int]::TryParse($rawPort, [ref]$selectedPort)) {
+                Write-Host "Enter a valid TCP port number." -ForegroundColor Yellow
+                continue
+            }
+        }
+        try {
+            Assert-PortAvailable -PortNumber $selectedPort
+            Write-Host "Port $selectedPort is available." -ForegroundColor Green
+            break
+        } catch {
+            Write-Host $_.Exception.Message -ForegroundColor Yellow
+        }
+    }
+
+    $instances = @(Get-InstalledSqlInstances)
+    if ($instances.Count -gt 0) {
+        Write-Step "Existing SQL Server detected: $($instances -join ', '). SQL Express install will be skipped."
+    } else {
+        Write-Step "No local SQL Server detected. Bundled SQL Express will be installed."
+    }
+
+    $selectedInstance = Resolve-SqlInstance -RequestedInstance $SqlInstance
+    if ($instances.Count -gt 0) {
+        $rawInstance = Read-Host "MSSQL instance to use [$selectedInstance]"
+        if (-not [string]::IsNullOrWhiteSpace($rawInstance)) { $selectedInstance = $rawInstance.Trim() }
+        Ensure-SqlService -InstanceName $selectedInstance
+    }
+
+    while ($true) {
+        $securePassword = Read-Host "MSSQL sa password" -AsSecureString
+        $plainPassword = Convert-SecureStringToPlain -Secure $securePassword
+        if (-not $plainPassword) {
+            Write-Host "Password cannot be empty." -ForegroundColor Yellow
+            continue
+        }
+        if ($instances.Count -eq 0 -and -not (Test-StrongSqlPassword -Password $plainPassword)) {
+            Write-Host "For new SQL Express install, use at least 8 chars with upper, lower, number, and symbol." -ForegroundColor Yellow
+            continue
+        }
+        if ($instances.Count -gt 0) {
+            if (-not (Test-SqlLogin -InstanceName $selectedInstance -Password $plainPassword)) {
+                Write-Host "Please enter the correct sa password for the selected SQL instance." -ForegroundColor Yellow
+                continue
+            }
+            Write-Host "MSSQL login confirmed for $(Get-SqlServerName -InstanceName $selectedInstance)." -ForegroundColor Green
+        } else {
+            Write-Host "MSSQL password accepted for new SQL Express instance '$selectedInstance'." -ForegroundColor Green
+        }
+        break
+    }
+
+    Write-BootstrapConfig -DataPath $DataRoot -PortNumber $selectedPort -InstanceName $selectedInstance -Password $plainPassword
+    Write-Step "Configuration confirmed. Setup will continue."
+}
+
+function Ensure-SqlService {
+    param([string]$InstanceName)
+    $serviceName = Get-SqlServiceName -InstanceName $InstanceName
+    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Step "SQL service '$serviceName' not found. LocalDB may be used instead."
+        return
+    }
+    if ($service.Status -ne "Running") {
+        Write-Step "Starting SQL service '$serviceName'."
+        Start-Service -Name $serviceName
+        $service.WaitForStatus("Running", "00:00:30")
+    }
+}
+
+function Test-SqlLocalDb {
+    $exe = Join-Path ${env:ProgramFiles} "Microsoft SQL Server\160\Tools\Binn\SqlLocalDB.exe"
+    if (-not (Test-Path $exe)) {
+        $exe = Join-Path ${env:ProgramFiles} "Microsoft SQL Server\150\Tools\Binn\SqlLocalDB.exe"
+    }
+    if (-not (Test-Path $exe)) { return $false }
+    & $exe info | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-SqlBatch {
+    param(
+        [string]$ConnectionString,
+        [string]$SqlText
+    )
+    $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
+    try {
+        $connection.Open()
+        $batches = [regex]::Split($SqlText, "(?im)^\s*GO\s*(?:--.*)?$")
+        foreach ($batch in $batches) {
+            if (-not $batch.Trim()) { continue }
+            $command = $connection.CreateCommand()
+            $command.CommandTimeout = 180
+            $command.CommandText = $batch
+            [void]$command.ExecuteNonQuery()
+        }
+    } finally {
+        $connection.Dispose()
+    }
+}
+
+function Invoke-SqlScalar {
+    param(
+        [string]$ConnectionString,
+        [string]$SqlText
+    )
+    $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandTimeout = 60
+        $command.CommandText = $SqlText
+        return $command.ExecuteScalar()
+    } finally {
+        $connection.Dispose()
+    }
+}
+
+function Ensure-AtlasDatabase {
+    param(
+        [string]$InstanceName,
+        [string]$Password,
+        [string]$InstallPath
+    )
+    $server = Get-SqlServerName -InstanceName $InstanceName
+    $master = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
+    $appDb = "Atlasairfare010"
+
+    $dbExists = [int](Invoke-SqlScalar -ConnectionString $master -SqlText "SELECT CASE WHEN DB_ID(N'$appDb') IS NULL THEN 0 ELSE 1 END;")
+    Invoke-SqlBatch -ConnectionString $master -SqlText "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];"
+    $appConnection = "Server=$server;Database=$appDb;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
+    $baseSchemaExists = [int](Invoke-SqlScalar -ConnectionString $appConnection -SqlText "SELECT CASE WHEN OBJECT_ID(N'dbo.Users', N'U') IS NULL THEN 0 ELSE 1 END;")
+
+    $schemaFiles = @(
+        "ATLAS_MSSQL_Schema.sql",
+        "ATLAS_HCM_SQL_Objects.sql",
+        "ATLAS_Company_Admin.sql",
+        "ATLAS_Allocation_Attachments.sql",
+        "ATLAS_Loan_SQL_Objects.sql"
+    )
+    foreach ($file in $schemaFiles) {
+        $path = Join-Path $InstallPath "database\$file"
+        if (-not (Test-Path $path)) { continue }
+
+        if ($file -eq "ATLAS_MSSQL_Schema.sql" -and $dbExists -eq 1 -and $baseSchemaExists -eq 1) {
+            Write-Step "Base schema already exists in '$appDb'. Skipping ATLAS_MSSQL_Schema.sql."
+            continue
+        }
+
+        Write-Step "Applying database script $file."
+        $sql = Get-Content -LiteralPath $path -Raw
+        $sql = $sql -replace "(?im)^\s*CREATE\s+DATABASE\s+\[?Atlasairfare010\]?\s*;?\s*$", "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];"
+        $sql = $sql -replace "(?im)^\s*USE\s+\[?Atlasairfare010\]?\s*;?\s*$", "USE [$appDb];"
+        Invoke-SqlBatch -ConnectionString $appConnection -SqlText $sql
+    }
+}
+
+function Write-AtlasConfig {
+    param(
+        [string]$InstallPath,
+        [int]$PortNumber,
+        [string]$InstanceName,
+        [string]$Password
+    )
+    $secretBytes = New-Object byte[] 48
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($secretBytes)
+    $secret = [Convert]::ToBase64String($secretBytes)
+
+    $content = @"
+PORT=$PortNumber
+HOST=0.0.0.0
+DB_SERVER=$(Get-SqlServerName -InstanceName $InstanceName)
+DB_PORT=1433
+DB_NAME=Atlasairfare010
+DB_USER=sa
+DB_PASSWORD=$Password
+DB_ODBC_DRIVER=ODBC Driver 18 for SQL Server
+DB_AUTO_SETUP=1
+DB_ENCRYPT=false
+DB_TRUST_SERVER_CERTIFICATE=true
+JWT_SECRET=$secret
+JWT_EXPIRES_IN=8h
+CORS_ORIGIN=*
+MAX_LOGIN_ATTEMPTS=5
+LOCKOUT_MINUTES=30
+"@
+    Set-Content -Path (Join-Path $InstallPath ".env") -Value $content -Encoding ASCII
+}
+
+function Start-Atlas {
+    param([string]$InstallPath)
+    $taskInstaller = Join-Path $InstallPath "Install-ATLAS-StartupTask.ps1"
+    if (-not (Test-Path $taskInstaller)) {
+        throw "ATLAS startup task installer was not found: $taskInstaller"
+    }
+    $process = Start-Process -FilePath "powershell.exe" `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $taskInstaller, "-InstallRoot", $InstallPath, "-StartNow") `
+        -WorkingDirectory $InstallPath `
+        -Wait `
+        -PassThru `
+        -WindowStyle Hidden
+    if ($process.ExitCode -ne 0) {
+        throw "ATLAS startup task failed with exit code $($process.ExitCode)."
+    }
+}
+
+function Test-AtlasHealth {
+    param([int]$PortNumber)
+    try {
+        $response = Invoke-RestMethod -Uri "http://127.0.0.1:$PortNumber/api/health" -TimeoutSec 10
+        return ($response.status -eq "healthy" -and $response.database -eq "connected")
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-Preflight {
+    Prompt-AtlasInstallSettings
+    $hostInfo = Get-AtlasHostInfo
+    Write-Step "Host detected: $($hostInfo.HostName), loopback: $($hostInfo.Loopback), port: $Port"
+}
+
+function Invoke-InstallOrRepair {
+    param([switch]$Repair)
+    Assert-Admin
+    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+
+    $saved = Read-BootstrapConfig -DataPath $DataRoot
+    if ($saved) {
+        if ($saved.Port) { $Port = [int]$saved.Port }
+        if ($saved.SqlInstance) { $SqlInstance = [string]$saved.SqlInstance }
+        if ($saved.SqlSaPassword) { $SqlSaPassword = [string]$saved.SqlSaPassword }
+    }
+
+    $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $SqlInstance
+
+    if (-not $SqlSaPassword) {
+        throw "MSSQL sa password was not collected. Re-run setup and complete the ATLAS setup configuration prompt."
+    }
+
+    Install-SqlExpressIfMissing -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
+    $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $effectiveSqlInstance
+    Ensure-SqlService -InstanceName $effectiveSqlInstance
+    if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
+        throw "MSSQL login verification failed during configuration."
+    }
+    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
+    Ensure-AtlasDatabase -InstanceName $effectiveSqlInstance -Password $SqlSaPassword -InstallPath $InstallRoot
+    Remove-BootstrapConfig -DataPath $DataRoot
+
+    if ($Repair) {
+        Write-Step "Repair checks complete. Restarting ATLAS."
+    } else {
+        Write-Step "Install checks complete. Starting ATLAS."
+    }
+
+    Start-Atlas -InstallPath $InstallRoot
+    Start-Sleep -Seconds 8
+    if (-not (Test-AtlasHealth -PortNumber $Port)) {
+        Write-Step "Warning: ATLAS did not become healthy on http://127.0.0.1:$Port/api/health yet. Setup will finish; run Start-ATLAS.bat or Troubleshooter if needed."
+        return
+    }
+    Write-Step "ATLAS is healthy on http://127.0.0.1:$Port/"
+}
+
+function Invoke-Troubleshoot {
+    Assert-Admin
+    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    $report = Join-Path $DataRoot ("troubleshoot_{0}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+    "ATLAS Troubleshooter $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
+    "InstallRoot=$InstallRoot" | Add-Content $report
+    "DataRoot=$DataRoot" | Add-Content $report
+    "Port=$Port" | Add-Content $report
+    "Host=$((Get-AtlasHostInfo).HostName)" | Add-Content $report
+    "Loopback=127.0.0.1" | Add-Content $report
+    "LocalDB installed=$(Test-SqlLocalDb)" | Add-Content $report
+    "SQL service=$(Get-SqlServiceName -InstanceName $SqlInstance)" | Add-Content $report
+    "ATLAS health=$(Test-AtlasHealth -PortNumber $Port)" | Add-Content $report
+    Get-Service -Name (Get-SqlServiceName -InstanceName $SqlInstance) -ErrorAction SilentlyContinue | Out-String | Add-Content $report
+    Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue | Out-String | Add-Content $report
+    Write-Step "Troubleshooter report: $report"
+}
+
+function Save-SqlExpressRedistributable {
+    param([string]$Destination)
+
+    $downloadUrl = "https://download.microsoft.com/download/5/1/4/5145fe04-4d30-4b85-b0d1-39533663a2f1/SQL2022-SSEI-Expr.exe"
+    $destinationDir = Split-Path -Parent $Destination
+    $mediaDir = Join-Path $destinationDir "sql-express-media"
+    $webInstaller = Join-Path $destinationDir "SQL2022-SSEI-Expr.exe"
+    New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $mediaDir -Force | Out-Null
+
+    $tempFile = "$webInstaller.download"
+    if (Test-Path $tempFile) { Remove-Item -LiteralPath $tempFile -Force }
+
+    Write-Step "Downloading SQL Server 2022 Express web installer from Microsoft."
+    Write-Step "Source: $downloadUrl"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UseBasicParsing
+
+    if (-not (Test-Path $tempFile)) {
+        throw "SQL Server Express download did not create a file."
+    }
+    $size = (Get-Item -LiteralPath $tempFile).Length
+    if ($size -lt 1000000) {
+        Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+        throw "Downloaded SQL Server Express file is unexpectedly small ($size bytes)."
+    }
+
+    Move-Item -LiteralPath $tempFile -Destination $webInstaller -Force
+
+    Write-Step "Downloading SQL Server Express Core offline media. This can take several minutes."
+    $downloadArgs = @(
+        "/ACTION=Download",
+        "/MEDIATYPE=Core",
+        "/MEDIAPATH=`"$mediaDir`"",
+        "/QUIET"
+    )
+    $process = Start-Process -FilePath $webInstaller -ArgumentList $downloadArgs -Wait -PassThru
+    if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
+        throw "SQL Server Express media download failed with exit code $($process.ExitCode)."
+    }
+
+    $fullInstaller = Get-ChildItem -Path $mediaDir -Recurse -File -Filter "SQLEXPR*_x64_ENU.exe" -ErrorAction SilentlyContinue |
+        Sort-Object Length -Descending |
+        Select-Object -First 1
+    if (-not $fullInstaller) {
+        $fullInstaller = Get-ChildItem -Path $mediaDir -Recurse -File -Filter "SQLEXPR*.exe" -ErrorAction SilentlyContinue |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+    }
+    if (-not $fullInstaller) {
+        throw "SQL Express Core media download completed, but SQLEXPR_x64_ENU.exe was not found under $mediaDir."
+    }
+
+    Copy-Item -LiteralPath $fullInstaller.FullName -Destination $Destination -Force
+    Write-Step "SQL Server Express offline redistributable saved: $Destination"
+}
+
+function Build-AtlasRunner {
+    $source = Join-Path $PSScriptRoot "runner\AtlasBootstrapperRunner.cs"
+    $output = Join-Path $PSScriptRoot "runner\AtlasBootstrapperRunner.exe"
+    if (-not (Test-Path $source)) {
+        throw "Missing bootstrapper runner source: $source"
+    }
+
+    $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+    if (-not (Test-Path $csc)) {
+        $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
+    }
+    if (-not (Test-Path $csc)) {
+        throw ".NET Framework C# compiler was not found. Install/enable .NET Framework 4.x developer tools or provide runner\AtlasBootstrapperRunner.exe."
+    }
+
+    $needsBuild = -not (Test-Path $output)
+    if (-not $needsBuild) {
+        $needsBuild = (Get-Item $source).LastWriteTimeUtc -gt (Get-Item $output).LastWriteTimeUtc
+    }
+
+    if ($needsBuild) {
+        Write-Step "Compiling ATLAS bootstrapper runner."
+        & $csc /nologo /target:winexe /optimize+ /platform:anycpu /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Data.dll /reference:System.ServiceProcess.dll /out:$output $source
+        if ($LASTEXITCODE -ne 0) {
+            throw "ATLAS bootstrapper runner compile failed with exit code $LASTEXITCODE."
+        }
+    }
+    return $output
+}
+
+function Invoke-Build {
+    $bundle = Join-Path $PSScriptRoot "Bundle.wxs"
+    $deploy = Join-Path $PSScriptRoot "deploy.ps1"
+    if (-not (Test-Path $AppMsi)) { throw "Missing app MSI: $AppMsi" }
+    if (-not (Test-Path $SqlExpressSetupExe)) {
+        Write-Step "SQL Server Express redistributable is missing. Downloading from Microsoft..."
+        Save-SqlExpressRedistributable -Destination $SqlExpressSetupExe
+    }
+    if (-not (Test-Path $SqlExpressSetupExe)) {
+        throw "SQL Server Express redistributable is still missing: $SqlExpressSetupExe"
+    }
+    $runnerExe = Build-AtlasRunner
+
+    $wixVersionText = (& wix --version)
+    if ($LASTEXITCODE -ne 0 -or -not $wixVersionText) {
+        throw "WiX Toolset CLI was not found. Install WiX Toolset v5 before building the bootstrapper."
+    }
+    if ($wixVersionText -notmatch "^7\.") {
+        throw "This bootstrapper is pinned to WiX Toolset v7. Current wix.exe reports '$wixVersionText'. Install/use WiX v7 for the release build."
+    }
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $Output) -Force | Out-Null
+    $args = @(
+        "build", $bundle,
+        "-ext", "WixToolset.BootstrapperApplications.wixext",
+        "-ext", "WixToolset.Util.wixext",
+        "-arch", "x64",
+        "-d", "AppMsi=$AppMsi",
+        "-d", "DeployScript=$deploy",
+        "-d", "RunnerExe=$runnerExe",
+        "-d", "SqlExpressSetupExe=$SqlExpressSetupExe",
+        "-o", $Output
+    )
+    Write-Step "Building bootstrapper EXE..."
+    & wix @args
+    if ($LASTEXITCODE -ne 0) { throw "WiX build failed with exit code $LASTEXITCODE." }
+    Get-FileHash -Algorithm SHA256 -Path $Output | Format-List
+}
+
+switch ($Mode) {
+    "Build" { Invoke-Build }
+    "Preflight" { Invoke-Preflight }
+    "Install" { Invoke-InstallOrRepair }
+    "Repair" { Invoke-InstallOrRepair -Repair }
+    "Troubleshoot" { Invoke-Troubleshoot }
+    "Backup" {
+        Assert-Admin
+        Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+        New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+    }
+}
+
+if ($script:TranscriptStarted) {
+    try { Stop-Transcript | Out-Null } catch {}
+}
