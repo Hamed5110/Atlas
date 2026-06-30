@@ -16,14 +16,27 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.8" ?>
-  <?define UpgradeCode = "9dfb0a1f-8dc4-42f1-86eb-a53f40c898f1" ?>
+  <?define ProductVersion = "2.3.9" ?>
   <?ifdef UpdateOnly ?>
+    <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
+    <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
+    <?define CacheFlavor = "UpdatePatch" ?>
+    <?define PreflightPackageId = "AtlasUpdatePreflight" ?>
+    <?define ApplicationPackageId = "AtlasUpdateApplication" ?>
+    <?define ConfigurePackageId = "AtlasUpdateConfigure" ?>
+    <?define TroubleshootPackageId = "AtlasUpdateTroubleshoot" ?>
     <?define AtlasPreflightInstallArgs = "UpdateOnlyPrepare -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasPreflightRepairArgs = "UpdateOnlyPrepare -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasConfigureInstallArgs = "UpdateOnlyFinalize -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasConfigureRepairArgs = "UpdateOnlyFinalize -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
   <?else ?>
+    <?define BundleName = "ATLAS Airfare Allowance" ?>
+    <?define UpgradeCode = "9dfb0a1f-8dc4-42f1-86eb-a53f40c898f1" ?>
+    <?define CacheFlavor = "Setup" ?>
+    <?define PreflightPackageId = "AtlasPreflight" ?>
+    <?define ApplicationPackageId = "AtlasApplication" ?>
+    <?define ConfigurePackageId = "AtlasConfigure" ?>
+    <?define TroubleshootPackageId = "AtlasTroubleshoot" ?>
     <?define AtlasPreflightInstallArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasPreflightRepairArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasConfigureInstallArgs = "Install -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
@@ -31,7 +44,7 @@
   <?endif ?>
 
   <Bundle
-    Name="ATLAS Airfare Allowance"
+    Name="$(var.BundleName)"
     Manufacturer="ATLAS"
     Version="$(var.ProductVersion)"
     UpgradeCode="$(var.UpgradeCode)"
@@ -74,8 +87,8 @@
 
     <Chain DisableRollback="no" DisableSystemRestore="no" ParallelCache="yes">
       <ExePackage
-        Id="AtlasPreflight"
-        CacheId="ATLAS_Preflight_PowerShell_$(var.ProductVersion)"
+        Id="$(var.PreflightPackageId)"
+        CacheId="ATLAS_$(var.CacheFlavor)_Preflight_PowerShell_$(var.ProductVersion)"
         DisplayName="ATLAS pre-install validation"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-preflight-runner.exe"
@@ -89,8 +102,8 @@
       </ExePackage>
 
       <MsiPackage
-        Id="AtlasApplication"
-        CacheId="ATLAS_Application_MSI_$(var.ProductVersion)"
+        Id="$(var.ApplicationPackageId)"
+        CacheId="ATLAS_$(var.CacheFlavor)_Application_MSI_$(var.ProductVersion)"
         DisplayName="ATLAS Airfare Allowance"
         SourceFile="$(var.AppMsi)"
         Compressed="yes"
@@ -107,8 +120,8 @@
       </MsiPackage>
 
       <ExePackage
-        Id="AtlasConfigure"
-        CacheId="ATLAS_Configure_PowerShell_$(var.ProductVersion)"
+        Id="$(var.ConfigurePackageId)"
+        CacheId="ATLAS_$(var.CacheFlavor)_Configure_PowerShell_$(var.ProductVersion)"
         DisplayName="ATLAS database migration and service start"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-configure-runner.exe"
@@ -124,8 +137,8 @@
       </ExePackage>
 
       <ExePackage
-        Id="AtlasTroubleshoot"
-        CacheId="ATLAS_Troubleshoot_PowerShell_$(var.ProductVersion)"
+        Id="$(var.TroubleshootPackageId)"
+        CacheId="ATLAS_$(var.CacheFlavor)_Troubleshoot_PowerShell_$(var.ProductVersion)"
         DisplayName="ATLAS troubleshooter"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-troubleshoot-runner.exe"
