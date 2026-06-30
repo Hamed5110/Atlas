@@ -140,7 +140,7 @@ namespace AtlasBootstrapperRunner
         private static string Quote(string value)
         {
             if (value == null) return "\"\"";
-            return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            return "\"" + value.Replace("\"", "\\\"") + "\"";
         }
 
         private static bool IsMode(string value)
@@ -149,6 +149,8 @@ namespace AtlasBootstrapperRunner
                 string.Equals(value, "Install", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "Repair", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "Troubleshoot", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(value, "UpdateOnlyPrepare", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(value, "UpdateOnlyFinalize", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "Backup", StringComparison.OrdinalIgnoreCase);
         }
     }
