@@ -15,9 +15,9 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.13-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.15-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.13-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.15-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -1151,18 +1151,47 @@ function Invoke-UpdateOnlyPrepare {
 }
 
 function Invoke-UpdateOnlyFinalize {
-    Assert-Admin
-    Assert-AtlasInstalledForPatch
-    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
-    $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
-    $effectivePort = [int]$config.AppPort
-    Start-Atlas -InstallPath $InstallRoot
-    Start-Sleep -Seconds 8
-    if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
-        Write-Step "Warning: ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health yet. Patch files were installed; run Troubleshooter if needed."
+    $report = $null
+    try {
+        Assert-AtlasInstalledForPatch
+        Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+        $report = Join-Path $DataRoot ("logs\update-finalize-{0}.txt" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+        "ATLAS update finalize $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
+        "InstallRoot=$InstallRoot" | Add-Content $report
+        "DataRoot=$DataRoot" | Add-Content $report
+
+        $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
+        $effectivePort = [int]$config.AppPort
+        "AppPort=$effectivePort" | Add-Content $report
+        "SqlPort=$($config.SqlPort)" | Add-Content $report
+
+        try {
+            Start-Atlas -InstallPath $InstallRoot
+            Start-Sleep -Seconds 8
+        } catch {
+            "StartWarning=$($_.Exception.Message)" | Add-Content $report
+            Write-Step "Warning: ATLAS startup could not be completed automatically: $($_.Exception.Message)"
+        }
+
+        if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
+            "Health=NotReady" | Add-Content $report
+            Write-Step "Warning: ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health yet. Patch files were installed; run Troubleshooter if needed."
+            return
+        }
+        "Health=Healthy" | Add-Content $report
+        Write-Step "Update-only patch completed. ATLAS is healthy on http://127.0.0.1:$effectivePort/."
+    } catch {
+        try {
+            if (-not $report) {
+                New-Item -ItemType Directory -Path (Join-Path $DataRoot "logs") -Force | Out-Null
+                $report = Join-Path $DataRoot ("logs\update-finalize-{0}.txt" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+                "ATLAS update finalize $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
+            }
+            "FinalizeWarning=$($_.Exception.Message)" | Add-Content $report
+        } catch {}
+        Write-Step "Warning: update finalize had a problem, but patch files remain installed: $($_.Exception.Message)"
         return
     }
-    Write-Step "Update-only patch completed. ATLAS is healthy on http://127.0.0.1:$effectivePort/."
 }
 
 function Invoke-Preflight {
