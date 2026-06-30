@@ -22,6 +22,7 @@ namespace AtlasBootstrapperRunner
         {
             try
             {
+                args = NormalizeBurnArgs(args);
                 var exeName = Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]) ?? "atlas-runner";
                 var mode = "Preflight";
                 if (exeName.IndexOf("configure", StringComparison.OrdinalIgnoreCase) >= 0) mode = "Install";
@@ -135,6 +136,25 @@ namespace AtlasBootstrapperRunner
             string value;
             int parsed;
             return options.TryGetValue(name, out value) && int.TryParse(value, out parsed) ? parsed : fallback;
+        }
+
+        private static string[] NormalizeBurnArgs(string[] args)
+        {
+            return args.Select(NormalizeBurnArg).ToArray();
+        }
+
+        private static string NormalizeBurnArg(string value)
+        {
+            if (value == null) return string.Empty;
+            var normalized = value
+                .Replace("&amp;quot;", "\"")
+                .Replace("&quot;", "\"")
+                .Trim();
+            if (normalized.Length >= 2 && normalized[0] == '"' && normalized[normalized.Length - 1] == '"')
+            {
+                normalized = normalized.Substring(1, normalized.Length - 2);
+            }
+            return normalized;
         }
 
         private static string Quote(string value)
