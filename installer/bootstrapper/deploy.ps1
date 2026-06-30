@@ -15,9 +15,9 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.10-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.11-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.10-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.11-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -1037,9 +1037,95 @@ function Get-AtlasConfiguredPort {
     return $FallbackPort
 }
 
+function Get-AtlasRegistryValue {
+    param([string]$Name)
+    foreach ($path in @(
+        "HKLM:\SOFTWARE\ATLAS Airfare Allowance",
+        "HKLM:\SOFTWARE\WOW6432Node\ATLAS Airfare Allowance"
+    )) {
+        if (-not (Test-Path $path)) { continue }
+        $value = (Get-ItemProperty -Path $path -Name $Name -ErrorAction SilentlyContinue).$Name
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            return [string]$value
+        }
+    }
+    return $null
+}
+
+function Get-AtlasUninstallInstallLocation {
+    foreach ($root in @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )) {
+        if (-not (Test-Path $root)) { continue }
+        foreach ($item in Get-ChildItem -Path $root -ErrorAction SilentlyContinue) {
+            $props = Get-ItemProperty -Path $item.PSPath -ErrorAction SilentlyContinue
+            if ([string]$props.DisplayName -notlike "ATLAS Airfare Allowance*") { continue }
+            if (-not [string]::IsNullOrWhiteSpace([string]$props.InstallLocation)) {
+                return [string]$props.InstallLocation
+            }
+        }
+    }
+    return $null
+}
+
+function Find-AtlasInstallRoot {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($candidate in @(
+        $InstallRoot,
+        (Get-AtlasRegistryValue -Name "INSTALLROOT"),
+        (Get-AtlasUninstallInstallLocation),
+        (Join-Path $env:ProgramFiles "ATLAS Airfare Allowance"),
+        (if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} "ATLAS Airfare Allowance" } else { $null })
+    )) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+            $candidates.Add(([string]$candidate).TrimEnd('\')) | Out-Null
+        }
+    }
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (Test-Path -LiteralPath (Join-Path $candidate "server.js")) {
+            return $candidate
+        }
+    }
+    return $InstallRoot
+}
+
+function Initialize-ExistingAtlasPatchContext {
+    $resolvedInstallRoot = Find-AtlasInstallRoot
+    if ($resolvedInstallRoot -and $resolvedInstallRoot -ne $InstallRoot) {
+        Write-Step "Existing ATLAS install location detected: $resolvedInstallRoot"
+        $script:InstallRoot = $resolvedInstallRoot
+    }
+
+    $registeredDataRoot = Get-AtlasRegistryValue -Name "DATAROOT"
+    if (-not [string]::IsNullOrWhiteSpace($registeredDataRoot)) {
+        $script:DataRoot = $registeredDataRoot.TrimEnd('\')
+    }
+
+    $settings = Read-AtlasEnvConfig -InstallPath $script:InstallRoot
+    $registeredAppPort = Get-AtlasRegistryValue -Name "ATLASPORT"
+    $registeredDbPort = Get-AtlasRegistryValue -Name "DB_PORT"
+
+    $script:Port = Get-AtlasEnvInt -Settings $settings -Name "PORT" -Fallback $script:Port
+    $parsed = 0
+    if ($registeredAppPort -and [int]::TryParse($registeredAppPort, [ref]$parsed) -and $parsed -gt 0 -and $parsed -le 65535) {
+        $script:Port = $parsed
+    }
+
+    if (-not $settings.Contains("DB_PORT") -and $registeredDbPort) {
+        $settings["DB_PORT"] = $registeredDbPort
+        Write-AtlasEnvConfig -InstallPath $script:InstallRoot -Settings $settings
+        Write-Step "Existing ATLAS SQL port copied from registry: $registeredDbPort"
+    }
+
+    Write-Step "Existing ATLAS patch context: install='$script:InstallRoot', data='$script:DataRoot', app port=$script:Port."
+}
+
 function Assert-AtlasInstalledForPatch {
+    Initialize-ExistingAtlasPatchContext
+    if (Test-Path (Join-Path $script:InstallRoot "server.js")) { return }
     if (Test-Path "HKLM:\SOFTWARE\ATLAS Airfare Allowance") { return }
-    if (Test-Path (Join-Path $InstallRoot "server.js")) { return }
     throw "ATLAS Airfare Allowance is not installed. Use the full installer on new machines."
 }
 

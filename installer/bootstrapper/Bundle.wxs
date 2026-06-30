@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.10" ?>
+  <?define ProductVersion = "2.3.11" ?>
   <?ifdef UpdateOnly ?>
     <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
     <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
@@ -77,6 +77,30 @@
       Key="SOFTWARE\ATLAS Airfare Allowance"
       Variable="ATLASAPPINSTALLED"
       Result="exists" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasInstallRoot"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="INSTALLROOT"
+      Variable="ATLASINSTALLROOT"
+      Result="value" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasDataRoot"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="DATAROOT"
+      Variable="ATLASDATAROOT"
+      Result="value" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasPort"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="ATLASPORT"
+      Variable="ATLASPORT"
+      Result="value" />
 
     <util:RegistrySearch
       Id="DetectAnySqlServer"

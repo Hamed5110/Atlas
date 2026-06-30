@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "2.3.10",
+    [string]$Version = "2.3.11",
     [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts"),
     [switch]$SkipVerify
 )
@@ -182,6 +182,8 @@ $componentIds.Add($registryComponentId) | Out-Null
 [void]$builder.AppendLine("        <Component Id=`"$registryComponentId`" Guid=`"*`">")
 [void]$builder.AppendLine('          <RegistryKey Root="HKLM" Key="SOFTWARE\ATLAS Airfare Allowance">')
 [void]$builder.AppendLine('            <RegistryValue Name="ATLASPORT" Type="string" Value="[ATLASPORT]" KeyPath="yes" />')
+[void]$builder.AppendLine('            <RegistryValue Name="INSTALLROOT" Type="string" Value="[INSTALLFOLDER]" />')
+[void]$builder.AppendLine('            <RegistryValue Name="DATAROOT" Type="string" Value="[CommonAppDataFolder]ATLAS Airfare Allowance" />')
 [void]$builder.AppendLine('            <RegistryValue Name="DB_SERVER" Type="string" Value="[DB_SERVER]" />')
 [void]$builder.AppendLine('            <RegistryValue Name="DB_PORT" Type="string" Value="[DB_PORT]" />')
 [void]$builder.AppendLine('            <RegistryValue Name="DB_NAME" Type="string" Value="[DB_NAME]" />')
