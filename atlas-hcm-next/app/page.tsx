@@ -524,6 +524,9 @@ const defaultWorkOptions = {
   status: ["Active", "In-active", "Inactive", "Probation", "Resign", "Resigned", "Separated"]
 };
 
+type QuickAddOptionKey = keyof typeof defaultWorkOptions | "jobBand" | "nationality" | "reportingTo";
+type QuickAddOptions = Record<QuickAddOptionKey, string[]>;
+
 const emptyEmployeeForm = () => ({
   code: "",
   name: "",
@@ -643,6 +646,19 @@ export default function DashboardPage() {
     maximumPayout: 150
   });
   const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
+  const [quickAddOptions, setQuickAddOptions] = useState<QuickAddOptions>({
+    company: [],
+    department: [],
+    branch: [],
+    section: [],
+    location: [],
+    designation: [],
+    group: [],
+    status: [],
+    jobBand: [],
+    nationality: [],
+    reportingTo: []
+  });
   const [whatsappForm, setWhatsappForm] = useState({
     employeeId: "",
     recipientType: "employee" as "employee" | "manager" | "custom",
@@ -3513,10 +3529,11 @@ export default function DashboardPage() {
   }
 
   function handleCompanySwitch(value: string) {
-    setSelectedCompanyId(value);
-    const company = companies.find((item) => String(item.CompanyID) === value);
+    const company = companies.find((item) => String(item.CompanyID) === value) || companies[0];
+    const nextCompanyId = company?.CompanyID ? String(company.CompanyID) : "";
+    setSelectedCompanyId(nextCompanyId);
     setBackupForm((current) => ({ ...current, databaseName: company?.DatabaseName || current.databaseName }));
-    setMessage(company ? `Company workspace changed to ${company.CompanyName}.` : "All companies selected.");
+    setMessage(company ? `Company workspace changed to ${company.CompanyName}.` : "Company workspace unavailable.");
   }
 
   function handleSearchSubmit() {
@@ -3745,7 +3762,7 @@ export default function DashboardPage() {
       tone: "info"
     }] : []),
     {
-      title: "Calibration and validation",
+      title: "System verification",
       detail: "Formula, import, loan, attachment, company, opening balance, and layout tests are available from the test suite.",
       tone: "success"
     }
@@ -4077,17 +4094,31 @@ export default function DashboardPage() {
   const workOptions = useMemo(() => {
     const incoming = importPreview?.employees || [];
     return {
-      company: uniqueOptions([...defaultWorkOptions.company, ...employees.map((item) => item.Company), ...incoming.map((item) => item.company)]),
-      department: uniqueOptions([...defaultWorkOptions.department, ...employees.map((item) => item.Department), ...incoming.map((item) => item.department)]),
-      branch: uniqueOptions([...defaultWorkOptions.branch, ...employees.map((item) => item.Branch), ...incoming.map((item) => item.branch)]),
-      section: uniqueOptions([...defaultWorkOptions.section, ...employees.map((item) => item.Section), ...incoming.map((item) => item.section)]),
-      location: uniqueOptions([...defaultWorkOptions.location, ...employees.map((item) => item.Location), ...incoming.map((item) => item.location)]),
-      designation: uniqueOptions([...defaultWorkOptions.designation, ...employees.map((item) => item.Designation), ...incoming.map((item) => item.designation)]),
-      group: uniqueOptions([...defaultWorkOptions.group, ...employees.map((item) => item.EmpGroup), ...incoming.map((item) => item.group)]),
-      reportingTo: uniqueOptions([...employees.map((item) => item.FullName), ...employees.map((item) => item.ReportingTo), ...incoming.map((item) => item.reportingTo)]),
-      status: uniqueOptions([...defaultWorkOptions.status, ...employees.map((item) => item.PayrollStatus || item.Status), ...incoming.map((item) => item.payrollStatus)])
+      company: uniqueOptions([...defaultWorkOptions.company, ...quickAddOptions.company, ...employees.map((item) => item.Company), ...incoming.map((item) => item.company)]),
+      department: uniqueOptions([...defaultWorkOptions.department, ...quickAddOptions.department, ...employees.map((item) => item.Department), ...incoming.map((item) => item.department)]),
+      branch: uniqueOptions([...defaultWorkOptions.branch, ...quickAddOptions.branch, ...employees.map((item) => item.Branch), ...incoming.map((item) => item.branch)]),
+      section: uniqueOptions([...defaultWorkOptions.section, ...quickAddOptions.section, ...employees.map((item) => item.Section), ...incoming.map((item) => item.section)]),
+      location: uniqueOptions([...defaultWorkOptions.location, ...quickAddOptions.location, ...employees.map((item) => item.Location), ...incoming.map((item) => item.location)]),
+      designation: uniqueOptions([...defaultWorkOptions.designation, ...quickAddOptions.designation, ...employees.map((item) => item.Designation), ...incoming.map((item) => item.designation)]),
+      group: uniqueOptions([...defaultWorkOptions.group, ...quickAddOptions.group, ...employees.map((item) => item.EmpGroup), ...incoming.map((item) => item.group)]),
+      reportingTo: uniqueOptions([...quickAddOptions.reportingTo, ...employees.map((item) => item.FullName), ...employees.map((item) => item.ReportingTo), ...incoming.map((item) => item.reportingTo)]),
+      status: uniqueOptions([...defaultWorkOptions.status, ...quickAddOptions.status, ...employees.map((item) => item.PayrollStatus || item.Status), ...incoming.map((item) => item.payrollStatus)]),
+      jobBand: uniqueOptions([...quickAddOptions.jobBand, ...employees.map((item) => item.JobBand), ...incoming.map((item) => item.jobBand)]),
+      nationality: uniqueOptions([...quickAddOptions.nationality, ...employees.map((item) => item.Nationality), ...incoming.map((item) => item.nationality)])
     };
-  }, [employees, importPreview]);
+  }, [employees, importPreview, quickAddOptions]);
+
+  function handleQuickAddOption(key: QuickAddOptionKey, label: string, selectValue: (value: string) => void) {
+    const nextValue = window.prompt(`Add ${label}`);
+    const normalized = nextValue?.trim();
+    if (!normalized) return;
+    setQuickAddOptions((current) => ({
+      ...current,
+      [key]: uniqueOptions([...(current[key] || []), normalized])
+    }));
+    selectValue(normalized);
+    setMessage(`${label} added: ${normalized}`);
+  }
 
   const displayedReport = getDisplayedReport();
   const displayedReportTotalRows = buildReportTotalRows(displayedReport);
@@ -4157,9 +4188,6 @@ export default function DashboardPage() {
               <label className="floating-field">
                 <select value={loginForm.company} onChange={(e) => setLoginForm({ ...loginForm, company: e.target.value })} aria-label="Company Selection">
                   <option value="ATLAS">ATLAS</option>
-                  <option value="ENAL">ENAL Trading</option>
-                  <option value="AKNAN">AKNAN</option>
-                  <option value="ARKAN">ARKAN Glass</option>
                 </select>
                 <span>Company Selection</span>
               </label>
@@ -4215,7 +4243,6 @@ export default function DashboardPage() {
         <label className="company-switcher">
           <span>Company</span>
           <select value={selectedCompanyId} onChange={(event) => handleCompanySwitch(event.target.value)}>
-            <option value="">All companies</option>
             {companies.map((company) => <option key={company.CompanyID} value={company.CompanyID}>{company.CompanyName}</option>)}
           </select>
         </label>
@@ -4305,7 +4332,7 @@ export default function DashboardPage() {
 
         {showNotifications && (
           <section className="glass-panel notifications-panel">
-            <div className="card-title"><Bell size={18} /> Calibration and validation notifications</div>
+              <div className="card-title"><Bell size={18} /> System verification notifications</div>
             <div className="stack-list">
               {notificationItems.map((item, index) => (
                 <div className={`notice notice-${item.tone}`} key={`${item.title}-${index}`}>
@@ -4509,11 +4536,11 @@ export default function DashboardPage() {
                 <Field label="Employee code"><input placeholder="Employee code" disabled={Boolean(editingEmployeeId)} value={employeeForm.code} onChange={(e) => setEmployeeForm({ ...employeeForm, code: e.target.value })} /></Field>
                 <Field label="Full name"><input placeholder="Full name" value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></Field>
                 <Field label="Bank code"><input placeholder="Bank code" value={employeeForm.bankCode} onChange={(e) => setEmployeeForm({ ...employeeForm, bankCode: e.target.value })} /></Field>
-                <Field label="Job band"><input placeholder="Job band" value={employeeForm.jobBand} onChange={(e) => setEmployeeForm({ ...employeeForm, jobBand: e.target.value })} /></Field>
+                <SelectField placeholder="Job band" value={employeeForm.jobBand} options={workOptions.jobBand} onChange={(value) => setEmployeeForm({ ...employeeForm, jobBand: value })} onAddOption={() => handleQuickAddOption("jobBand", "Job band", (value) => setEmployeeForm((current) => ({ ...current, jobBand: value })))} />
                 <Field label="Join date"><input type="date" value={employeeForm.joinDate} onChange={(e) => setEmployeeForm({ ...employeeForm, joinDate: e.target.value })} /></Field>
                 <Field label="CPR / Bahrain ID"><input placeholder="CPR / Bahrain ID" value={employeeForm.cpr} onChange={(e) => setEmployeeForm({ ...employeeForm, cpr: e.target.value })} /></Field>
                 <Field label="Passport number"><input placeholder="Passport number" value={employeeForm.passport} onChange={(e) => setEmployeeForm({ ...employeeForm, passport: e.target.value })} /></Field>
-                <Field label="Nationality"><input placeholder="Nationality" value={employeeForm.nationality} onChange={(e) => setEmployeeForm({ ...employeeForm, nationality: e.target.value })} /></Field>
+                <SelectField placeholder="Nationality" value={employeeForm.nationality} options={workOptions.nationality} onChange={(value) => setEmployeeForm({ ...employeeForm, nationality: value })} onAddOption={() => handleQuickAddOption("nationality", "Nationality", (value) => setEmployeeForm((current) => ({ ...current, nationality: value })))} />
                 <Field label="Bahraini national"><select value={employeeForm.bahrainiNational} onChange={(e) => setEmployeeForm({ ...employeeForm, bahrainiNational: e.target.value })}>
                   <option value="No">Non Bahraini</option>
                   <option value="Yes">Bahraini</option>
@@ -4522,15 +4549,15 @@ export default function DashboardPage() {
               </div>
               <div className="form-section-label">Work</div>
               <div className="form-grid two">
-                <SelectField placeholder="Company" value={employeeForm.company} options={workOptions.company} onChange={(value) => setEmployeeForm({ ...employeeForm, company: value })} />
-                <SelectField placeholder="Department" value={employeeForm.department} options={workOptions.department} onChange={(value) => setEmployeeForm({ ...employeeForm, department: value })} />
-                <SelectField placeholder="Branch" value={employeeForm.branch} options={workOptions.branch} onChange={(value) => setEmployeeForm({ ...employeeForm, branch: value })} />
-                <SelectField placeholder="Section" value={employeeForm.section} options={workOptions.section} onChange={(value) => setEmployeeForm({ ...employeeForm, section: value })} />
-                <SelectField placeholder="Location" value={employeeForm.location} options={workOptions.location} onChange={(value) => setEmployeeForm({ ...employeeForm, location: value })} />
-                <SelectField placeholder="Designation" value={employeeForm.designation} options={workOptions.designation} onChange={(value) => setEmployeeForm({ ...employeeForm, designation: value })} />
-                <SelectField placeholder="Pay group" value={employeeForm.group} options={workOptions.group} onChange={(value) => setEmployeeForm({ ...employeeForm, group: value })} />
-                <SelectField placeholder="Reporting to" value={employeeForm.reportingTo} options={workOptions.reportingTo} onChange={(value) => setEmployeeForm({ ...employeeForm, reportingTo: value })} />
-                <SelectField placeholder="Employee status" value={employeeForm.payrollStatus} options={workOptions.status} onChange={(value) => setEmployeeForm({ ...employeeForm, payrollStatus: value })} />
+                <SelectField placeholder="Company" value={employeeForm.company} options={workOptions.company} onChange={(value) => setEmployeeForm({ ...employeeForm, company: value })} onAddOption={() => handleQuickAddOption("company", "Company", (value) => setEmployeeForm((current) => ({ ...current, company: value })))} />
+                <SelectField placeholder="Department" value={employeeForm.department} options={workOptions.department} onChange={(value) => setEmployeeForm({ ...employeeForm, department: value })} onAddOption={() => handleQuickAddOption("department", "Department", (value) => setEmployeeForm((current) => ({ ...current, department: value })))} />
+                <SelectField placeholder="Branch" value={employeeForm.branch} options={workOptions.branch} onChange={(value) => setEmployeeForm({ ...employeeForm, branch: value })} onAddOption={() => handleQuickAddOption("branch", "Branch", (value) => setEmployeeForm((current) => ({ ...current, branch: value })))} />
+                <SelectField placeholder="Section" value={employeeForm.section} options={workOptions.section} onChange={(value) => setEmployeeForm({ ...employeeForm, section: value })} onAddOption={() => handleQuickAddOption("section", "Section", (value) => setEmployeeForm((current) => ({ ...current, section: value })))} />
+                <SelectField placeholder="Location" value={employeeForm.location} options={workOptions.location} onChange={(value) => setEmployeeForm({ ...employeeForm, location: value })} onAddOption={() => handleQuickAddOption("location", "Location", (value) => setEmployeeForm((current) => ({ ...current, location: value })))} />
+                <SelectField placeholder="Designation" value={employeeForm.designation} options={workOptions.designation} onChange={(value) => setEmployeeForm({ ...employeeForm, designation: value })} onAddOption={() => handleQuickAddOption("designation", "Designation", (value) => setEmployeeForm((current) => ({ ...current, designation: value })))} />
+                <SelectField placeholder="Pay group" value={employeeForm.group} options={workOptions.group} onChange={(value) => setEmployeeForm({ ...employeeForm, group: value })} onAddOption={() => handleQuickAddOption("group", "Pay group", (value) => setEmployeeForm((current) => ({ ...current, group: value })))} />
+                <SelectField placeholder="Reporting to" value={employeeForm.reportingTo} options={workOptions.reportingTo} onChange={(value) => setEmployeeForm({ ...employeeForm, reportingTo: value })} onAddOption={() => handleQuickAddOption("reportingTo", "Reporting to", (value) => setEmployeeForm((current) => ({ ...current, reportingTo: value })))} />
+                <SelectField placeholder="Employee status" value={employeeForm.payrollStatus} options={workOptions.status} onChange={(value) => setEmployeeForm({ ...employeeForm, payrollStatus: value })} onAddOption={() => handleQuickAddOption("status", "Employee status", (value) => setEmployeeForm((current) => ({ ...current, payrollStatus: value })))} />
                 <Field label="Last working date"><input type="date" value={employeeForm.lastWorkingDate} onChange={(e) => setEmployeeForm({ ...employeeForm, lastWorkingDate: e.target.value })} /></Field>
                 <Field label="Email"><input placeholder="Email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></Field>
                 <Field label="WhatsApp number"><input placeholder="973XXXXXXXX" value={employeeForm.whatsappNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, whatsappNumber: e.target.value })} /></Field>
@@ -5033,7 +5060,7 @@ export default function DashboardPage() {
                     <option value="settled">Settled</option>
                   </select>
                   <button className="soft-button" disabled={busy} onClick={handleExportLoans}><Download size={16} /> Export Loans</button>
-                  <button className="soft-button" disabled={busy} onClick={handlePreviewSelectedEmis}><Eye size={16} /> Preview selected EMI</button>
+                  <button className="soft-button" disabled={busy} onClick={handlePreviewSelectedEmis}><Eye size={16} /> Run selected EMI preview</button>
                   <button className="shine-button" disabled={busy || !monthlyEmiRunPreview || monthlyEmiRunPreview.processed === 0} onClick={handleRunSelectedEmis}>Process preview</button>
                   <button className="soft-button" disabled={busy || selectedLoanIds.length === 0} onClick={handlePreviewReturnSelectedEmis}>Preview return EMI</button>
                   <button className="danger-button" disabled={busy || !monthlyEmiReturnPreview || monthlyEmiReturnPreview.reversible === 0} onClick={handleReturnSelectedEmis}>Process return</button>
@@ -6159,14 +6186,15 @@ function EmployeeTable({
   );
 }
 
-function SelectField({ placeholder, value, options, onChange }: {
+function SelectField({ placeholder, value, options, onChange, onAddOption }: {
   placeholder: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
+  onAddOption?: () => void;
 }) {
   return (
-    <Field label={placeholder}>
+    <Field label={placeholder} onDoubleClick={onAddOption}>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="">{placeholder}</option>
         {options.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -6175,9 +6203,9 @@ function SelectField({ placeholder, value, options, onChange }: {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, onDoubleClick }: { label: string; children: React.ReactNode; onDoubleClick?: () => void }) {
   return (
-    <label className="field-shell">
+    <label className="field-shell" onDoubleClick={onDoubleClick}>
       <span>{label}</span>
       {children}
     </label>

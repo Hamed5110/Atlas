@@ -14,9 +14,10 @@ param(
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.4-x64.msi",
+    [switch]$UpdateOnly,
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.5-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.4-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.5-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -1122,6 +1123,9 @@ function Invoke-Build {
         "-d", "SqlExpressSetupExe=$SqlExpressSetupExe",
         "-o", $Output
     )
+    if ($UpdateOnly) {
+        $args = $args[0..($args.Count - 3)] + @("-d", "UpdateOnly=1") + $args[($args.Count - 2)..($args.Count - 1)]
+    }
     Write-Step "Building bootstrapper EXE..."
     & wix @args
     if ($LASTEXITCODE -ne 0) { throw "WiX build failed with exit code $LASTEXITCODE." }

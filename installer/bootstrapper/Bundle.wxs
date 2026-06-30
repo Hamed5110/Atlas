@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.4" ?>
+  <?define ProductVersion = "2.3.5" ?>
   <?define UpgradeCode = "9dfb0a1f-8dc4-42f1-86eb-a53f40c898f1" ?>
 
   <Bundle
@@ -33,6 +33,12 @@
         SuppressOptionsUI="no"
         SuppressRepair="no" />
     </BootstrapperApplication>
+
+    <?ifdef UpdateOnly ?>
+    <bal:Condition
+      Message="ATLAS Airfare Allowance is not installed. Use the full installer on new machines."
+      Condition="ATLASAPPINSTALLED OR WixBundleInstalled" />
+    <?endif ?>
 
     <Variable Name="ATLASPORT" Value="3355" bal:Overridable="yes" />
     <Variable Name="INSTALLSQLEXPRESS" Value="1" bal:Overridable="yes" />
