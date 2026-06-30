@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.12" ?>
+  <?define ProductVersion = "2.3.13" ?>
   <?ifdef UpdateOnly ?>
     <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
     <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
@@ -25,6 +25,7 @@
     <?define ApplicationPackageId = "AtlasUpdateApplication" ?>
     <?define ConfigurePackageId = "AtlasUpdateConfigure" ?>
     <?define TroubleshootPackageId = "AtlasUpdateTroubleshoot" ?>
+    <?define PreflightVital = "no" ?>
     <?define AtlasPreflightInstallArgs = "UpdateOnlyPrepare -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasPreflightRepairArgs = "UpdateOnlyPrepare -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasConfigureInstallArgs = "UpdateOnlyFinalize -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
@@ -37,6 +38,7 @@
     <?define ApplicationPackageId = "AtlasApplication" ?>
     <?define ConfigurePackageId = "AtlasConfigure" ?>
     <?define TroubleshootPackageId = "AtlasTroubleshoot" ?>
+    <?define PreflightVital = "yes" ?>
     <?define AtlasPreflightInstallArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasPreflightRepairArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasConfigureInstallArgs = "Install -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
@@ -117,7 +119,7 @@
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-preflight-runner.exe"
         PerMachine="yes"
-        Vital="yes"
+        Vital="$(var.PreflightVital)"
         Permanent="yes"
         DetectCondition="0"
         InstallArguments="$(var.AtlasPreflightInstallArgs)"
