@@ -14,9 +14,9 @@ param(
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.3-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.4-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.3-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.4-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -505,12 +505,17 @@ function Prompt-AtlasInstallSettings {
                 continue
             }
         }
-        try {
-            Assert-PortAvailable -PortNumber $selectedPort
-            Write-Host "Port $selectedPort is available." -ForegroundColor Green
+        if ($selectedSetupAction -eq "Install") {
+            try {
+                Assert-PortAvailable -PortNumber $selectedPort
+                Write-Host "Port $selectedPort is available." -ForegroundColor Green
+                break
+            } catch {
+                Write-Host "$($_.Exception.Message) For an existing ATLAS installation, choose Update or Repair." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Port $selectedPort will be reused for $selectedSetupAction." -ForegroundColor Green
             break
-        } catch {
-            Write-Host $_.Exception.Message -ForegroundColor Yellow
         }
     }
 

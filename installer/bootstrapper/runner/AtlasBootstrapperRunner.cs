@@ -308,9 +308,10 @@ namespace AtlasBootstrapperRunner
                 Fail("Enter a valid TCP port number from 1 to 65535.");
                 return;
             }
-            if (IsPortInUse(port))
+            var setupAction = SelectedSetupAction();
+            if (setupAction.Equals("Install", StringComparison.OrdinalIgnoreCase) && IsPortInUse(port))
             {
-                Fail("Port " + port + " is already in use. Enter a different port.");
+                Fail("Port " + port + " is already in use. For a new install, enter a different port. For an existing ATLAS installation, choose Update or Repair.");
                 return;
             }
 
@@ -329,7 +330,6 @@ namespace AtlasBootstrapperRunner
             var instance = (instanceBox.Text ?? "").Trim();
             if (string.IsNullOrWhiteSpace(instance)) instance = "ATLAS";
             var password = passwordBox.Text ?? "";
-            var setupAction = SelectedSetupAction();
             if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(password))
             {
                 Fail("Enter the MSSQL sa password.");
