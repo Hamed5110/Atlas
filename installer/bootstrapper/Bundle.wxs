@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.2.8" ?>
+  <?define ProductVersion = "2.2.9" ?>
   <?define UpgradeCode = "9dfb0a1f-8dc4-42f1-86eb-a53f40c898f1" ?>
 
   <Bundle
@@ -58,7 +58,7 @@
     <Chain DisableRollback="no" DisableSystemRestore="no" ParallelCache="yes">
       <ExePackage
         Id="AtlasPreflight"
-        CacheId="ATLAS_Preflight_PowerShell"
+        CacheId="ATLAS_Preflight_PowerShell_$(var.ProductVersion)"
         DisplayName="ATLAS pre-install validation"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-preflight-runner.exe"
@@ -73,14 +73,14 @@
 
       <MsiPackage
         Id="AtlasApplication"
-        CacheId="ATLAS_Application_MSI"
+        CacheId="ATLAS_Application_MSI_$(var.ProductVersion)"
         DisplayName="ATLAS Airfare Allowance"
         SourceFile="$(var.AppMsi)"
         Compressed="yes"
         Vital="yes"
         Permanent="no">
         <MsiProperty Name="ATLASPORT" Value="[ATLASPORT]" />
-        <MsiProperty Name="DB_SERVER" Value="localhost\[SQLINSTANCE]" />
+        <MsiProperty Name="DB_SERVER" Value="localhost" />
         <MsiProperty Name="DB_PORT" Value="1433" />
         <MsiProperty Name="DB_NAME" Value="Atlasairfare010" />
         <MsiProperty Name="DB_USER" Value="sa" />
@@ -91,7 +91,7 @@
 
       <ExePackage
         Id="AtlasConfigure"
-        CacheId="ATLAS_Configure_PowerShell"
+        CacheId="ATLAS_Configure_PowerShell_$(var.ProductVersion)"
         DisplayName="ATLAS database migration and service start"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-configure-runner.exe"
@@ -108,7 +108,7 @@
 
       <ExePackage
         Id="AtlasTroubleshoot"
-        CacheId="ATLAS_Troubleshoot_PowerShell"
+        CacheId="ATLAS_Troubleshoot_PowerShell_$(var.ProductVersion)"
         DisplayName="ATLAS troubleshooter"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-troubleshoot-runner.exe"

@@ -8,9 +8,9 @@ param(
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.2.8-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.2.9-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.2.8-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.2.9-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -502,12 +502,17 @@ function Start-Atlas {
     if (-not (Test-Path $taskInstaller)) {
         throw "ATLAS startup task installer was not found: $taskInstaller"
     }
+    $taskOutLog = Join-Path $InstallPath "logs\atlas-startup-task-install-out.log"
+    $taskErrLog = Join-Path $InstallPath "logs\atlas-startup-task-install-err.log"
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$taskInstaller`" -InstallRoot `"$InstallPath`" -StartNow"
     $process = Start-Process -FilePath "powershell.exe" `
-        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $taskInstaller, "-InstallRoot", $InstallPath, "-StartNow") `
+        -ArgumentList $arguments `
         -WorkingDirectory $InstallPath `
         -Wait `
         -PassThru `
-        -WindowStyle Hidden
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $taskOutLog `
+        -RedirectStandardError $taskErrLog
     if ($process.ExitCode -ne 0) {
         throw "ATLAS startup task failed with exit code $($process.ExitCode)."
     }
