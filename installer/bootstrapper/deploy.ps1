@@ -15,9 +15,9 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.7-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.8-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.7-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.8-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -868,6 +868,127 @@ LOCKOUT_MINUTES=30
     Set-Content -Path (Join-Path $InstallPath ".env") -Value $content -Encoding ASCII
 }
 
+function Read-AtlasEnvConfig {
+    param([string]$InstallPath)
+    $settings = [ordered]@{}
+    $envPath = Join-Path $InstallPath ".env"
+    if (-not (Test-Path -LiteralPath $envPath)) {
+        return $settings
+    }
+
+    Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_ -match '^\s*([^#=]+)\s*=(.*)$') {
+            $settings[$Matches[1].Trim()] = $Matches[2].Trim()
+        }
+    }
+    return $settings
+}
+
+function Write-AtlasEnvConfig {
+    param(
+        [string]$InstallPath,
+        [System.Collections.IDictionary]$Settings
+    )
+    $envPath = Join-Path $InstallPath ".env"
+    $lines = foreach ($key in $Settings.Keys) {
+        "$key=$($Settings[$key])"
+    }
+    Set-Content -LiteralPath $envPath -Value $lines -Encoding ASCII
+}
+
+function Get-AtlasEnvInt {
+    param(
+        [System.Collections.IDictionary]$Settings,
+        [string]$Name,
+        [int]$Fallback
+    )
+    $parsed = 0
+    if ($Settings.Contains($Name) -and [int]::TryParse(([string]$Settings[$Name]).Trim(), [ref]$parsed) -and $parsed -gt 0 -and $parsed -le 65535) {
+        return $parsed
+    }
+    return $Fallback
+}
+
+function Repair-AtlasConfigForPatch {
+    param([string]$InstallPath)
+
+    $settings = Read-AtlasEnvConfig -InstallPath $InstallPath
+    $changed = $false
+
+    $appPort = Get-AtlasEnvInt -Settings $settings -Name "PORT" -Fallback $Port
+    if (-not $settings.Contains("PORT") -or [string]$settings["PORT"] -ne [string]$appPort) {
+        $settings["PORT"] = [string]$appPort
+        $changed = $true
+    }
+    $defaultSettings = [ordered]@{
+        HOST = "0.0.0.0"
+        DB_SERVER = "127.0.0.1"
+        DB_NAME = "Atlasairfare010"
+        DB_USER = "sa"
+        DB_ODBC_DRIVER = "ODBC Driver 18 for SQL Server"
+        DB_AUTO_SETUP = "1"
+        DB_ENCRYPT = "false"
+        DB_TRUST_SERVER_CERTIFICATE = "true"
+        CORS_ORIGIN = "*"
+        JWT_EXPIRES_IN = "8h"
+        MAX_LOGIN_ATTEMPTS = "5"
+        LOCKOUT_MINUTES = "30"
+    }
+    foreach ($pair in $defaultSettings.GetEnumerator()) {
+        if (-not $settings.Contains($pair.Key) -or [string]::IsNullOrWhiteSpace([string]$settings[$pair.Key])) {
+            $settings[$pair.Key] = $pair.Value
+            $changed = $true
+        }
+    }
+    if (-not $settings.Contains("JWT_SECRET") -or [string]::IsNullOrWhiteSpace([string]$settings["JWT_SECRET"])) {
+        $secretBytes = New-Object byte[] 48
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($secretBytes)
+        $settings["JWT_SECRET"] = [Convert]::ToBase64String($secretBytes)
+        $changed = $true
+    }
+
+    $currentSqlPort = Get-AtlasEnvInt -Settings $settings -Name "DB_PORT" -Fallback 0
+    $effectiveSqlPort = $currentSqlPort
+    if ($effectiveSqlPort -gt 0 -and (Test-TcpPort -Server "127.0.0.1" -PortNumber $effectiveSqlPort)) {
+        Write-Step "Update patch kept existing reachable MSSQL port 127.0.0.1:$effectiveSqlPort."
+    } else {
+        $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $SqlInstance
+        Ensure-SqlService -InstanceName $effectiveSqlInstance
+        $detectedSqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort 0
+        if ($detectedSqlPort -gt 0 -and (Test-TcpPort -Server "127.0.0.1" -PortNumber $detectedSqlPort)) {
+            $effectiveSqlPort = $detectedSqlPort
+            Write-Step "Update patch repaired MSSQL port to detected local SQL port 127.0.0.1:$effectiveSqlPort."
+        } elseif ($currentSqlPort -gt 0) {
+            Enable-SqlTcpPort -InstanceName $effectiveSqlInstance -PortNumber $currentSqlPort
+            $effectiveSqlPort = $currentSqlPort
+            Write-Step "Update patch restored SQL TCP/IP on existing configured port 127.0.0.1:$effectiveSqlPort."
+        } else {
+            $effectiveSqlPort = 1433
+            Enable-SqlTcpPort -InstanceName $effectiveSqlInstance -PortNumber $effectiveSqlPort
+            Write-Step "Update patch created missing MSSQL port configuration on 127.0.0.1:$effectiveSqlPort."
+        }
+    }
+
+    if (-not $settings.Contains("DB_PORT") -or [string]$settings["DB_PORT"] -ne [string]$effectiveSqlPort) {
+        $settings["DB_PORT"] = [string]$effectiveSqlPort
+        $changed = $true
+    }
+    if ($settings.Contains("DB_SERVER") -and [string]$settings["DB_SERVER"] -match '\\') {
+        $settings["DB_SERVER"] = "127.0.0.1"
+        $changed = $true
+    }
+
+    if ($changed) {
+        Write-AtlasEnvConfig -InstallPath $InstallPath -Settings $settings
+        Write-Step "Update patch refreshed ATLAS runtime config at $(Join-Path $InstallPath ".env")."
+    }
+
+    return @{
+        AppPort = $appPort
+        SqlPort = $effectiveSqlPort
+    }
+}
+
 function Start-Atlas {
     param([string]$InstallPath)
     $taskInstaller = Join-Path $InstallPath "Install-ATLAS-StartupTask.ps1"
@@ -935,7 +1056,8 @@ function Invoke-UpdateOnlyFinalize {
     Assert-Admin
     Assert-AtlasInstalledForPatch
     Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
-    $effectivePort = Get-AtlasConfiguredPort -InstallPath $InstallRoot -FallbackPort $Port
+    $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
+    $effectivePort = [int]$config.AppPort
     Start-Atlas -InstallPath $InstallRoot
     Start-Sleep -Seconds 8
     if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
