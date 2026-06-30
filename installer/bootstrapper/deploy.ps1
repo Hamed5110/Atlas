@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Build", "Preflight", "Install", "Repair", "Troubleshoot", "Backup")]
+    [ValidateSet("Build", "Preflight", "Install", "Repair", "Troubleshoot", "Backup", "UpdateOnlyPrepare", "UpdateOnlyFinalize")]
     [string]$Mode = "Build",
 
     [int]$Port = 3355,
@@ -15,9 +15,9 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.5-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.6-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.5-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.6-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -900,6 +900,51 @@ function Test-AtlasHealth {
     }
 }
 
+function Get-AtlasConfiguredPort {
+    param([string]$InstallPath, [int]$FallbackPort)
+    $envPath = Join-Path $InstallPath ".env"
+    if (Test-Path $envPath) {
+        $line = Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*PORT\s*=' } | Select-Object -First 1
+        if ($line) {
+            $raw = ($line -replace '^\s*PORT\s*=\s*', '').Trim()
+            $parsed = 0
+            if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -gt 0 -and $parsed -le 65535) {
+                return $parsed
+            }
+        }
+    }
+    return $FallbackPort
+}
+
+function Assert-AtlasInstalledForPatch {
+    if (Test-Path "HKLM:\SOFTWARE\ATLAS Airfare Allowance") { return }
+    if (Test-Path (Join-Path $InstallRoot "server.js")) { return }
+    throw "ATLAS Airfare Allowance is not installed. Use the full installer on new machines."
+}
+
+function Invoke-UpdateOnlyPrepare {
+    Assert-Admin
+    Assert-AtlasInstalledForPatch
+    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+    Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
+    Write-Step "Update-only patch prepared existing ATLAS installation. No SQL, company, or admin configuration was requested."
+}
+
+function Invoke-UpdateOnlyFinalize {
+    Assert-Admin
+    Assert-AtlasInstalledForPatch
+    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    $effectivePort = Get-AtlasConfiguredPort -InstallPath $InstallRoot -FallbackPort $Port
+    Start-Atlas -InstallPath $InstallRoot
+    Start-Sleep -Seconds 8
+    if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
+        Write-Step "Warning: ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health yet. Patch files were installed; run Troubleshooter if needed."
+        return
+    }
+    Write-Step "Update-only patch completed. ATLAS is healthy on http://127.0.0.1:$effectivePort/."
+}
+
 function Invoke-Preflight {
     Prompt-AtlasInstallSettings
     $hostInfo = Get-AtlasHostInfo
@@ -1138,6 +1183,8 @@ switch ($Mode) {
     "Install" { Invoke-InstallOrRepair }
     "Repair" { Invoke-InstallOrRepair -Repair }
     "Troubleshoot" { Invoke-Troubleshoot }
+    "UpdateOnlyPrepare" { Invoke-UpdateOnlyPrepare }
+    "UpdateOnlyFinalize" { Invoke-UpdateOnlyFinalize }
     "Backup" {
         Assert-Admin
         Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot

@@ -16,8 +16,19 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.5" ?>
+  <?define ProductVersion = "2.3.6" ?>
   <?define UpgradeCode = "9dfb0a1f-8dc4-42f1-86eb-a53f40c898f1" ?>
+  <?ifdef UpdateOnly ?>
+    <?define AtlasPreflightInstallArgs = "UpdateOnlyPrepare -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasPreflightRepairArgs = "UpdateOnlyPrepare -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasConfigureInstallArgs = "UpdateOnlyFinalize -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasConfigureRepairArgs = "UpdateOnlyFinalize -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+  <?else ?>
+    <?define AtlasPreflightInstallArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasPreflightRepairArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasConfigureInstallArgs = "Install -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasConfigureRepairArgs = "Repair -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+  <?endif ?>
 
   <Bundle
     Name="ATLAS Airfare Allowance"
@@ -72,8 +83,8 @@
         Vital="yes"
         Permanent="yes"
         DetectCondition="0"
-        InstallArguments="Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;"
-        RepairArguments="Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
+        InstallArguments="$(var.AtlasPreflightInstallArgs)"
+        RepairArguments="$(var.AtlasPreflightRepairArgs)">
         <Payload SourceFile="$(var.DeployScript)" Name="tools\preflight-deploy.ps1" />
       </ExePackage>
 
@@ -105,8 +116,8 @@
         Vital="yes"
         Permanent="yes"
         DetectCondition="0"
-        InstallArguments="Install -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;"
-        RepairArguments="Repair -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;"
+        InstallArguments="$(var.AtlasConfigureInstallArgs)"
+        RepairArguments="$(var.AtlasConfigureRepairArgs)"
         UninstallArguments="Backup -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
         <Payload SourceFile="$(var.DeployScript)" Name="tools\configure-deploy.ps1" />
         <Payload SourceFile="$(var.SqlExpressSetupExe)" Name="tools\SQLEXPR_x64_ENU.exe" />
