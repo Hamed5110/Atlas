@@ -8,9 +8,9 @@ param(
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.0-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.1-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.0-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.1-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -413,6 +413,51 @@ function Enable-SqlTcpPort {
     }
 }
 
+function Get-SqlConfiguredTcpPort {
+    param([string]$InstanceName)
+    $instanceId = Get-SqlInstanceRegistryId -InstanceName $InstanceName
+    if (-not $instanceId) { return 0 }
+
+    foreach ($tcpRoot in @(
+        "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceId\MSSQLServer\SuperSocketNetLib\Tcp",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\$instanceId\MSSQLServer\SuperSocketNetLib\Tcp"
+    )) {
+        $ipAll = Join-Path $tcpRoot "IPAll"
+        if (-not (Test-Path $ipAll)) { continue }
+        $props = Get-ItemProperty -Path $ipAll -ErrorAction SilentlyContinue
+        foreach ($name in @("TcpPort", "TcpDynamicPorts")) {
+            $raw = [string]$props.$name
+            $portValue = 0
+            if (-not [string]::IsNullOrWhiteSpace($raw) -and [int]::TryParse($raw.Trim(), [ref]$portValue) -and $portValue -gt 0) {
+                return $portValue
+            }
+        }
+    }
+    return 0
+}
+
+function Resolve-SqlTcpPort {
+    param(
+        [string]$InstanceName,
+        [int]$RequestedPort
+    )
+
+    if ($RequestedPort -gt 0) {
+        Enable-SqlTcpPort -InstanceName $InstanceName -PortNumber $RequestedPort
+        return $RequestedPort
+    }
+
+    $configured = Get-SqlConfiguredTcpPort -InstanceName $InstanceName
+    if ($configured -gt 0) {
+        Write-Step "Using SQL Server configured/default TCP port $configured for instance '$InstanceName'."
+        return $configured
+    }
+
+    Write-Step "SQL Server configured/default TCP port was not detected. Falling back to static port 1433."
+    Enable-SqlTcpPort -InstanceName $InstanceName -PortNumber 1433
+    return 1433
+}
+
 function Prompt-AtlasInstallSettings {
     Assert-Admin
     Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
@@ -441,14 +486,14 @@ function Prompt-AtlasInstallSettings {
 
     $selectedSqlPort = 1433
     while ($true) {
-        $rawSqlPort = Read-Host "MSSQL TCP port [$selectedSqlPort]"
+        $rawSqlPort = Read-Host "MSSQL TCP port [$selectedSqlPort, enter 0 for SQL Server default/current port]"
         if (-not [string]::IsNullOrWhiteSpace($rawSqlPort)) {
-            if (-not [int]::TryParse($rawSqlPort, [ref]$selectedSqlPort) -or $selectedSqlPort -lt 1 -or $selectedSqlPort -gt 65535) {
-                Write-Host "Enter a valid MSSQL TCP port number from 1 to 65535." -ForegroundColor Yellow
+            if (-not [int]::TryParse($rawSqlPort, [ref]$selectedSqlPort) -or $selectedSqlPort -lt 0 -or $selectedSqlPort -gt 65535) {
+                Write-Host "Enter 0 for SQL Server default/current port, or a TCP port number from 1 to 65535." -ForegroundColor Yellow
                 continue
             }
         }
-        if ($selectedSqlPort -eq $selectedPort) {
+        if ($selectedSqlPort -ne 0 -and $selectedSqlPort -eq $selectedPort) {
             Write-Host "MSSQL TCP port must be different from the ATLAS application port." -ForegroundColor Yellow
             continue
         }
@@ -697,7 +742,7 @@ function Invoke-InstallOrRepair {
     if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
         throw "MSSQL login verification failed during configuration."
     }
-    Enable-SqlTcpPort -InstanceName $effectiveSqlInstance -PortNumber $SqlPort
+    $SqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort $SqlPort
     if (-not (Test-TcpPort -Server "127.0.0.1" -PortNumber $SqlPort)) {
         throw "MSSQL TCP port 127.0.0.1:$SqlPort is not reachable after configuration. Enable SQL Server TCP/IP or choose the correct MSSQL port."
     }

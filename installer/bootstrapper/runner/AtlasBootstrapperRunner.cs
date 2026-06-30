@@ -177,7 +177,7 @@ namespace AtlasBootstrapperRunner
             TopMost = true;
 
             var title = new Label { Text = "ATLAS Airfare Allowance", Font = new Font(Font.FontFamily, 16F, FontStyle.Bold), Left = 18, Top = 14, Width = 470, Height = 35 };
-            var intro = new Label { Text = "Confirm the application port and MSSQL sa login before installation continues.", Left = 20, Top = 56, Width = 470, Height = 22 };
+            var intro = new Label { Text = "Confirm ATLAS port, MSSQL port, and sa login before installation continues.", Left = 20, Top = 56, Width = 470, Height = 22 };
 
             AddLabel("ATLAS application port", 20, 92);
             portBox.Left = 190;
@@ -256,12 +256,12 @@ namespace AtlasBootstrapperRunner
             }
 
             int sqlPort;
-            if (!int.TryParse(sqlPortBox.Text.Trim(), out sqlPort) || sqlPort < 1 || sqlPort > 65535)
+            if (!int.TryParse(sqlPortBox.Text.Trim(), out sqlPort) || sqlPort < 0 || sqlPort > 65535)
             {
-                Fail("Enter a valid MSSQL TCP port number from 1 to 65535.");
+                Fail("Enter 1433, another TCP port from 1 to 65535, or 0 to use SQL Server's default/current port.");
                 return;
             }
-            if (sqlPort == port)
+            if (sqlPort != 0 && sqlPort == port)
             {
                 Fail("MSSQL TCP port must be different from the ATLAS application port.");
                 return;
