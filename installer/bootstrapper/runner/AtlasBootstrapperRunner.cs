@@ -163,6 +163,10 @@ namespace AtlasBootstrapperRunner
         private readonly TextBox companyNameBox = new TextBox();
         private readonly TextBox adminUserBox = new TextBox();
         private readonly TextBox adminPasswordBox = new TextBox();
+        private readonly RadioButton installRadio = new RadioButton();
+        private readonly RadioButton updateRadio = new RadioButton();
+        private readonly RadioButton repairRadio = new RadioButton();
+        private readonly RadioButton troubleshootRadio = new RadioButton();
         private readonly Label statusLabel = new Label();
         private readonly string dataRoot;
         private readonly List<string> instances;
@@ -176,82 +180,105 @@ namespace AtlasBootstrapperRunner
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(560, 500);
+            ClientSize = new Size(600, 585);
             Font = new Font("Segoe UI", 9F);
             TopMost = true;
 
-            var title = new Label { Text = "ATLAS Airfare Allowance", Font = new Font(Font.FontFamily, 16F, FontStyle.Bold), Left = 18, Top = 14, Width = 510, Height = 35 };
-            var intro = new Label { Text = "Confirm ATLAS port, MSSQL sa login, company, and app admin before installation continues.", Left = 20, Top = 56, Width = 520, Height = 22 };
+            var title = new Label { Text = "ATLAS Airfare Allowance", Font = new Font(Font.FontFamily, 16F, FontStyle.Bold), Left = 18, Top = 14, Width = 550, Height = 35 };
+            var intro = new Label { Text = "Choose an action, then confirm ATLAS, MSSQL, company, and app admin settings.", Left = 20, Top = 56, Width = 560, Height = 22 };
 
-            AddLabel("ATLAS application port", 20, 92);
+            AddLabel("Setup action", 20, 92);
+            installRadio.Text = "Install / New";
+            installRadio.Left = 190;
+            installRadio.Top = 88;
+            installRadio.Width = 110;
+            installRadio.Checked = true;
+            updateRadio.Text = "Update";
+            updateRadio.Left = 305;
+            updateRadio.Top = 88;
+            updateRadio.Width = 75;
+            repairRadio.Text = "Repair";
+            repairRadio.Left = 385;
+            repairRadio.Top = 88;
+            repairRadio.Width = 75;
+            troubleshootRadio.Text = "Troubleshoot";
+            troubleshootRadio.Left = 465;
+            troubleshootRadio.Top = 88;
+            troubleshootRadio.Width = 105;
+
+            AddLabel("ATLAS application port", 20, 126);
             portBox.Left = 190;
-            portBox.Top = 88;
-            portBox.Width = 320;
+            portBox.Top = 122;
+            portBox.Width = 360;
             portBox.Text = defaultPort.ToString();
 
-            AddLabel("MSSQL TCP port", 20, 126);
+            AddLabel("MSSQL TCP port", 20, 160);
             sqlPortBox.Left = 190;
-            sqlPortBox.Top = 122;
-            sqlPortBox.Width = 320;
+            sqlPortBox.Top = 156;
+            sqlPortBox.Width = 360;
             sqlPortBox.Text = "1433";
 
-            AddLabel("MSSQL instance", 20, 160);
+            AddLabel("MSSQL instance", 20, 194);
             instanceBox.Left = 190;
-            instanceBox.Top = 156;
-            instanceBox.Width = 320;
+            instanceBox.Top = 190;
+            instanceBox.Width = 360;
             instanceBox.DropDownStyle = ComboBoxStyle.DropDown;
             foreach (var instance in instances) instanceBox.Items.Add(instance);
             instanceBox.Text = instances.Count > 0 ? PreferInstance(instances) : "ATLAS";
 
-            AddLabel("MSSQL sa password", 20, 194);
+            AddLabel("MSSQL sa password", 20, 228);
             passwordBox.Left = 190;
-            passwordBox.Top = 190;
-            passwordBox.Width = 320;
+            passwordBox.Top = 224;
+            passwordBox.Width = 360;
             passwordBox.PasswordChar = '*';
 
-            AddLabel("Company code", 20, 228);
+            AddLabel("Company code", 20, 262);
             companyCodeBox.Left = 190;
-            companyCodeBox.Top = 224;
-            companyCodeBox.Width = 320;
+            companyCodeBox.Top = 258;
+            companyCodeBox.Width = 360;
             companyCodeBox.Text = "ATLAS";
 
-            AddLabel("Company name", 20, 262);
+            AddLabel("Company name", 20, 296);
             companyNameBox.Left = 190;
-            companyNameBox.Top = 258;
-            companyNameBox.Width = 320;
+            companyNameBox.Top = 292;
+            companyNameBox.Width = 360;
             companyNameBox.Text = "ATLAS Airfare HCM";
 
-            AddLabel("App admin login", 20, 296);
+            AddLabel("App admin login", 20, 330);
             adminUserBox.Left = 190;
-            adminUserBox.Top = 292;
-            adminUserBox.Width = 320;
+            adminUserBox.Top = 326;
+            adminUserBox.Width = 360;
             adminUserBox.Text = "admin";
 
-            AddLabel("App admin password", 20, 330);
+            AddLabel("App admin password", 20, 364);
             adminPasswordBox.Left = 190;
-            adminPasswordBox.Top = 326;
-            adminPasswordBox.Width = 320;
+            adminPasswordBox.Top = 360;
+            adminPasswordBox.Width = 360;
             adminPasswordBox.PasswordChar = '*';
 
             var sqlInfo = instances.Count > 0
                 ? "Existing SQL Server detected. SQL Express will be skipped."
                 : "No local SQL Server detected. Bundled SQL Express will be installed.";
-            var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 364, Width = 520, Height = 22 };
+            var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 400, Width = 560, Height = 22 };
 
             statusLabel.Left = 20;
-            statusLabel.Top = 392;
-            statusLabel.Width = 520;
+            statusLabel.Top = 430;
+            statusLabel.Width = 560;
             statusLabel.Height = 55;
             statusLabel.ForeColor = Color.DimGray;
-            statusLabel.Text = "Waiting for confirmation.";
+            statusLabel.Text = "Install/New creates a fresh setup. Update keeps data and refreshes files. Repair fixes services, database configuration, and app admin lockout. Troubleshoot writes a diagnostic report.";
 
-            var ok = new Button { Text = "Verify and Continue", Left = 322, Top = 460, Width = 140, Height = 28 };
+            var ok = new Button { Text = "Verify and Continue", Left = 362, Top = 540, Width = 140, Height = 28 };
             ok.Click += VerifyAndContinue;
-            var cancel = new Button { Text = "Cancel", Left = 470, Top = 460, Width = 70, Height = 28 };
+            var cancel = new Button { Text = "Cancel", Left = 510, Top = 540, Width = 70, Height = 28 };
             cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
 
             Controls.Add(title);
             Controls.Add(intro);
+            Controls.Add(installRadio);
+            Controls.Add(updateRadio);
+            Controls.Add(repairRadio);
+            Controls.Add(troubleshootRadio);
             Controls.Add(portBox);
             Controls.Add(sqlPortBox);
             Controls.Add(instanceBox);
@@ -302,7 +329,8 @@ namespace AtlasBootstrapperRunner
             var instance = (instanceBox.Text ?? "").Trim();
             if (string.IsNullOrWhiteSpace(instance)) instance = "ATLAS";
             var password = passwordBox.Text ?? "";
-            if (string.IsNullOrEmpty(password))
+            var setupAction = SelectedSetupAction();
+            if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(password))
             {
                 Fail("Enter the MSSQL sa password.");
                 return;
@@ -326,13 +354,13 @@ namespace AtlasBootstrapperRunner
                 return;
             }
             var adminPassword = adminPasswordBox.Text ?? "";
-            if (adminPassword.Length < 8)
+            if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && adminPassword.Length < 8)
             {
                 Fail("Enter an application admin password with at least 8 characters.");
                 return;
             }
 
-            if (instances.Count > 0)
+            if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && instances.Count > 0)
             {
                 string error;
                 if (!TestSqlLogin(instance, password, out error))
@@ -341,9 +369,9 @@ namespace AtlasBootstrapperRunner
                     return;
                 }
                 statusLabel.ForeColor = Color.Green;
-                statusLabel.Text = "ATLAS port and MSSQL sa login confirmed. The app admin will be created or unlocked.";
+                statusLabel.Text = setupAction + " confirmed. MSSQL sa login is valid. The app admin will be created or unlocked.";
             }
-            else
+            else if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase))
             {
                 if (!IsStrongPassword(password))
                 {
@@ -351,10 +379,15 @@ namespace AtlasBootstrapperRunner
                     return;
                 }
                 statusLabel.ForeColor = Color.Green;
-                statusLabel.Text = "Port confirmed. SQL Express will be installed and the app admin will be created.";
+                statusLabel.Text = setupAction + " confirmed. SQL Express will be installed and the app admin will be created.";
+            }
+            else
+            {
+                statusLabel.ForeColor = Color.Green;
+                statusLabel.Text = "Troubleshooter confirmed. A diagnostic report will be generated.";
             }
 
-            WriteConfig(port, sqlPort, instance, password, companyCode, companyName, adminUser, adminPassword);
+            WriteConfig(port, sqlPort, instance, password, companyCode, companyName, adminUser, adminPassword, setupAction);
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -366,7 +399,15 @@ namespace AtlasBootstrapperRunner
             MessageBox.Show(this, message, "ATLAS setup", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
-        private void WriteConfig(int port, int sqlPort, string instance, string password, string companyCode, string companyName, string adminUser, string adminPassword)
+        private string SelectedSetupAction()
+        {
+            if (updateRadio.Checked) return "Update";
+            if (repairRadio.Checked) return "Repair";
+            if (troubleshootRadio.Checked) return "Troubleshoot";
+            return "Install";
+        }
+
+        private void WriteConfig(int port, int sqlPort, string instance, string password, string companyCode, string companyName, string adminUser, string adminPassword, string setupAction)
         {
             Directory.CreateDirectory(dataRoot);
             var path = Path.Combine(dataRoot, "bootstrapper-config.json");
@@ -379,6 +420,7 @@ namespace AtlasBootstrapperRunner
                 "  \"CompanyName\": \"" + EscapeJson(companyName) + "\",\r\n" +
                 "  \"AdminUsername\": \"" + EscapeJson(adminUser) + "\",\r\n" +
                 "  \"AdminPassword\": \"" + EscapeJson(adminPassword) + "\",\r\n" +
+                "  \"SetupAction\": \"" + EscapeJson(setupAction) + "\",\r\n" +
                 "  \"CreatedAt\": \"" + DateTime.UtcNow.ToString("o") + "\"\r\n" +
                 "}\r\n";
             File.WriteAllText(path, json, Encoding.UTF8);

@@ -9,12 +9,14 @@ param(
     [string]$CompanyName = "ATLAS Airfare HCM",
     [string]$AdminUsername = "admin",
     [string]$AdminPassword = "",
+    [ValidateSet("Install", "Update", "Repair", "Troubleshoot")]
+    [string]$SetupAction = "Install",
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.2-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.3-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.2-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.3-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -85,7 +87,8 @@ function Write-BootstrapConfig {
         [string]$CompanyCodeValue,
         [string]$CompanyNameValue,
         [string]$AdminUsernameValue,
-        [string]$AdminPasswordValue
+        [string]$AdminPasswordValue,
+        [string]$SetupActionValue
     )
     New-Item -ItemType Directory -Path $DataPath -Force | Out-Null
     $path = Get-BootstrapConfigPath -DataPath $DataPath
@@ -98,6 +101,7 @@ function Write-BootstrapConfig {
         CompanyName = $CompanyNameValue
         AdminUsername = $AdminUsernameValue
         AdminPassword = $AdminPasswordValue
+        SetupAction = $SetupActionValue
         CreatedAt = (Get-Date).ToString("o")
     } | ConvertTo-Json | Set-Content -Path $path -Encoding UTF8
     try {
@@ -478,6 +482,20 @@ function Prompt-AtlasInstallSettings {
     Write-Host "ATLAS setup configuration" -ForegroundColor Cyan
     Write-Host ""
 
+    $selectedSetupAction = $SetupAction
+    Write-Host "Choose setup action:" -ForegroundColor Cyan
+    Write-Host "  1. Install / New"
+    Write-Host "  2. Update existing"
+    Write-Host "  3. Repair existing"
+    Write-Host "  4. Troubleshoot only"
+    $rawAction = Read-Host "Setup action [1]"
+    switch ($rawAction) {
+        "2" { $selectedSetupAction = "Update" }
+        "3" { $selectedSetupAction = "Repair" }
+        "4" { $selectedSetupAction = "Troubleshoot" }
+        default { $selectedSetupAction = "Install" }
+    }
+
     $selectedPort = $Port
     while ($true) {
         $rawPort = Read-Host "ATLAS application port [$selectedPort]"
@@ -587,7 +605,8 @@ function Prompt-AtlasInstallSettings {
         -CompanyCodeValue $selectedCompanyCode `
         -CompanyNameValue $selectedCompanyName `
         -AdminUsernameValue $selectedAdminUsername `
-        -AdminPasswordValue $plainAdminPassword
+        -AdminPasswordValue $plainAdminPassword `
+        -SetupActionValue $selectedSetupAction
     Write-Step "Configuration confirmed. Setup will continue."
 }
 
@@ -899,6 +918,16 @@ function Invoke-InstallOrRepair {
         if ($saved.CompanyName) { $CompanyName = [string]$saved.CompanyName }
         if ($saved.AdminUsername) { $AdminUsername = [string]$saved.AdminUsername }
         if ($saved.AdminPassword) { $AdminPassword = [string]$saved.AdminPassword }
+        if ($saved.SetupAction) { $SetupAction = [string]$saved.SetupAction }
+    }
+
+    if ($SetupAction -eq "Troubleshoot") {
+        Invoke-Troubleshoot
+        Remove-BootstrapConfig -DataPath $DataRoot
+        return
+    }
+    if ($SetupAction -eq "Repair") {
+        $Repair = $true
     }
 
     $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $SqlInstance
