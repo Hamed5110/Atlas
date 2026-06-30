@@ -5,12 +5,16 @@ param(
     [int]$Port = 3355,
     [string]$SqlInstance = "ATLAS",
     [string]$SqlSaPassword = "",
+    [string]$CompanyCode = "ATLAS",
+    [string]$CompanyName = "ATLAS Airfare HCM",
+    [string]$AdminUsername = "admin",
+    [string]$AdminPassword = "",
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.1-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.2-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.1-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.2-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,7 +81,11 @@ function Write-BootstrapConfig {
         [int]$PortNumber,
         [int]$SqlPortNumber,
         [string]$InstanceName,
-        [string]$Password
+        [string]$Password,
+        [string]$CompanyCodeValue,
+        [string]$CompanyNameValue,
+        [string]$AdminUsernameValue,
+        [string]$AdminPasswordValue
     )
     New-Item -ItemType Directory -Path $DataPath -Force | Out-Null
     $path = Get-BootstrapConfigPath -DataPath $DataPath
@@ -86,6 +94,10 @@ function Write-BootstrapConfig {
         SqlPort = $SqlPortNumber
         SqlInstance = $InstanceName
         SqlSaPassword = $Password
+        CompanyCode = $CompanyCodeValue
+        CompanyName = $CompanyNameValue
+        AdminUsername = $AdminUsernameValue
+        AdminPassword = $AdminPasswordValue
         CreatedAt = (Get-Date).ToString("o")
     } | ConvertTo-Json | Set-Content -Path $path -Encoding UTF8
     try {
@@ -537,7 +549,45 @@ function Prompt-AtlasInstallSettings {
         break
     }
 
-    Write-BootstrapConfig -DataPath $DataRoot -PortNumber $selectedPort -SqlPortNumber $selectedSqlPort -InstanceName $selectedInstance -Password $plainPassword
+    $selectedCompanyCode = $CompanyCode
+    $rawCompanyCode = Read-Host "Company code [$selectedCompanyCode]"
+    if (-not [string]::IsNullOrWhiteSpace($rawCompanyCode)) { $selectedCompanyCode = $rawCompanyCode.Trim() }
+    if ([string]::IsNullOrWhiteSpace($selectedCompanyCode)) { throw "Company code cannot be empty." }
+
+    $selectedCompanyName = $CompanyName
+    $rawCompanyName = Read-Host "Company name [$selectedCompanyName]"
+    if (-not [string]::IsNullOrWhiteSpace($rawCompanyName)) { $selectedCompanyName = $rawCompanyName.Trim() }
+    if ([string]::IsNullOrWhiteSpace($selectedCompanyName)) { throw "Company name cannot be empty." }
+
+    $selectedAdminUsername = $AdminUsername
+    $rawAdminUsername = Read-Host "Application admin login [$selectedAdminUsername]"
+    if (-not [string]::IsNullOrWhiteSpace($rawAdminUsername)) { $selectedAdminUsername = $rawAdminUsername.Trim() }
+    if ([string]::IsNullOrWhiteSpace($selectedAdminUsername)) { throw "Application admin login cannot be empty." }
+
+    while ($true) {
+        $secureAdminPassword = Read-Host "Application admin password" -AsSecureString
+        $plainAdminPassword = Convert-SecureStringToPlain -Secure $secureAdminPassword
+        if (-not $plainAdminPassword) {
+            Write-Host "Application admin password cannot be empty." -ForegroundColor Yellow
+            continue
+        }
+        if ($plainAdminPassword.Length -lt 8) {
+            Write-Host "Use at least 8 characters for the application admin password." -ForegroundColor Yellow
+            continue
+        }
+        break
+    }
+
+    Write-BootstrapConfig `
+        -DataPath $DataRoot `
+        -PortNumber $selectedPort `
+        -SqlPortNumber $selectedSqlPort `
+        -InstanceName $selectedInstance `
+        -Password $plainPassword `
+        -CompanyCodeValue $selectedCompanyCode `
+        -CompanyNameValue $selectedCompanyName `
+        -AdminUsernameValue $selectedAdminUsername `
+        -AdminPasswordValue $plainAdminPassword
     Write-Step "Configuration confirmed. Setup will continue."
 }
 
@@ -604,11 +654,119 @@ function Invoke-SqlScalar {
     }
 }
 
+function Escape-SqlLiteral {
+    param([string]$Value)
+    if ($null -eq $Value) { return "" }
+    return $Value.Replace("'", "''")
+}
+
+function New-AtlasPasswordHash {
+    param(
+        [string]$InstallPath,
+        [string]$Password
+    )
+    $node = Join-Path $InstallPath "runtime\nodejs\node.exe"
+    if (-not (Test-Path $node)) {
+        $node = "node.exe"
+    }
+
+    $oldPassword = $env:ATLAS_ADMIN_PASSWORD
+    try {
+        $env:ATLAS_ADMIN_PASSWORD = $Password
+        $script = "const bcrypt=require('bcryptjs'); const p=process.env.ATLAS_ADMIN_PASSWORD || ''; if (!p) process.exit(2); process.stdout.write(bcrypt.hashSync(p, 12));"
+        $hash = & $node -e $script 2>$null
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($hash)) {
+            throw "Unable to generate application admin password hash."
+        }
+        return ([string]$hash).Trim()
+    } finally {
+        if ($null -eq $oldPassword) {
+            Remove-Item Env:\ATLAS_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+        } else {
+            $env:ATLAS_ADMIN_PASSWORD = $oldPassword
+        }
+    }
+}
+
+function Ensure-AtlasFirstRunAdmin {
+    param(
+        [string]$ConnectionString,
+        [string]$DatabaseName,
+        [string]$CompanyCodeValue,
+        [string]$CompanyNameValue,
+        [string]$AdminUsernameValue,
+        [string]$AdminPasswordHash
+    )
+
+    $safeCompanyCode = Escape-SqlLiteral -Value $CompanyCodeValue.Trim()
+    $safeCompanyName = Escape-SqlLiteral -Value $CompanyNameValue.Trim()
+    $safeAdminUsername = Escape-SqlLiteral -Value $AdminUsernameValue.Trim()
+    $safeAdminHash = Escape-SqlLiteral -Value $AdminPasswordHash
+    $safeDatabaseName = Escape-SqlLiteral -Value $DatabaseName
+    $safeAdminEmail = Escape-SqlLiteral -Value ((($AdminUsernameValue.Trim() -replace '[^A-Za-z0-9._-]', '_') + "@atlas.local"))
+
+    $sqlText = @"
+IF OBJECT_ID(N'dbo.Companies', N'U') IS NOT NULL
+BEGIN
+    IF EXISTS (SELECT 1 FROM dbo.Companies WHERE UPPER(CompanyCode) = UPPER(N'$safeCompanyCode'))
+    BEGIN
+        UPDATE dbo.Companies
+        SET CompanyName = N'$safeCompanyName',
+            DatabaseName = N'$safeDatabaseName',
+            IsActive = 1,
+            UpdatedAt = SYSUTCDATETIME()
+        WHERE UPPER(CompanyCode) = UPPER(N'$safeCompanyCode');
+    END
+    ELSE
+    BEGIN
+        INSERT INTO dbo.Companies (CompanyCode, CompanyName, DatabaseName, Address, IsActive)
+        VALUES (N'$safeCompanyCode', N'$safeCompanyName', N'$safeDatabaseName', N'', 1);
+    END
+END;
+
+IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+BEGIN
+    IF EXISTS (SELECT 1 FROM dbo.Users WHERE Username = N'$safeAdminUsername')
+    BEGIN
+        UPDATE dbo.Users
+        SET PasswordHash = N'$safeAdminHash',
+            Email = COALESCE(NULLIF(Email, N''), LEFT(N'$safeAdminEmail', 100)),
+            FullName = COALESCE(NULLIF(FullName, N''), N'System Administrator'),
+            Role = N'admin',
+            IsActive = 1,
+            LoginAttempts = 0,
+            LockedUntil = NULL,
+            PasswordChangedAt = GETDATE(),
+            UpdatedAt = GETDATE()
+        WHERE Username = N'$safeAdminUsername';
+    END
+    ELSE
+    BEGIN
+        INSERT INTO dbo.Users (Username, PasswordHash, Email, FullName, Role, IsActive, LoginAttempts, LockedUntil)
+        VALUES (N'$safeAdminUsername', N'$safeAdminHash', LEFT(N'$safeAdminEmail', 100), N'System Administrator', N'admin', 1, 0, NULL);
+    END
+
+    UPDATE dbo.Users
+    SET LoginAttempts = 0,
+        LockedUntil = NULL,
+        IsActive = 1
+    WHERE Username = N'$safeAdminUsername'
+       OR (Username = N'admin' AND N'$safeAdminUsername' = N'admin');
+END;
+"@
+    Invoke-SqlBatch -ConnectionString $ConnectionString -SqlText $sqlText
+    Write-Step "Application admin '$($AdminUsernameValue.Trim())' is active and unlocked for company '$($CompanyCodeValue.Trim())'."
+}
+
 function Ensure-AtlasDatabase {
     param(
         [string]$InstanceName,
         [string]$Password,
-        [string]$InstallPath
+        [string]$InstallPath,
+        [string]$CompanyCodeValue,
+        [string]$CompanyNameValue,
+        [string]$AdminUsernameValue,
+        [string]$AdminPasswordValue
     )
     $server = Get-SqlServerName -InstanceName $InstanceName
     $master = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
@@ -641,6 +799,15 @@ function Ensure-AtlasDatabase {
         $sql = $sql -replace "(?im)^\s*USE\s+\[?Atlasairfare010\]?\s*;?\s*$", "USE [$appDb];"
         Invoke-SqlBatch -ConnectionString $appConnection -SqlText $sql
     }
+
+    $adminHash = New-AtlasPasswordHash -InstallPath $InstallPath -Password $AdminPasswordValue
+    Ensure-AtlasFirstRunAdmin `
+        -ConnectionString $appConnection `
+        -DatabaseName $appDb `
+        -CompanyCodeValue $CompanyCodeValue `
+        -CompanyNameValue $CompanyNameValue `
+        -AdminUsernameValue $AdminUsernameValue `
+        -AdminPasswordHash $adminHash
 }
 
 function Write-AtlasConfig {
@@ -728,12 +895,19 @@ function Invoke-InstallOrRepair {
         if ($saved.SqlPort) { $SqlPort = [int]$saved.SqlPort }
         if ($saved.SqlInstance) { $SqlInstance = [string]$saved.SqlInstance }
         if ($saved.SqlSaPassword) { $SqlSaPassword = [string]$saved.SqlSaPassword }
+        if ($saved.CompanyCode) { $CompanyCode = [string]$saved.CompanyCode }
+        if ($saved.CompanyName) { $CompanyName = [string]$saved.CompanyName }
+        if ($saved.AdminUsername) { $AdminUsername = [string]$saved.AdminUsername }
+        if ($saved.AdminPassword) { $AdminPassword = [string]$saved.AdminPassword }
     }
 
     $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $SqlInstance
 
     if (-not $SqlSaPassword) {
         throw "MSSQL sa password was not collected. Re-run setup and complete the ATLAS setup configuration prompt."
+    }
+    if (-not $AdminPassword) {
+        throw "Application admin password was not collected. Re-run setup and complete the ATLAS setup configuration prompt."
     }
 
     Install-SqlExpressIfMissing -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
@@ -751,7 +925,14 @@ function Invoke-InstallOrRepair {
     }
     Write-Step "MSSQL TCP login confirmed on 127.0.0.1:$SqlPort."
     Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
-    Ensure-AtlasDatabase -InstanceName $effectiveSqlInstance -Password $SqlSaPassword -InstallPath $InstallRoot
+    Ensure-AtlasDatabase `
+        -InstanceName $effectiveSqlInstance `
+        -Password $SqlSaPassword `
+        -InstallPath $InstallRoot `
+        -CompanyCodeValue $CompanyCode `
+        -CompanyNameValue $CompanyName `
+        -AdminUsernameValue $AdminUsername `
+        -AdminPasswordValue $AdminPassword
     Remove-BootstrapConfig -DataPath $DataRoot
 
     if ($Repair) {
