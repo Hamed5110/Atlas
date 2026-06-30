@@ -8,9 +8,9 @@ param(
     [string]$InstallRoot = "C:\Program Files\ATLAS Airfare Allowance",
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.2.9-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.0-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.2.9-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.0-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,6 +75,7 @@ function Write-BootstrapConfig {
     param(
         [string]$DataPath,
         [int]$PortNumber,
+        [int]$SqlPortNumber,
         [string]$InstanceName,
         [string]$Password
     )
@@ -82,6 +83,7 @@ function Write-BootstrapConfig {
     $path = Get-BootstrapConfigPath -DataPath $DataPath
     [pscustomobject]@{
         Port = $PortNumber
+        SqlPort = $SqlPortNumber
         SqlInstance = $InstanceName
         SqlSaPassword = $Password
         CreatedAt = (Get-Date).ToString("o")
@@ -167,6 +169,28 @@ function Ensure-DataDirectories {
     }
 }
 
+function Stop-PreviousAtlasRuntime {
+    param([string]$InstallPath)
+    Write-Step "Checking previous ATLAS runtime and startup task."
+    $taskName = "ATLAS Airfare Allowance"
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task) {
+        try { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue } catch {}
+        try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+        Write-Step "Previous ATLAS startup task removed."
+    }
+
+    $normalizedInstall = $InstallPath.TrimEnd("\")
+    $nodeProcesses = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$normalizedInstall*" }
+    foreach ($process in $nodeProcesses) {
+        try {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+            Write-Step "Stopped previous ATLAS node process $($process.ProcessId)."
+        } catch {}
+    }
+}
+
 function Get-SqlServiceName {
     param([string]$InstanceName)
     if ($InstanceName -eq "MSSQLSERVER") { return "MSSQLSERVER" }
@@ -247,6 +271,41 @@ function Test-SqlLogin {
     }
 }
 
+function Test-TcpPort {
+    param([string]$Server, [int]$PortNumber, [int]$TimeoutMs = 5000)
+    try {
+        $client = New-Object Net.Sockets.TcpClient
+        $async = $client.BeginConnect($Server, $PortNumber, $null, $null)
+        $ready = $async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+        if ($ready) { $client.EndConnect($async) }
+        $client.Close()
+        return $ready
+    } catch {
+        return $false
+    }
+}
+
+function Test-SqlLoginTcp {
+    param(
+        [int]$PortNumber,
+        [string]$Password
+    )
+    $connectionString = "Server=tcp:127.0.0.1,$PortNumber;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=10;"
+    $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = "SELECT @@SERVERNAME"
+        [void]$command.ExecuteScalar()
+        return $true
+    } catch {
+        Write-Step "SQL TCP login failed on 127.0.0.1:$PortNumber as sa: $($_.Exception.Message)"
+        return $false
+    } finally {
+        $connection.Dispose()
+    }
+}
+
 function Test-StrongSqlPassword {
     param([string]$Password)
     return ($Password.Length -ge 8 -and
@@ -295,6 +354,65 @@ function Install-SqlExpressIfMissing {
     }
 }
 
+function Get-SqlInstanceRegistryId {
+    param([string]$InstanceName)
+    foreach ($path in @(
+        "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\Instance Names\SQL"
+    )) {
+        if (Test-Path $path) {
+            $value = (Get-ItemProperty -Path $path -Name $InstanceName -ErrorAction SilentlyContinue).$InstanceName
+            if ($value) { return [string]$value }
+        }
+    }
+    return $null
+}
+
+function Enable-SqlTcpPort {
+    param(
+        [string]$InstanceName,
+        [int]$PortNumber
+    )
+    $serviceName = Get-SqlServiceName -InstanceName $InstanceName
+    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Step "SQL service '$serviceName' not found; cannot force TCP port."
+        return
+    }
+
+    $instanceId = Get-SqlInstanceRegistryId -InstanceName $InstanceName
+    if (-not $instanceId) {
+        Write-Step "SQL registry instance id was not found for '$InstanceName'; cannot force TCP port."
+        return
+    }
+
+    $tcpRoots = @(
+        "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceId\MSSQLServer\SuperSocketNetLib\Tcp",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\$instanceId\MSSQLServer\SuperSocketNetLib\Tcp"
+    )
+
+    $changed = $false
+    foreach ($tcpRoot in $tcpRoots) {
+        if (-not (Test-Path $tcpRoot)) { continue }
+        Set-ItemProperty -Path $tcpRoot -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
+        $ipAll = Join-Path $tcpRoot "IPAll"
+        if (Test-Path $ipAll) {
+            Set-ItemProperty -Path $ipAll -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $ipAll -Name "TcpPort" -Value ([string]$PortNumber) -ErrorAction SilentlyContinue
+            $changed = $true
+        }
+    }
+
+    if ($changed) {
+        Write-Step "SQL TCP/IP configured for instance '$InstanceName' on port $PortNumber. Restarting SQL service."
+        Restart-Service -Name $serviceName -Force -ErrorAction Stop
+        (Get-Service -Name $serviceName).WaitForStatus("Running", "00:01:00")
+        Start-Sleep -Seconds 5
+    } else {
+        Write-Step "SQL TCP/IP registry path was not found for instance '$InstanceName'."
+    }
+}
+
 function Prompt-AtlasInstallSettings {
     Assert-Admin
     Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
@@ -319,6 +437,22 @@ function Prompt-AtlasInstallSettings {
         } catch {
             Write-Host $_.Exception.Message -ForegroundColor Yellow
         }
+    }
+
+    $selectedSqlPort = 1433
+    while ($true) {
+        $rawSqlPort = Read-Host "MSSQL TCP port [$selectedSqlPort]"
+        if (-not [string]::IsNullOrWhiteSpace($rawSqlPort)) {
+            if (-not [int]::TryParse($rawSqlPort, [ref]$selectedSqlPort) -or $selectedSqlPort -lt 1 -or $selectedSqlPort -gt 65535) {
+                Write-Host "Enter a valid MSSQL TCP port number from 1 to 65535." -ForegroundColor Yellow
+                continue
+            }
+        }
+        if ($selectedSqlPort -eq $selectedPort) {
+            Write-Host "MSSQL TCP port must be different from the ATLAS application port." -ForegroundColor Yellow
+            continue
+        }
+        break
     }
 
     $instances = @(Get-InstalledSqlInstances)
@@ -358,7 +492,7 @@ function Prompt-AtlasInstallSettings {
         break
     }
 
-    Write-BootstrapConfig -DataPath $DataRoot -PortNumber $selectedPort -InstanceName $selectedInstance -Password $plainPassword
+    Write-BootstrapConfig -DataPath $DataRoot -PortNumber $selectedPort -SqlPortNumber $selectedSqlPort -InstanceName $selectedInstance -Password $plainPassword
     Write-Step "Configuration confirmed. Setup will continue."
 }
 
@@ -468,6 +602,7 @@ function Write-AtlasConfig {
     param(
         [string]$InstallPath,
         [int]$PortNumber,
+        [int]$SqlPortNumber,
         [string]$InstanceName,
         [string]$Password
     )
@@ -478,8 +613,8 @@ function Write-AtlasConfig {
     $content = @"
 PORT=$PortNumber
 HOST=0.0.0.0
-DB_SERVER=$(Get-SqlServerName -InstanceName $InstanceName)
-DB_PORT=1433
+DB_SERVER=127.0.0.1
+DB_PORT=$SqlPortNumber
 DB_NAME=Atlasairfare010
 DB_USER=sa
 DB_PASSWORD=$Password
@@ -538,11 +673,14 @@ function Invoke-InstallOrRepair {
     param([switch]$Repair)
     Assert-Admin
     Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
     New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
 
     $saved = Read-BootstrapConfig -DataPath $DataRoot
+    $SqlPort = 1433
     if ($saved) {
         if ($saved.Port) { $Port = [int]$saved.Port }
+        if ($saved.SqlPort) { $SqlPort = [int]$saved.SqlPort }
         if ($saved.SqlInstance) { $SqlInstance = [string]$saved.SqlInstance }
         if ($saved.SqlSaPassword) { $SqlSaPassword = [string]$saved.SqlSaPassword }
     }
@@ -559,7 +697,15 @@ function Invoke-InstallOrRepair {
     if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
         throw "MSSQL login verification failed during configuration."
     }
-    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
+    Enable-SqlTcpPort -InstanceName $effectiveSqlInstance -PortNumber $SqlPort
+    if (-not (Test-TcpPort -Server "127.0.0.1" -PortNumber $SqlPort)) {
+        throw "MSSQL TCP port 127.0.0.1:$SqlPort is not reachable after configuration. Enable SQL Server TCP/IP or choose the correct MSSQL port."
+    }
+    if (-not (Test-SqlLoginTcp -PortNumber $SqlPort -Password $SqlSaPassword)) {
+        throw "MSSQL sa login over TCP failed on 127.0.0.1:$SqlPort. Re-run setup and enter the correct SQL port/password."
+    }
+    Write-Step "MSSQL TCP login confirmed on 127.0.0.1:$SqlPort."
+    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
     Ensure-AtlasDatabase -InstanceName $effectiveSqlInstance -Password $SqlSaPassword -InstallPath $InstallRoot
     Remove-BootstrapConfig -DataPath $DataRoot
 

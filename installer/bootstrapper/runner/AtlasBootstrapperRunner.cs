@@ -156,6 +156,7 @@ namespace AtlasBootstrapperRunner
     internal sealed class PreflightForm : Form
     {
         private readonly TextBox portBox = new TextBox();
+        private readonly TextBox sqlPortBox = new TextBox();
         private readonly ComboBox instanceBox = new ComboBox();
         private readonly TextBox passwordBox = new TextBox();
         private readonly Label statusLabel = new Label();
@@ -171,7 +172,7 @@ namespace AtlasBootstrapperRunner
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(520, 310);
+            ClientSize = new Size(520, 340);
             Font = new Font("Segoe UI", 9F);
             TopMost = true;
 
@@ -184,40 +185,47 @@ namespace AtlasBootstrapperRunner
             portBox.Width = 280;
             portBox.Text = defaultPort.ToString();
 
-            AddLabel("MSSQL instance", 20, 126);
+            AddLabel("MSSQL TCP port", 20, 126);
+            sqlPortBox.Left = 190;
+            sqlPortBox.Top = 122;
+            sqlPortBox.Width = 280;
+            sqlPortBox.Text = "1433";
+
+            AddLabel("MSSQL instance", 20, 160);
             instanceBox.Left = 190;
-            instanceBox.Top = 122;
+            instanceBox.Top = 156;
             instanceBox.Width = 280;
             instanceBox.DropDownStyle = ComboBoxStyle.DropDown;
             foreach (var instance in instances) instanceBox.Items.Add(instance);
             instanceBox.Text = instances.Count > 0 ? PreferInstance(instances) : "ATLAS";
 
-            AddLabel("MSSQL sa password", 20, 160);
+            AddLabel("MSSQL sa password", 20, 194);
             passwordBox.Left = 190;
-            passwordBox.Top = 156;
+            passwordBox.Top = 190;
             passwordBox.Width = 280;
             passwordBox.PasswordChar = '*';
 
             var sqlInfo = instances.Count > 0
                 ? "Existing SQL Server detected. SQL Express will be skipped."
                 : "No local SQL Server detected. Bundled SQL Express will be installed.";
-            var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 194, Width = 470, Height = 22 };
+            var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 228, Width = 470, Height = 22 };
 
             statusLabel.Left = 20;
-            statusLabel.Top = 220;
+            statusLabel.Top = 254;
             statusLabel.Width = 470;
             statusLabel.Height = 35;
             statusLabel.ForeColor = Color.DimGray;
             statusLabel.Text = "Waiting for confirmation.";
 
-            var ok = new Button { Text = "Verify and Continue", Left = 302, Top = 270, Width = 130, Height = 28 };
+            var ok = new Button { Text = "Verify and Continue", Left = 302, Top = 300, Width = 130, Height = 28 };
             ok.Click += VerifyAndContinue;
-            var cancel = new Button { Text = "Cancel", Left = 440, Top = 270, Width = 70, Height = 28 };
+            var cancel = new Button { Text = "Cancel", Left = 440, Top = 300, Width = 70, Height = 28 };
             cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
 
             Controls.Add(title);
             Controls.Add(intro);
             Controls.Add(portBox);
+            Controls.Add(sqlPortBox);
             Controls.Add(instanceBox);
             Controls.Add(passwordBox);
             Controls.Add(infoLabel);
@@ -247,6 +255,18 @@ namespace AtlasBootstrapperRunner
                 return;
             }
 
+            int sqlPort;
+            if (!int.TryParse(sqlPortBox.Text.Trim(), out sqlPort) || sqlPort < 1 || sqlPort > 65535)
+            {
+                Fail("Enter a valid MSSQL TCP port number from 1 to 65535.");
+                return;
+            }
+            if (sqlPort == port)
+            {
+                Fail("MSSQL TCP port must be different from the ATLAS application port.");
+                return;
+            }
+
             var instance = (instanceBox.Text ?? "").Trim();
             if (string.IsNullOrWhiteSpace(instance)) instance = "ATLAS";
             var password = passwordBox.Text ?? "";
@@ -265,7 +285,7 @@ namespace AtlasBootstrapperRunner
                     return;
                 }
                 statusLabel.ForeColor = Color.Green;
-                statusLabel.Text = "Port and MSSQL sa login confirmed.";
+                statusLabel.Text = "ATLAS port and MSSQL sa login confirmed. SQL TCP port will be enforced.";
             }
             else
             {
@@ -278,7 +298,7 @@ namespace AtlasBootstrapperRunner
                 statusLabel.Text = "Port confirmed. SQL Express will be installed with this sa password.";
             }
 
-            WriteConfig(port, instance, password);
+            WriteConfig(port, sqlPort, instance, password);
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -290,12 +310,13 @@ namespace AtlasBootstrapperRunner
             MessageBox.Show(this, message, "ATLAS setup", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
-        private void WriteConfig(int port, string instance, string password)
+        private void WriteConfig(int port, int sqlPort, string instance, string password)
         {
             Directory.CreateDirectory(dataRoot);
             var path = Path.Combine(dataRoot, "bootstrapper-config.json");
             var json = "{\r\n" +
                 "  \"Port\": " + port + ",\r\n" +
+                "  \"SqlPort\": " + sqlPort + ",\r\n" +
                 "  \"SqlInstance\": \"" + EscapeJson(instance) + "\",\r\n" +
                 "  \"SqlSaPassword\": \"" + EscapeJson(password) + "\",\r\n" +
                 "  \"CreatedAt\": \"" + DateTime.UtcNow.ToString("o") + "\"\r\n" +
