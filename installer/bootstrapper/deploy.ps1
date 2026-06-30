@@ -15,9 +15,9 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.11-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.12-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.11-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.12-x64.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -1071,12 +1071,13 @@ function Get-AtlasUninstallInstallLocation {
 
 function Find-AtlasInstallRoot {
     $candidates = New-Object System.Collections.Generic.List[string]
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
     foreach ($candidate in @(
         $InstallRoot,
         (Get-AtlasRegistryValue -Name "INSTALLROOT"),
         (Get-AtlasUninstallInstallLocation),
         (Join-Path $env:ProgramFiles "ATLAS Airfare Allowance"),
-        (if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} "ATLAS Airfare Allowance" } else { $null })
+        $(if ($programFilesX86) { Join-Path $programFilesX86 "ATLAS Airfare Allowance" })
     )) {
         if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
             $candidates.Add(([string]$candidate).TrimEnd('\')) | Out-Null
@@ -1130,11 +1131,22 @@ function Assert-AtlasInstalledForPatch {
 }
 
 function Invoke-UpdateOnlyPrepare {
-    Assert-Admin
     Assert-AtlasInstalledForPatch
-    Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
-    New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
-    Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
+    try {
+        Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    } catch {
+        Write-Step "Warning: update prepare could not create/check folders yet: $($_.Exception.Message)"
+    }
+    try {
+        New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+    } catch {
+        Write-Step "Warning: update prepare backup was skipped: $($_.Exception.Message)"
+    }
+    try {
+        Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
+    } catch {
+        Write-Step "Warning: update prepare could not stop existing runtime yet: $($_.Exception.Message)"
+    }
     Write-Step "Update-only patch prepared existing ATLAS installation. No SQL, company, or admin configuration was requested."
 }
 
