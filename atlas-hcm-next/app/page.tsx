@@ -1659,6 +1659,14 @@ export default function DashboardPage() {
     });
   }
 
+  async function deleteAirfarePolicyRate(policyRateId: number) {
+    try {
+      return await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${policyRateId}/delete`, session?.token || "", session?.sessionId || "", "POST");
+    } catch {
+      return await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${policyRateId}`, session?.token || "", session?.sessionId || "", "DELETE");
+    }
+  }
+
   async function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
     if (!session) return setMessage("Please sign in first.");
     if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can delete preference policy rules.");
@@ -1668,7 +1676,7 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
-      await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${rate.PolicyRateID}/delete`, session.token, session.sessionId, "POST");
+      await deleteAirfarePolicyRate(rate.PolicyRateID);
       setSelectedPolicyRateIds((current) => {
         const next = new Set(current);
         next.delete(rate.PolicyRateID);
@@ -1694,7 +1702,7 @@ export default function DashboardPage() {
     setMessage("");
     try {
       for (const rate of selectedRates) {
-        await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${rate.PolicyRateID}/delete`, session.token, session.sessionId, "POST");
+        await deleteAirfarePolicyRate(rate.PolicyRateID);
       }
       setSelectedPolicyRateIds(new Set());
       await loadLiveData();

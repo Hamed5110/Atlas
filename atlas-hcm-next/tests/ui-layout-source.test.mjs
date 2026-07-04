@@ -199,7 +199,7 @@ assert.match(source, /handleDeleteAirfarePolicyRate/, "preferences policy rules 
 assert.match(source, /Delete preference rule/, "preferences policy rules should expose delete buttons for global, company, department, pay group, and employee rules");
 assert.match(source, /handleEditAirfarePolicyRate/, "preferences policy rules should expose edit-as-draft logic");
 assert.match(source, /Delete selected \(\{selectedPolicyRateIds\.size\}\)/, "preferences policy rules should support selected bulk delete");
-assert.match(source, /\/airfare-policy-rates\/\$\{rate\.PolicyRateID\}\/delete/, "preferences delete should use the proxy-safe POST fallback endpoint");
+assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}/, "preferences delete should use the proxy-safe POST fallback endpoint and original DELETE compatibility path");
 assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
