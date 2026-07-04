@@ -27,13 +27,13 @@ Meaning:
 Use:
 
 ```text
-http://FOCUSSERVER/
+http://<server-name>/
 ```
 
 Direct application URL:
 
 ```text
-http://FOCUSSERVER:3355/
+http://<server-name>:3355/
 ```
 
 Local direct URL:
@@ -100,15 +100,15 @@ Verified:
 
 ```text
 http://127.0.0.1:3355/api/health
-http://FOCUSSERVER:3355/api/health
+http://<server-name>:3355/api/health
 http://192.168.15.208:3355/api/health
 http://127.0.0.1/api/health
-http://FOCUSSERVER/api/health
+http://<server-name>/api/health
 ```
 
 Fallback order:
 
-1. `http://FOCUSSERVER/`
-2. `http://FOCUSSERVER:3355/`
+1. `http://<server-name>/`
+2. `http://<server-name>:3355/`
 3. `http://192.168.15.208:3355/`
 4. `http://127.0.0.1:3355/`

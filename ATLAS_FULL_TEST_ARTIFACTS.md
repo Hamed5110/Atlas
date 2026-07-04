@@ -87,7 +87,7 @@ Scope: Backend (`server.js`) + Frontend (`atlas-hcm-next`) + SQL/business logic 
     - Loan for excess
 - Validation:
   - `npm run build` ✅
-- `http://FOCUSSERVER/` responds `200` through IIS after restart. IP fallback is discovered dynamically by `Start-ATLAS-LAN.ps1`.
+- `http://<server-name>/` responds `200` through IIS after restart. IP fallback is discovered dynamically by `Start-ATLAS-LAN.ps1`.
 
 ## Artifact stamp
 

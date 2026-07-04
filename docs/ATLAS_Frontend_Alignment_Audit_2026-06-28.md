@@ -40,7 +40,7 @@ The browser audit found shared layout rules that still forced desktop-sized colu
 
 ## Browser Audit Result
 
-Measured with Playwright against `http://FOCUSSERVER/`.
+Measured with Playwright against `http://<server-name>/`.
 
 Viewports:
 

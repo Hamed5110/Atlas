@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Continue"
 
-$atlasHost = "FOCUSSERVER"
+$atlasHost = $env:COMPUTERNAME
+if (-not $atlasHost) { $atlasHost = [System.Net.Dns]::GetHostName() }
+if (-not $atlasHost) { $atlasHost = "localhost" }
 $atlasPort = 3355
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $desktop = [Environment]::GetFolderPath("Desktop")

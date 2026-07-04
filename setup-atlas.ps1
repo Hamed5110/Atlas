@@ -1,11 +1,17 @@
 param(
-    [string]$Server = "localhost",
+    [string]$Server = "localhost\ATLAS",
+    [int]$DbPort = 1433,
     [string]$Database = "Atlasairfare010",
     [string]$AppUser = "sa",
     [string]$AppPassword,
+    [int]$Port = 3355,
+    [string]$OdbcDriver,
     [switch]$UseSqlAdmin,
     [string]$SqlAdminUser = "sa",
-    [string]$SqlAdminPassword
+    [string]$SqlAdminPassword,
+    [switch]$Repair,
+    [switch]$Troubleshoot,
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +23,185 @@ function New-RandomSecret {
     [Convert]::ToBase64String($bytes)
 }
 
+function Get-SqlEndpoint {
+    if ($Server -match ",\d+$" -or $Server -match "\\") {
+        return $Server
+    }
+    if ($DbPort -and $DbPort -ne 1433) {
+        return "$Server,$DbPort"
+    }
+    return $Server
+}
+
+function Read-DefaultedValue {
+    param(
+        [string]$Prompt,
+        [string]$Default
+    )
+    $value = Read-Host "$Prompt [$Default]"
+    if ([string]::IsNullOrWhiteSpace($value)) { return $Default }
+    return $value.Trim()
+}
+
+function Read-DefaultedInt {
+    param(
+        [string]$Prompt,
+        [int]$Default
+    )
+    $raw = Read-DefaultedValue -Prompt $Prompt -Default ([string]$Default)
+    $parsed = 0
+    if (-not [int]::TryParse($raw, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 65535) {
+        throw "$Prompt must be a TCP port number from 1 to 65535."
+    }
+    return $parsed
+}
+
+function Get-InstalledOdbcDrivers {
+    $drivers = @()
+    $paths = @(
+        "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers",
+        "HKLM:\SOFTWARE\WOW6432Node\ODBC\ODBCINST.INI\ODBC Drivers"
+    )
+    foreach ($path in $paths) {
+        if (Test-Path $path) {
+            $props = Get-ItemProperty -Path $path
+            $drivers += $props.PSObject.Properties |
+                Where-Object { $_.Name -notmatch "^PS" -and $_.Value -eq "Installed" } |
+                ForEach-Object { $_.Name }
+        }
+    }
+    return @($drivers | Sort-Object -Unique)
+}
+
+function Write-SetupReport {
+    param([string]$Mode, [object[]]$Checks)
+    $reportDir = Join-Path $PSScriptRoot "test-reports"
+    New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $reportPath = Join-Path $reportDir "atlas-setup-$Mode-$stamp.md"
+    $jsonPath = Join-Path $reportDir "atlas-setup-$Mode-$stamp.json"
+    $result = if (($Checks | Where-Object { $_.status -eq "FAIL" }).Count -gt 0) { "FAILED" } else { "PASSED" }
+    $lines = @(
+        "# ATLAS Setup $Mode Report",
+        "",
+        "- Created: $((Get-Date).ToString("o"))",
+        "- Result: $result",
+        "- Root: $PSScriptRoot",
+        "",
+        "| Check | Status | Details |",
+        "|---|---|---|"
+    )
+    foreach ($check in $Checks) {
+        $details = if ($null -ne $check.details) { ($check.details | ConvertTo-Json -Depth 5 -Compress) } else { "" }
+        $lines += "| $($check.name) | $($check.status) | $details |"
+    }
+    $lines | Set-Content -Path $reportPath -Encoding UTF8
+    [pscustomobject]@{
+        createdAt = (Get-Date).ToString("o")
+        result = $result
+        checks = $Checks
+    } | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding UTF8
+    Write-Host "Setup report: $reportPath"
+    Write-Host "Setup JSON:   $jsonPath"
+    return $result
+}
+
+function Invoke-InstallTroubleshooter {
+    $checks = New-Object System.Collections.Generic.List[object]
+    function Add-SetupCheck {
+        param([string]$Name, [string]$Status, [object]$Details = $null)
+        $checks.Add([pscustomobject]@{ name = $Name; status = $Status; details = $Details }) | Out-Null
+        Write-Host "[$Status] $Name"
+    }
+
+    foreach ($tool in @("node", "npm", "sqlcmd")) {
+        $command = Get-Command $tool -ErrorAction SilentlyContinue
+        if ($command) {
+            Add-SetupCheck "Required tool: $tool" "PASS" @{ path = $command.Source }
+        } else {
+            Add-SetupCheck "Required tool: $tool" "FAIL" @{ message = "$tool was not found in PATH." }
+        }
+    }
+
+    $drivers = Get-InstalledOdbcDrivers
+    if ($drivers.Count -gt 0) {
+        Add-SetupCheck "ODBC SQL Server driver availability" "PASS" @{ drivers = $drivers }
+    } else {
+        Add-SetupCheck "ODBC SQL Server driver availability" "WARN" @{ message = "No installed ODBC drivers were found in registry." }
+    }
+
+    foreach ($folder in @("database", "atlas-hcm-next", "tests", "tools")) {
+        $path = Join-Path $PSScriptRoot $folder
+        Add-SetupCheck "Required folder: $folder" ($(if (Test-Path $path) { "PASS" } else { "FAIL" })) @{ path = $path }
+    }
+
+    foreach ($file in @("server.js", "package.json", "atlas-hcm-next\package.json", "database\ATLAS_MSSQL_Schema.sql")) {
+        $path = Join-Path $PSScriptRoot $file
+        Add-SetupCheck "Required file: $file" ($(if (Test-Path $path) { "PASS" } else { "FAIL" })) @{ path = $path }
+    }
+
+    try {
+        npm cache verify | Out-Null
+        Add-SetupCheck "NPM cache health" "PASS"
+    } catch {
+        Add-SetupCheck "NPM cache health" "WARN" @{ error = $_.Exception.Message }
+    }
+
+    try {
+        $connection = Test-NetConnection -ComputerName $Server -Port $DbPort -WarningAction SilentlyContinue
+        if ($connection.TcpTestSucceeded) {
+            Add-SetupCheck "SQL TCP connection $Server`:$DbPort" "PASS"
+        } else {
+            Add-SetupCheck "SQL TCP connection $Server`:$DbPort" "WARN" @{ message = "TCP connection did not succeed. SQL setup may still work through local named pipes or a named instance." }
+        }
+    } catch {
+        Add-SetupCheck "SQL TCP connection $Server`:$DbPort" "WARN" @{ error = $_.Exception.Message }
+    }
+
+    return Write-SetupReport -Mode "troubleshooter" -Checks $checks
+}
+
+function Install-AtlasNodePackages {
+    Write-Host "Installing backend Node packages..."
+    npm install
+    if ($LASTEXITCODE -ne 0) { throw "Backend npm install failed with exit code $LASTEXITCODE." }
+
+    Write-Host "Installing frontend Node packages..."
+    Push-Location ".\atlas-hcm-next"
+    try {
+        npm install
+        if ($LASTEXITCODE -ne 0) { throw "Frontend npm install failed with exit code $LASTEXITCODE." }
+    } finally {
+        Pop-Location
+    }
+}
+
+function Build-AtlasFrontendExport {
+    if ($SkipBuild) {
+        Write-Host "Frontend build skipped by -SkipBuild."
+        return
+    }
+    Write-Host "Building frontend export for full Windows/server bundle..."
+    Push-Location ".\atlas-hcm-next"
+    try {
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "Frontend build failed with exit code $LASTEXITCODE." }
+    } finally {
+        Pop-Location
+    }
+}
+
+function Repair-AtlasInstall {
+    Write-Host "Running ATLAS install troubleshooter..."
+    Invoke-InstallTroubleshooter | Out-Null
+    Install-AtlasNodePackages
+    foreach ($folder in @("logs", "backups", "test-reports", "tmp")) {
+        New-Item -ItemType Directory -Path (Join-Path $PSScriptRoot $folder) -Force | Out-Null
+    }
+    Build-AtlasFrontendExport
+    Write-Host "Repair complete. Run setup again if SQL credentials or database objects must be recreated." -ForegroundColor Green
+}
+
 function Invoke-AtlasSql {
     param(
         [string]$Query,
@@ -24,7 +209,7 @@ function Invoke-AtlasSql {
         [string]$DatabaseName
     )
 
-    $args = @("-S", $Server, "-b", "-W")
+    $args = @("-S", (Get-SqlEndpoint), "-b", "-W")
     if ($DatabaseName) {
         $args += @("-d", $DatabaseName)
     }
@@ -55,6 +240,36 @@ foreach ($tool in @("node", "npm", "sqlcmd")) {
     }
 }
 
+if ($Troubleshoot) {
+    $troubleshootResult = Invoke-InstallTroubleshooter
+    if ($troubleshootResult -eq "FAILED") { exit 1 }
+    exit 0
+}
+
+if ($Repair) {
+    Repair-AtlasInstall
+    exit 0
+}
+
+$Server = Read-DefaultedValue -Prompt "SQL Server host or instance" -Default $Server
+$DbPort = Read-DefaultedInt -Prompt "SQL Server TCP port" -Default $DbPort
+$Database = Read-DefaultedValue -Prompt "ATLAS database name" -Default $Database
+$AppUser = Read-DefaultedValue -Prompt "ATLAS SQL login" -Default $AppUser
+$Port = Read-DefaultedInt -Prompt "ATLAS application port" -Default $Port
+
+if (-not $OdbcDriver) {
+    $drivers = Get-InstalledOdbcDrivers
+    $recommendedDriver = @($drivers | Where-Object { $_ -match "ODBC Driver (18|17) for SQL Server" } | Select-Object -First 1)[0]
+    if (-not $recommendedDriver) { $recommendedDriver = "ODBC Driver 18 for SQL Server" }
+    $OdbcDriver = Read-DefaultedValue -Prompt "ODBC driver name for MSSQL reporting/repair tools" -Default $recommendedDriver
+}
+
+$installedDrivers = Get-InstalledOdbcDrivers
+if ($installedDrivers.Count -gt 0 -and -not ($installedDrivers -contains $OdbcDriver)) {
+    Write-Host "Warning: ODBC driver '$OdbcDriver' was not found in installed ODBC drivers." -ForegroundColor Yellow
+    Write-Host "Installed drivers: $($installedDrivers -join ', ')" -ForegroundColor Yellow
+}
+
 if (-not $AppPassword) {
     $securePassword = Read-Host "Enter password for SQL login '$AppUser'" -AsSecureString
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
@@ -62,8 +277,8 @@ if (-not $AppPassword) {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 }
 
-Write-Host "Installing Node packages..."
-npm install
+Install-AtlasNodePackages
+Build-AtlasFrontendExport
 
 Write-Host "Checking SQL Server connection..."
 $securityMode = Invoke-AtlasSql -Query "SET NOCOUNT ON; SELECT CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int);" | Where-Object { $_ -match "^\s*[01]\s*$" } | Select-Object -Last 1
@@ -149,12 +364,13 @@ Invoke-AtlasSql -Query $adminSql
 Write-Host "Writing environment file..."
 $jwtSecret = New-RandomSecret
 $envContent = @"
-PORT=3355
+PORT=$Port
 DB_SERVER=$Server
-DB_PORT=1433
+DB_PORT=$DbPort
 DB_NAME=$Database
 DB_USER=$AppUser
 DB_PASSWORD=$AppPassword
+DB_ODBC_DRIVER=$OdbcDriver
 DB_ENCRYPT=false
 DB_TRUST_SERVER_CERTIFICATE=true
 JWT_SECRET=$jwtSecret
@@ -171,7 +387,9 @@ if (-not (Test-Path "logs")) {
 
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
+Write-Host "Repair mode: powershell -ExecutionPolicy Bypass -File .\setup-atlas.ps1 -Repair"
+Write-Host "Troubleshooter: powershell -ExecutionPolicy Bypass -File .\setup-atlas.ps1 -Troubleshoot"
 Write-Host "Start the system with: powershell -ExecutionPolicy Bypass -File .\\start-atlas.ps1"
-Write-Host "Then open: http://localhost:3355"
+Write-Host "Then open: http://localhost:$Port"
 Write-Host "Default login: admin / Admin@123"
 Write-Host "Change the admin password after first login."

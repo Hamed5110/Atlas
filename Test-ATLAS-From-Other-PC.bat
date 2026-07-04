@@ -1,7 +1,7 @@
 @echo off
 echo Testing ATLAS server from this PC...
 echo.
-set "ATLAS_HOST=FOCUSSERVER"
+set "ATLAS_HOST=%COMPUTERNAME%"
 echo 1. Testing ping to %ATLAS_HOST%
 ping %ATLAS_HOST%
 echo.

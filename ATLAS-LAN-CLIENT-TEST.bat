@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set "ATLAS_HOST=FOCUSSERVER"
+set "ATLAS_HOST=%COMPUTERNAME%"
 set "ATLAS_PORT=3355"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$hostName='%ATLAS_HOST%'; $port=%ATLAS_PORT%; $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'; $report=Join-Path ([Environment]::GetFolderPath('Desktop')) ('ATLAS-LAN-CLIENT-TEST-' + $stamp + '.txt');" ^

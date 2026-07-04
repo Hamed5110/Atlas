@@ -26,7 +26,7 @@ atlas-hcm-next/public/help/
 After `npm run build`, these assets are published with the frontend and can be opened from:
 
 ```text
-http://FOCUSSERVER/help/
+http://<server-name>/help/
 ```
 
 ## Core Alignment Techniques Applied

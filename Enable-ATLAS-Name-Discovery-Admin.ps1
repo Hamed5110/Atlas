@@ -9,7 +9,7 @@ Start-Transcript -Path $logFile -Append | Out-Null
 
 $atlasHost = $env:COMPUTERNAME
 if (-not $atlasHost) { $atlasHost = [System.Net.Dns]::GetHostName() }
-if (-not $atlasHost) { $atlasHost = "FOCUSSERVER" }
+if (-not $atlasHost) { $atlasHost = "localhost" }
 
 function Write-Step {
     param([string]$Message)

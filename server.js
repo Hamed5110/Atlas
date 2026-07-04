@@ -423,7 +423,7 @@ function serveFrontendIndex(req, res) {
 // MSSQL DATABASE CONFIG
 // =====================================================
 const dbConfig = {
-    server: process.env.DB_SERVER || 'localhost',
+    server: process.env.DB_SERVER || 'localhost\\ATLAS',
     port: parseInt(process.env.DB_PORT) || 1433,
     database: process.env.DB_NAME || 'Atlasairfare010',
     user: process.env.DB_USER || 'atlas_user',
@@ -486,6 +486,7 @@ async function ensureAtlasSqlObjects(db) {
             await ensureAllocationPaymentSql(db);
             await ensureLoanOperationSql(db);
             await ensureYearEndOperationSql(db);
+            await cleanupQaTemporaryCompanies(db);
             sqlObjectsReady = true;
         })().catch((err) => {
             sqlObjectsPromise = null;
@@ -494,6 +495,53 @@ async function ensureAtlasSqlObjects(db) {
         });
     }
     await sqlObjectsPromise;
+}
+
+async function cleanupQaTemporaryCompanies(db) {
+    try {
+        const result = await db.request().query(`
+            SELECT c.CompanyID, c.CompanyCode, c.CompanyName, c.DatabaseName
+            FROM dbo.Companies c
+            WHERE (
+                    c.CompanyCode LIKE 'QAC%'
+                    OR c.CompanyName LIKE 'QA Temporary Company%'
+                    OR c.DatabaseName LIKE 'ATLAS_QA_%'
+                )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.Employees e
+                    WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, '')))) IN (
+                        UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, '')))),
+                        UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, '')))),
+                        UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, ''))))
+                    )
+                )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.AirfarePolicyRates r
+                    WHERE r.CompanyID = c.CompanyID
+                );
+        `);
+
+        for (const company of result.recordset || []) {
+            const databaseName = String(company.DatabaseName || '').trim();
+            if (databaseName && /^ATLAS_QA_[A-Za-z0-9_]*$/i.test(databaseName)) {
+                await db.request().query(`
+                    IF DB_ID(${sqlLiteral(databaseName)}) IS NOT NULL
+                    BEGIN
+                        ALTER DATABASE ${sqlIdentifier(databaseName)} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                        DROP DATABASE ${sqlIdentifier(databaseName)};
+                    END;
+                `);
+            }
+            await db.request()
+                .input('CompanyID', sql.Int, company.CompanyID)
+                .query('DELETE FROM dbo.Companies WHERE CompanyID = @CompanyID');
+            logger.info(`Cleaned QA temporary company ${company.CompanyName || company.CompanyCode}`);
+        }
+    } catch (err) {
+        logger.warn(`QA temporary company cleanup skipped: ${err.message}`);
+    }
 }
 
 function diagnosticStatus(success, latencyMs, degradedMs) {
@@ -4281,6 +4329,7 @@ app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, require
         res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
     }
 });
+
 // EMERGENCY TICKET ROUTES
 // =====================================================
 

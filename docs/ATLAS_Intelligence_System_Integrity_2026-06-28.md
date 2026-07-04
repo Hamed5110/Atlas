@@ -83,7 +83,7 @@ Use the AI Insights screen after any correction or operational change. Refresh i
 For LAN access without depending on a changing IP address, use:
 
 ```text
-http://FOCUSSERVER/
+http://<server-name>/
 ```
 
 If name resolution is temporarily unavailable on another PC, the current fallback address remains:

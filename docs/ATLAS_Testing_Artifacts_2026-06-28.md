@@ -8,9 +8,9 @@ No airfare formula, loan formula, year-end formula, report calculation, or busin
 
 ## Live Access Verified
 
-- Main name URL: http://FOCUSSERVER/
+- Main name URL: http://<server-name>/
 - Current IP fallback: http://192.168.15.208/
-- API health: http://FOCUSSERVER/api/health
+- API health: http://<server-name>/api/health
 - SQL health status: healthy / connected
 
 ## Repairs Made

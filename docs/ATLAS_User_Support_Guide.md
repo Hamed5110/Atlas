@@ -4,7 +4,7 @@ Last verified: 2026-06-28
 
 ## Access
 
-- Main URL: http://FOCUSSERVER/
+- Main URL: http://<server-name>/
 - Current IP fallback: http://192.168.15.208/
 - If the name URL does not open from another PC, run `Open-ATLAS-From-Other-PC.bat` from that PC.
 - If Windows name discovery needs repair on the ATLAS PC, run `Enable-ATLAS-Name-Discovery-Run-As-Admin.bat`.
@@ -76,6 +76,6 @@ Last verified: 2026-06-28
 
 - If the page does not open by name, try the IP fallback shown by `Start-ATLAS-LAN.ps1`.
 - If another PC cannot find the app, run `Open-ATLAS-From-Other-PC.bat` on that PC.
-- If login works but data does not load, refresh once and check `http://FOCUSSERVER/api/health`.
+- If login works but data does not load, refresh once and check `http://<server-name>/api/health`.
 - If year-end preview shows pending loans, review Loans before closing.
 - If a report looks wrong, compare the same employee in Employee Master, Airfare Allocation, and Airfare Payable before editing any data.

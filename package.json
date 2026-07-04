@@ -7,6 +7,8 @@
                     "start":  "node server.js",
                     "check":  "node --check server.js",
                     "setup":  "powershell -ExecutionPolicy Bypass -File .\\setup-atlas.ps1",
+                    "setup:repair":  "powershell -ExecutionPolicy Bypass -File .\\setup-atlas.ps1 -Repair",
+                    "setup:troubleshoot":  "powershell -ExecutionPolicy Bypass -File .\\setup-atlas.ps1 -Troubleshoot",
                     "test:smoke":  "node tests/atlas-smoke-test.js",
                     "test:loan-sql":  "node tests/loan-sql-objects.test.js",
                     "test:attachments-sql":  "node tests/allocation-attachments-sql.test.js",

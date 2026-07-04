@@ -169,7 +169,7 @@ def add_title(doc):
     set_table_borders(table)
     rows = [
         ("Verified date", "2026-06-28"),
-        ("Primary URL", "http://FOCUSSERVER/"),
+        ("Primary URL", "http://<server-name>/"),
         ("Fallback URL", "http://192.168.15.208/"),
         ("Testing result", "Passed acceptance, full system, frontend, SQL, and live UI checks"),
     ]
