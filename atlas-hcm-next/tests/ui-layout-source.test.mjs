@@ -111,6 +111,10 @@ assert.match(source, /PendingLoanAmount/, "year end employee preview should incl
 assert.match(css, /\.preview-row\.year-end-head\s*{[\s\S]*grid-template-columns/, "year end preview should use dedicated readable columns");
 assert.match(source, /workingDaysFromYearStart/, "airfare allocation should earn current-year entitlement up to allocation date");
 assert.match(source, /date\.getMonth\(\) \* 30 \+ date\.getDate\(\)/, "current-year earning should use 30-day month policy");
+assert.match(source, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "airfare UI should document the fixed 360-day standard year");
+assert.match(source, /AIRFARE_ENTITLEMENT_CYCLE_DAYS\s*=\s*720/, "airfare UI should document the fixed 720-day two-year entitlement cycle");
+assert.match(source, /AIRFARE_MAX_DAYS\s*=\s*60/, "airfare UI should cap entitlement days at 60");
+assert.match(source, /AIRFARE_MAX_PAYOUT\s*=\s*150/, "airfare UI should cap payout at BHD 150");
 assert.match(source, /localTotalEntitlement\s*=\s*roundMoney\(Math\.min\(selectedMaximumPayout,[\s\S]*selectedOpeningAmount \+ selectedCurrentAmount/, "airfare entitlement should first calculate capped total entitlement from opening plus current-year earned amount");
 assert.match(source, /localSelectedEntitlement\s*=\s*roundMoney\(Math\.max\(0,\s*localTotalEntitlement - selectedPaidAmount\)\)/, "airfare entitlement should use remaining entitlement after consumed amount is subtracted");
 assert.match(source, /workingDaysFromYearStart\([\s\S]*allocationForm\.date[\s\S]*selectedEmployee\?\.JoinDate/, "new employee current-year earning should start from join date");
@@ -195,7 +199,7 @@ assert.match(source, /handleDeleteAirfarePolicyRate/, "preferences policy rules 
 assert.match(source, /Delete preference rule/, "preferences policy rules should expose delete buttons for global, company, department, pay group, and employee rules");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
-assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/, "preferences should be a full-width settings page, not a right-side panel");
+assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.6fr\)\s+minmax\(360px,\s*\.9fr\)/, "preferences should use a desktop right panel that can collapse");
 assert.match(css, /\.preferences-policy-card/, "airfare policy editor should be styled as a main preferences section");
 assert.match(css, /\.preferences-policy-card \.form-grid\.one\s*{[\s\S]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "preferences and opening balance cards should not force desktop-width form columns");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.preferences-policy-card \.form-grid\.one,[\s\S]*\.preferences-policy-card \.calc-result,[\s\S]*\.preferences-policy-card \.policy-rule-picker[\s\S]*grid-template-columns:\s*1fr/, "preferences and opening balance cards should collapse to one column on mobile");
@@ -325,6 +329,10 @@ assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeDepartme
 assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeGroup NVARCHAR\(100\)/, "SQL policy lookup should support pay group matrix airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@Department NVARCHAR\(100\) = NULL/, "SQL policy save should support department matrix airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@EmpGroup NVARCHAR\(100\) = NULL/, "SQL policy save should support pay group matrix airfare amounts");
+assert.match(server, /MAX_COMPANY_PAYABLE\s*=\s*150/, "backend should enforce BHD 150 company payout cap");
+assert.match(server, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "backend should enforce the fixed 360-day standard year");
+assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.max\(150\)/, "backend should reject airfare policy values above BHD 150");
+assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should reject airfare policy values above BHD 150");
 assert.match(server, /app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*IsActive = 0[\s\S]*logAudit/, "backend should soft-delete airfare policy rules with audit history");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");

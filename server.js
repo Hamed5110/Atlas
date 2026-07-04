@@ -33,6 +33,8 @@ const FRONTEND_STATIC_OPTIONS = {
 };
 const MAX_COMPANY_PAYABLE = 150;
 const EMPLOYEE_GROUP_MAX_LENGTH = 80;
+const AIRFARE_STANDARD_YEAR_DAYS = 360;
+const AIRFARE_ENTITLEMENT_CYCLE_DAYS = 720;
 const AIRFARE_CYCLE_DAYS = 60;
 const AIRFARE_WORKING_DAYS_PER_AIRFARE_DAY = 30;
 const ALLOCATION_PAYMENT_MODES = Object.freeze(["entitlement", "company", "company_full", "employee", "employee_full", "loan"]);
@@ -94,7 +96,8 @@ function buildInClause(dbRequest, values, parameterPrefix) {
 }
 
 function currentAirfareDaysFromWorkingDays(workingDays = 0) {
-    return roundMoney((Number(workingDays) / AIRFARE_WORKING_DAYS_PER_AIRFARE_DAY) * 2.5, 4);
+    const cappedWorkingDays = Math.max(0, Math.min(AIRFARE_STANDARD_YEAR_DAYS, Number(workingDays) || 0));
+    return roundMoney((cappedWorkingDays / AIRFARE_WORKING_DAYS_PER_AIRFARE_DAY) * 2.5, 4);
 }
 
 function calculateAllocationWorkingDays(targetDate, allocYear, joinDateValue = null, previousAllocationDateValue = null) {
@@ -121,12 +124,12 @@ function calculateAllocationWorkingDays(targetDate, allocYear, joinDateValue = n
 }
 
 function calculateEmployeeEntitlement(employee, openingDays, targetDate, allocYear, maximumPayout) {
-    const maxPayout = Number(maximumPayout) || 150;
+    const maxPayout = Math.min(MAX_COMPANY_PAYABLE, Math.max(0, Number(maximumPayout) || MAX_COMPANY_PAYABLE));
     const opening = Number.isFinite(Number(openingDays)) ? Number(openingDays) : Number(employee.OpeningDays || 0);
     const paidDays = Number(employee.AirfarePaidDays || 0);
     const workingDays = calculateAllocationWorkingDays(targetDate, Number(allocYear) || new Date().getFullYear());
     const currentAirfareDays = currentAirfareDaysFromWorkingDays(workingDays);
-    const remainingDays = roundMoney(Math.max(0, opening + currentAirfareDays - paidDays), 4);
+    const remainingDays = roundMoney(Math.min(AIRFARE_CYCLE_DAYS, Math.max(0, opening + currentAirfareDays - paidDays)), 4);
     const entitlement = roundMoney((maxPayout / AIRFARE_CYCLE_DAYS) * remainingDays, 2);
     return {
         maximumPayout: maxPayout,
@@ -140,7 +143,7 @@ function calculateEmployeeEntitlement(employee, openingDays, targetDate, allocYe
 }
 
 function calculatePolicyEntitlement(maximumPayout, targetDate, allocYear, currentYearSpending = 0, context = {}) {
-    const maxPayout = Math.max(0, Number(maximumPayout) || 150);
+    const maxPayout = Math.min(MAX_COMPANY_PAYABLE, Math.max(0, Number(maximumPayout) || MAX_COMPANY_PAYABLE));
     const openingAmount = Math.max(0, Number(context.openingAmount || 0));
     const extraPaidDays = Math.max(0, Number(context.paidDays || 0));
     const workingDays = calculateAllocationWorkingDays(
@@ -155,6 +158,14 @@ function calculatePolicyEntitlement(maximumPayout, targetDate, allocYear, curren
     const currentYearEarnedAmount = perDayRate * currentAirfareDays;
     const totalEntitlement = Math.min(maxPayout, Math.max(0, openingAmount + currentYearEarnedAmount));
     return roundMoney(Math.max(0, totalEntitlement - paidAmount));
+}
+
+function clampAirfareMaximumPayout(value) {
+    return Math.min(MAX_COMPANY_PAYABLE, Math.max(0, Number(value) || MAX_COMPANY_PAYABLE));
+}
+
+function clampAirfareDays(value) {
+    return Math.min(AIRFARE_CYCLE_DAYS, Math.max(0, Number(value) || 0));
 }
 
 async function getYearAllocationContext(db, employeeId, allocYear, excludeAllocationId = null, allocationDate = null) {
@@ -282,7 +293,7 @@ async function getEffectiveAirfarePolicy(db, allocationDate, companyId = null, e
         .input('EmployeeID', sql.Int, employeeId)
         .execute('sp_ATLAS_GetEffectiveAirfarePolicy'), 'get effective airfare policy');
     const row = result.recordset?.[0] || {};
-    const maxPayout = Number(row.MaxPayoutAmount) || 150;
+    const maxPayout = clampAirfareMaximumPayout(row.MaxPayoutAmount);
     const cycleDays = Number(row.CycleDays) || 60;
     return {
         policyRateId: row.PolicyRateID ? Number(row.PolicyRateID) : null,
@@ -313,7 +324,7 @@ async function getPolicyEntitlementFromDb(db, { maximumPayout, allocationDate, a
         .execute('sp_ATLAS_CalcPolicyEntitlement');
 
     return {
-        policyEntitlement: Math.min(Number(maximumPayout) || 150, Number(result.output.PolicyEntitlement) || 0),
+        policyEntitlement: Math.min(clampAirfareMaximumPayout(maximumPayout), Number(result.output.PolicyEntitlement) || 0),
         currentAirfareDays: Number(result.output.CurrentAirfareDays) || 0,
         remainingDays: Number(result.output.RemainingDays) || 0,
         currentYearRemaining: Number(result.output.CurrentYearRemaining) || 0
@@ -1374,7 +1385,11 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @maxPayout DECIMAL(10,4) = CASE WHEN ISNULL(@MaximumPayout,0) <= 0 THEN 150 ELSE @MaximumPayout END;
+    DECLARE @maxPayout DECIMAL(10,4) = CASE
+        WHEN ISNULL(@MaximumPayout,0) <= 0 THEN 150
+        WHEN @MaximumPayout > 150 THEN 150
+        ELSE @MaximumPayout
+    END;
     DECLARE @ticket DECIMAL(10,2) = ROUND(ISNULL(@TicketCost,0),2);
     DECLARE @entitlement DECIMAL(10,2) = ROUND(CASE WHEN ISNULL(@PolicyEntitlement,0) > 0 THEN @PolicyEntitlement ELSE 0 END,2);
     DECLARE @companyMaxPayable DECIMAL(10,2) = ROUND(@maxPayout,2);
@@ -1508,7 +1523,10 @@ BEGIN
             e.FullName,
             e.Department,
             e.JoinDate,
-            COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) AS MaximumPayout,
+            CASE
+                WHEN COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) > 150 THEN 150
+                ELSE COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150)
+            END AS MaximumPayout,
             COALESCE(NULLIF(policy.CycleDays, 0), 60) AS CycleDays,
             COALESCE(ob.OpeningDays, e.OpeningDays, 0) AS OpeningDays,
             COALESCE(ob.OpeningBHD, e.OpeningBHD, dbo.fn_ATLAS_AirfareAmount(COALESCE(ob.OpeningDays, e.OpeningDays, 0), COALESCE(NULLIF(e.MaximumPayout, 0), 150)), 0) AS OpeningBHD,
@@ -1922,14 +1940,14 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
 // =====================================================
 
 function amountFromDays(days, maxPayout) {
-    return Math.round(((Number(maxPayout) || 150) / 60) * Math.max(0, Number(days) || 0) * 100) / 100;
+    return Math.round((clampAirfareMaximumPayout(maxPayout) / 60) * clampAirfareDays(days) * 100) / 100;
 }
 
 async function applyOpeningBalance(db, item, userId) {
     const year = Number(item.year) || new Date().getFullYear();
     const employeeId = Number(item.employeeId);
-    const openingDays = Number(item.openingDays || item.days || 0);
-    const maximumPayout = Number(item.maximumPayout || 150);
+    const openingDays = clampAirfareDays(item.openingDays || item.days || 0);
+    const maximumPayout = clampAirfareMaximumPayout(item.maximumPayout);
     const openingBhd = Number.isFinite(Number(item.openingBhd ?? item.amount))
         ? Number(item.openingBhd ?? item.amount)
         : amountFromDays(openingDays, maximumPayout);
@@ -1981,7 +1999,7 @@ const openingBalancePayloadSchema = Joi.object({
     openingDays: Joi.number().required(),
     openingBhd: Joi.number().min(0).allow(null),
     amount: Joi.number().min(0).allow(null),
-    maximumPayout: Joi.number().min(0).max(9999).default(150),
+    maximumPayout: Joi.number().min(0).max(150).default(150),
     carriedFromYear: Joi.number().integer().allow(null),
     note: Joi.string().allow("", null).max(250)
 });
@@ -1992,7 +2010,7 @@ const openingBalanceImportSchema = Joi.object({
         year: Joi.number().integer().min(2000).max(2100).required(),
         openingDays: Joi.number().min(0).required(),
         openingBhd: Joi.number().min(0).required(),
-        maximumPayout: Joi.number().min(0).default(150)
+        maximumPayout: Joi.number().min(0).max(150).default(150)
     })).min(1).required()
 });
 
@@ -2007,7 +2025,7 @@ const openingBalanceImportPreviewSchema = Joi.object({
         openingDays: Joi.number().min(0).allow(null),
         openingBhd: Joi.number().min(0).allow(null),
         importedOpeningBhd: Joi.number().min(0).allow(null),
-        maximumPayout: Joi.number().min(0).allow(null)
+        maximumPayout: Joi.number().min(0).max(150).allow(null)
     }).unknown(true)).min(1).required()
 }).unknown(true);
 
@@ -2263,12 +2281,12 @@ const employeePayloadSchema = Joi.object({
     email: Joi.string().email().allow("", null).max(120),
     whatsappNumber: Joi.string().allow("", null).max(30),
     status: Joi.string().allow("", null).max(20),
-    openingDays: Joi.number().min(0).default(0),
+    openingDays: Joi.number().min(0).max(60).default(0),
     openingBhd: Joi.number().min(0).default(0),
-    currentAirfare2024: Joi.number().min(0).default(0),
-    airfarePaidDays: Joi.number().min(0).default(0),
-    remainingBalance2024: Joi.number().min(0).default(0),
-    maximumPayout: Joi.number().min(0).max(9999).default(150),
+    currentAirfare2024: Joi.number().min(0).max(30).default(0),
+    airfarePaidDays: Joi.number().min(0).max(60).default(0),
+    remainingBalance2024: Joi.number().min(0).max(60).default(0),
+    maximumPayout: Joi.number().min(0).max(150).default(150),
     totalAirfare2024: Joi.number().min(0).default(0),
     jan: Joi.number().min(0).default(30),
     feb: Joi.number().min(0).default(30),
@@ -2282,7 +2300,7 @@ const employeePayloadSchema = Joi.object({
     oct: Joi.number().min(0).default(30),
     nov: Joi.number().min(0).default(30),
     dec: Joi.number().min(0).default(30),
-    totalWorkingDays: Joi.number().min(0).max(366).default(360)
+    totalWorkingDays: Joi.number().min(0).max(360).default(360)
 }).unknown(true);
 
 const employeeImportSchema = Joi.object({
@@ -3039,7 +3057,8 @@ app.get('/api/allocations/eligibility-review', authenticateToken, async (req, re
             .execute('sp_ATLAS_GetAllocationEligibilityReview');
 
         const review = result.recordset[0] || {};
-        const maxPayout = Math.max(0, Number(review.MaximumPayout || 150));
+        const maxPayout = clampAirfareMaximumPayout(review.MaximumPayout);
+        review.MaximumPayout = Number(maxPayout.toFixed(2));
         const cappedEntitlement = Math.min(maxPayout, Math.max(0, Number(review.AirfareEntitlementAmount || 0)));
         review.AirfareEntitlementAmount = Number(cappedEntitlement.toFixed(2));
         review.EntitlementApplied = Number(Math.min(cappedEntitlement, Number(review.TicketCost || cappedEntitlement || 0)).toFixed(2));
@@ -4215,7 +4234,7 @@ app.post('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'm
     const schema = Joi.object({
         ruleType: Joi.string().valid('global', 'company', 'employee', 'department', 'payGroup').default('global'),
         effectiveFrom: Joi.date().required(),
-        maxPayoutAmount: Joi.number().positive().max(999999).required(),
+        maxPayoutAmount: Joi.number().positive().max(150).required(),
         companyId: Joi.number().integer().allow(null),
         employeeId: Joi.number().integer().allow(null),
         department: Joi.string().allow('', null).max(100),
@@ -5087,7 +5106,7 @@ app.get('/api/reports/airfare-payable', authenticateToken, async (req, res) => {
             .input('AsOfDate', sql.Date, asOfDate)
             .execute('dbo.sp_ATLAS_GetAirfareReport'), 'airfare payable report');
         const rows = result.recordset.map((row) => {
-            const maxPayout = Math.max(0, Number(row.MaximumPayoutCap || row.AnnualEntitlementBHD || 150));
+            const maxPayout = clampAirfareMaximumPayout(row.MaximumPayoutCap || row.AnnualEntitlementBHD);
             const fullPayableFromDays = Math.max(0, Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5));
             const payable = fullPayableFromDays;
             const entitlement = Math.min(maxPayout, Math.max(0, Number(row.AirfareEntitlementAmount ?? payable)));

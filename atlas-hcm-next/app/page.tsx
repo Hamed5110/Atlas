@@ -390,6 +390,10 @@ const UI_PREFERENCES_STORAGE_KEY = "atlas.ui.preferences";
 const QUICK_ADD_OPTIONS_STORAGE_KEY = "atlas.employee.reference.values";
 const SESSION_TIMEOUT_MS = 35 * 60 * 1000;
 const MAX_COMPANY_PAYABLE = 999999;
+const AIRFARE_STANDARD_YEAR_DAYS = 360;
+const AIRFARE_ENTITLEMENT_CYCLE_DAYS = 720;
+const AIRFARE_MAX_DAYS = 60;
+const AIRFARE_MAX_PAYOUT = 150;
 const paymentModeLabels: Record<string, string> = {
   entitlement: "Airfare entitlement amount",
   company: "Paid by company",
@@ -798,7 +802,7 @@ export default function DashboardPage() {
       if (rightPriority !== leftPriority) return rightPriority - leftPriority;
       return new Date(String(right.EffectiveFrom)).getTime() - new Date(String(left.EffectiveFrom)).getTime();
     })[0];
-  const selectedMaximumPayout = selectedEffectivePolicyRate?.MaxPayoutAmount || allocationEligibilityReview?.MaximumPayout || selectedEmployee?.MaximumPayout || 150;
+  const selectedMaximumPayout = Math.min(AIRFARE_MAX_PAYOUT, selectedEffectivePolicyRate?.MaxPayoutAmount || allocationEligibilityReview?.MaximumPayout || selectedEmployee?.MaximumPayout || AIRFARE_MAX_PAYOUT);
   const selectedCompanyMaxPayout = Math.min(selectedMaximumPayout, MAX_COMPANY_PAYABLE);
   const selectedAllocationYear = Number(allocationForm.year) || new Date().getFullYear();
   const selectedOpeningDays = selectedEmployee?.OpeningDays ?? 0;
@@ -1442,7 +1446,9 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
-      const maximumPayout = toNumber(employeeForm.maximumPayout, 150);
+      const requestedMaximumPayout = toNumber(employeeForm.maximumPayout, AIRFARE_MAX_PAYOUT);
+      if (requestedMaximumPayout > AIRFARE_MAX_PAYOUT) return setMessage("Maximum payout cannot exceed BHD 150.00.");
+      const maximumPayout = Math.min(AIRFARE_MAX_PAYOUT, requestedMaximumPayout);
       const totalWorkingDays = toNumber(employeeForm.totalWorkingDays, 360);
       const paidDays = toNumber(employeeForm.paidDays);
       const calculated = calculateAirfare({
@@ -1587,6 +1593,7 @@ export default function DashboardPage() {
     const amount = toNumber(policyForm.maxPayoutAmount);
     if (!policyForm.effectiveFrom) return setMessage("Effective date is required.");
     if (amount <= 0) return setMessage("Airfare amount must be more than zero.");
+    if (amount > AIRFARE_MAX_PAYOUT) return setMessage("Airfare amount cannot exceed BHD 150.00.");
     if (policyForm.ruleType === "company" && !policyForm.companyId) return setMessage("Select company for company max payout rule.");
     if (policyForm.ruleType === "employee" && !policyForm.employeeId) return setMessage("Select employee for employee exception rule.");
     if (policyForm.ruleType === "department" && !policyForm.department) return setMessage("Select department for department matrix rule.");
@@ -2429,8 +2436,8 @@ export default function DashboardPage() {
     if (openingForm.openingDays.trim() === "" || openingForm.openingBhd.trim() === "") {
       return setMessage("Enter opening days and opening amount before saving.");
     }
-    const maximumPayout = toNumber(openingForm.maximumPayout, employee.MaximumPayout || 150);
-    const openingDays = toNumber(openingForm.openingDays);
+    const maximumPayout = Math.min(AIRFARE_MAX_PAYOUT, toNumber(openingForm.maximumPayout, employee.MaximumPayout || AIRFARE_MAX_PAYOUT));
+    const openingDays = Math.min(AIRFARE_MAX_DAYS, toNumber(openingForm.openingDays));
     const openingBhd = toNumber(openingForm.openingBhd, roundMoney((maximumPayout / 60) * openingDays));
 
     setBusy(true);
@@ -2481,7 +2488,7 @@ export default function DashboardPage() {
         .filter((row) => row.employeeCode || row.openingDays || row.importedOpeningBhd)
         .map((row) => ({
           ...row,
-          openingBhd: roundMoney((Number(row.maximumPayout || 150) / 60) * Number(row.openingDays || 0))
+          openingBhd: roundMoney((Math.min(AIRFARE_MAX_PAYOUT, Number(row.maximumPayout || AIRFARE_MAX_PAYOUT)) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, Number(row.openingDays || 0)))
         }));
       if (!balances.length) throw new Error("No opening balance rows found.");
       const previewResult = await atlasMutation<{
@@ -4653,7 +4660,7 @@ export default function DashboardPage() {
               <div className="form-section-label">Salary and airfare</div>
               <div className="form-grid two">
                 <Field label="Paid days"><input type="number" step="0.001" placeholder="0" value={employeeForm.paidDays} onChange={(e) => setEmployeeForm({ ...employeeForm, paidDays: e.target.value })} /></Field>
-                <Field label="Maximum payout"><input type="number" step="0.01" placeholder="150" value={employeeForm.maximumPayout} onChange={(e) => setEmployeeForm({ ...employeeForm, maximumPayout: e.target.value })} /></Field>
+                <Field label="Maximum payout"><input type="number" step="0.01" min="0" max="150" placeholder="150" value={employeeForm.maximumPayout} onChange={(e) => setEmployeeForm({ ...employeeForm, maximumPayout: e.target.value })} /></Field>
                 <Field label="Current year working days"><input type="number" step="0.01" placeholder="360" value={employeeForm.totalWorkingDays} onChange={(e) => setEmployeeForm({ ...employeeForm, totalWorkingDays: e.target.value })} /></Field>
                 <Field label="Basic salary"><input type="number" step="0.01" placeholder="Basic salary" value={employeeForm.basicSalary} onChange={(e) => setEmployeeForm({ ...employeeForm, basicSalary: e.target.value })} /></Field>
                 <Field label="HRA"><input type="number" step="0.01" placeholder="HRA" value={employeeForm.hra} onChange={(e) => setEmployeeForm({ ...employeeForm, hra: e.target.value })} /></Field>
@@ -4780,20 +4787,20 @@ export default function DashboardPage() {
                 <Field label="Opening year"><input type="number" value={openingForm.year} onChange={(event) => setOpeningForm({ ...openingForm, year: event.target.value })} /></Field>
                 <Field label="Opening days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => {
                   const days = event.target.value;
-                  const amount = days.trim() === "" ? "" : roundMoney((toNumber(openingForm.maximumPayout, 150) / 60) * toNumber(days)).toFixed(2);
+                  const amount = days.trim() === "" ? "" : roundMoney((Math.min(AIRFARE_MAX_PAYOUT, toNumber(openingForm.maximumPayout, AIRFARE_MAX_PAYOUT)) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, toNumber(days))).toFixed(2);
                   setOpeningForm({ ...openingForm, openingDays: days, openingBhd: amount });
                 }} /></Field>
                 <Field label="Opening amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} onChange={(event) => setOpeningForm({ ...openingForm, openingBhd: event.target.value })} /></Field>
-                <Field label="Maximum payout"><input type="number" step="0.01" value={openingForm.maximumPayout} onChange={(event) => {
+                <Field label="Maximum payout"><input type="number" step="0.01" min="0" max="150" value={openingForm.maximumPayout} onChange={(event) => {
                   const maximumPayout = event.target.value;
-                  const amount = openingForm.openingDays.trim() === "" ? "" : roundMoney((toNumber(maximumPayout, 150) / 60) * toNumber(openingForm.openingDays)).toFixed(2);
+                  const amount = openingForm.openingDays.trim() === "" ? "" : roundMoney((Math.min(AIRFARE_MAX_PAYOUT, toNumber(maximumPayout, AIRFARE_MAX_PAYOUT)) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, toNumber(openingForm.openingDays))).toFixed(2);
                   setOpeningForm({ ...openingForm, maximumPayout, openingBhd: amount });
                 }} /></Field>
               </div>
               <div className="calc-result">
                 <span><small>Formula</small><strong>Max / 60 x days</strong></span>
                 <span><small>Amount</small><strong>{money.format(toNumber(openingForm.openingBhd))}</strong></span>
-                <span><small>Per day</small><strong>{money.format(toNumber(openingForm.maximumPayout, 150) / 60)}</strong></span>
+                <span><small>Per day</small><strong>{money.format(Math.min(AIRFARE_MAX_PAYOUT, toNumber(openingForm.maximumPayout, AIRFARE_MAX_PAYOUT)) / AIRFARE_MAX_DAYS)}</strong></span>
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>Save opening balance</button>
@@ -5625,7 +5632,7 @@ export default function DashboardPage() {
               <div className="standard-note">
                 <div>
                   <strong>Date-effective values are used only for new or edited transactions.</strong>
-                  <span>Historical allocations keep their saved policy snapshot, so changing BHD 150 to BHD 200 will not recalculate old tickets.</span>
+                  <span>Historical allocations keep their saved policy snapshot. Current entitlement is capped at 60 days and BHD 150.</span>
                 </div>
                 <button className="mini-soft" onClick={() => setActiveView("Airfare")}>Open Airfare</button>
               </div>
@@ -5801,13 +5808,13 @@ export default function DashboardPage() {
                   <input type="date" value={policyForm.effectiveFrom} onChange={(event) => setPolicyForm({ ...policyForm, effectiveFrom: event.target.value })} />
                 </Field>
                 <Field label="New airfare amount">
-                  <input type="number" step="0.01" min="0" placeholder="200.00" value={policyForm.maxPayoutAmount} onChange={(event) => setPolicyForm({ ...policyForm, maxPayoutAmount: event.target.value })} />
+                  <input type="number" step="0.01" min="0" max="150" placeholder="150.00" value={policyForm.maxPayoutAmount} onChange={(event) => setPolicyForm({ ...policyForm, maxPayoutAmount: event.target.value })} />
                 </Field>
               </div>
               <div className="calc-result">
                 <span><small>Rule</small><strong>{policyForm.ruleType === "payGroup" ? "Pay group" : policyForm.ruleType === "department" ? "Department" : policyForm.ruleType === "employee" ? "Employee" : policyForm.ruleType === "company" ? "Company" : "Global"}</strong></span>
                 <span><small>New amount</small><strong>{money.format(toNumber(policyForm.maxPayoutAmount))}</strong></span>
-                <span><small>Per day</small><strong>{money.format(toNumber(policyForm.maxPayoutAmount, 150) / 60)}</strong></span>
+                <span><small>Per day</small><strong>{money.format(Math.min(AIRFARE_MAX_PAYOUT, toNumber(policyForm.maxPayoutAmount, AIRFARE_MAX_PAYOUT)) / AIRFARE_MAX_DAYS)}</strong></span>
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={handleSaveAirfarePolicyRate}>Save preference value</button>
@@ -6150,7 +6157,7 @@ function CalculationLab({ calcInput, setCalcInput, calcResult }: {
           <label>Opening Days<input type="number" step="0.0001" value={calcInput.openingDays} onChange={(e) => setCalcInput({ ...calcInput, openingDays: Number(e.target.value) })} /></label>
           <label>Working Days<input type="number" step="0.01" value={calcInput.currentWorkingDays} onChange={(e) => setCalcInput({ ...calcInput, currentWorkingDays: Number(e.target.value) })} /></label>
           <label>Paid Days<input type="number" step="0.001" value={calcInput.paidDays} onChange={(e) => setCalcInput({ ...calcInput, paidDays: Number(e.target.value) })} /></label>
-          <label>Max Payout<input type="number" step="0.01" value={calcInput.maximumPayout} onChange={(e) => setCalcInput({ ...calcInput, maximumPayout: Number(e.target.value) })} /></label>
+          <label>Max Payout<input type="number" step="0.01" min="0" max="150" value={calcInput.maximumPayout} onChange={(e) => setCalcInput({ ...calcInput, maximumPayout: Number(e.target.value) })} /></label>
         </div>
         <div className="calc-result">
           <span><small>Current Airfare Days</small><strong>{calcResult.currentAirfareDays.toFixed(4)}</strong></span>
@@ -6655,12 +6662,12 @@ function cellNumber(value: unknown) {
 }
 
 function mapEmployeeExcelRow(headers: string[], row: unknown[]) {
-  const maximumPayout = cellNumber(findCell(headers, row, ["maximum payout", "max payout"])) ?? 150;
+  const maximumPayout = Math.min(AIRFARE_MAX_PAYOUT, cellNumber(findCell(headers, row, ["maximum payout", "max payout"])) ?? AIRFARE_MAX_PAYOUT);
   const close2024Days = cellNumber(findCell(headers, row, ["close 2024 days", "airfare balance 2024", "opening days"])) ?? 0;
   const currentAirfareDays = cellNumber(findCell(headers, row, ["current airfare 2025", "current airfare"])) ?? 0;
   const paidDays = cellNumber(findCell(headers, row, ["airfare paid days 2025", "airfare paid days", "paid days"])) ?? 0;
   const importedClosingDays = cellNumber(findCell(headers, row, ["remaining balance 2025", "balance 2025", "closing balance days"]));
-  const openingDays = importedClosingDays ?? roundMoney(close2024Days + currentAirfareDays - paidDays);
+  const openingDays = Math.min(AIRFARE_MAX_DAYS, importedClosingDays ?? roundMoney(close2024Days + currentAirfareDays - paidDays));
   const importedTotalAirfare = cellNumber(findCell(headers, row, ["total airfare 2025", "closing balance bhd", "total airfare"]));
   const payrollStatus = cellText(findCell(headers, row, ["employeestatusgeneral", "employee status"])) || "Active";
   return {
@@ -6742,9 +6749,11 @@ function mapEmployeeExcelRow(headers: string[], row: unknown[]) {
 
 function mapOpeningBalanceExcelRow(headers: string[], row: unknown[], defaultYear: number) {
   const employeeCode = cellText(findCell(headers, row, ["employeeno", "employeno", "employee code", "emp no", "codegeneral"]));
-  const maximumPayout = cellNumber(findCell(headers, row, ["maximum payout", "max payout"])) ?? 150;
-  const openingDays =
-    cellNumber(findCell(headers, row, ["opening days", "opening balance days", "close 2024 days", "closing balance days", "remaining balance 2025"])) ?? 0;
+  const maximumPayout = Math.min(AIRFARE_MAX_PAYOUT, cellNumber(findCell(headers, row, ["maximum payout", "max payout"])) ?? AIRFARE_MAX_PAYOUT);
+  const openingDays = Math.min(
+    AIRFARE_MAX_DAYS,
+    cellNumber(findCell(headers, row, ["opening days", "opening balance days", "close 2024 days", "closing balance days", "remaining balance 2025"])) ?? 0
+  );
   const importedOpeningBhd =
     cellNumber(findCell(headers, row, ["opening amount", "opening bhd", "opening balance bhd", "total airfare 2025", "closing balance bhd"]));
   return {

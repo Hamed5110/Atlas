@@ -1290,7 +1290,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .preferences-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(360px, .9fr);
   gap: 16px;
 }
 .preferences-page > .glass-panel {
@@ -2860,6 +2860,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .preferences-policy-card .form-grid.one,
   .preferences-policy-card .calc-result,
   .preferences-policy-card .policy-rule-picker,
+  .preferences-page,
   .policy-rule-picker,
   .rule-facts {
     grid-template-columns: 1fr;
