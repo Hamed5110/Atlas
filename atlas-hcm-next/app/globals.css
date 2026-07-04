@@ -1238,8 +1238,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   color: #9f1239;
 }
 .table-row.policy-rate-row {
-  grid-template-columns: minmax(190px, 1fr) minmax(150px, .8fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(115px, .6fr) minmax(76px, .35fr);
-  min-width: 1010px;
+  grid-template-columns: 64px minmax(190px, 1fr) minmax(150px, .8fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(115px, .6fr) minmax(110px, .45fr);
+  min-width: 1120px;
 }
 .policy-rule-label {
   color: var(--muted);

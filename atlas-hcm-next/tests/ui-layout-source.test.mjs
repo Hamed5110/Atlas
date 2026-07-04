@@ -197,6 +197,10 @@ assert.match(css, /\.readiness-grid/, "year end readiness checks should use a re
 assert.match(css, /\.table-row\.policy-rate-row/, "policy rate history should use clear separate scope columns");
 assert.match(source, /handleDeleteAirfarePolicyRate/, "preferences policy rules should expose delete logic");
 assert.match(source, /Delete preference rule/, "preferences policy rules should expose delete buttons for global, company, department, pay group, and employee rules");
+assert.match(source, /handleEditAirfarePolicyRate/, "preferences policy rules should expose edit-as-draft logic");
+assert.match(source, /Delete selected \(\{selectedPolicyRateIds\.size\}\)/, "preferences policy rules should support selected bulk delete");
+assert.match(source, /\/airfare-policy-rates\/\$\{rate\.PolicyRateID\}\/delete/, "preferences delete should use the proxy-safe POST fallback endpoint");
+assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
 assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.6fr\)\s+minmax\(360px,\s*\.9fr\)/, "preferences should use a desktop right panel that can collapse");
@@ -333,7 +337,8 @@ assert.match(server, /MAX_COMPANY_PAYABLE\s*=\s*150/, "backend should enforce BH
 assert.match(server, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "backend should enforce the fixed 360-day standard year");
 assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.max\(150\)/, "backend should reject airfare policy values above BHD 150");
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should reject airfare policy values above BHD 150");
-assert.match(server, /app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*IsActive = 0[\s\S]*logAudit/, "backend should soft-delete airfare policy rules with audit history");
+assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*IsActive = 0[\s\S]*logAudit[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should soft-delete airfare policy rules with audit history");
+assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a POST fallback for policy deletes");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
 assert.match(server, /imgSrc:\s*\[[\s\S]*"blob:"/, "security policy should allow fetched company logos rendered through blob URLs");

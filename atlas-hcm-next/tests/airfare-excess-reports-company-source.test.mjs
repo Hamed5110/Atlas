@@ -83,6 +83,10 @@ assert.doesNotMatch(source, /placeholder="Backup file path for restore"/, "resto
 const server = readFileSync(join(process.cwd(), "..", "server.js"), "utf8");
 assert.match(server, /app\.delete\('\/api\/companies\/:id\(\\\\d\+\)'/, "backend should expose guarded company delete route");
 assert.match(server, /DROP DATABASE \$\{safeDatabase\}/, "backend company delete should drop only the validated company database");
+assert.match(server, /RESTORE VERIFYONLY FROM DISK/, "restore should verify backup media before changing the database");
+assert.match(server, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/, "restore should safely evict active sessions before applying a backup");
+assert.match(server, /SET MULTI_USER/, "restore should always return the database to multi-user mode");
+assert.match(server, /getAtlasBackupRoots/, "backup list should include data-root and legacy backup folders");
 assert.match(server, /ensureCompanyDatabase/, "company creation database query should remain available");
 assert.match(server, /API_RATE_LIMIT_MAX[\s\S]*\|\|\s*5000/, "general API limiter should allow normal dashboard and company setup usage on local network");
 

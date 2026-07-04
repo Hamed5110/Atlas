@@ -461,6 +461,31 @@ async function getConnection() {
     return pool;
 }
 
+async function getAdminConnection(database = 'master') {
+    return new sql.ConnectionPool({
+        ...dbConfig,
+        database,
+        pool: {
+            max: 3,
+            min: 0,
+            idleTimeoutMillis: 15000
+        }
+    }).connect();
+}
+
+async function closeSharedConnection() {
+    if (!pool) return;
+    try {
+        await pool.close();
+    } catch (err) {
+        logger.warn('MSSQL shared pool close warning:', err.message);
+    } finally {
+        pool = null;
+        sqlObjectsReady = false;
+        sqlObjectsPromise = null;
+    }
+}
+
 let sqlObjectsReady = false;
 let sqlObjectsPromise = null;
 
@@ -4274,7 +4299,7 @@ app.post('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'm
     }
 });
 
-app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+async function deactivateAirfarePolicyRate(req, res) {
     const policyRateId = Number(req.params.policyRateId);
     if (!Number.isInteger(policyRateId) || policyRateId <= 0) {
         return res.status(400).json({ error: 'Valid policy rate is required.' });
@@ -4347,7 +4372,10 @@ app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, require
         logger.error('Delete airfare policy rate error:', err);
         res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
     }
-});
+}
+
+app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
+app.post('/api/airfare-policy-rates/:policyRateId/delete', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
 
 // EMERGENCY TICKET ROUTES
 // =====================================================
@@ -4772,17 +4800,60 @@ app.delete('/api/companies/:id(\\d+)', authenticateToken, requireRole('admin'), 
 });
 
 // POST /api/admin/backup
+function getAtlasBackupRoots() {
+    const roots = [];
+    const configuredDataRoot = process.env.ATLAS_DATA_ROOT || process.env.DATA_ROOT;
+    if (configuredDataRoot) roots.push(path.resolve(configuredDataRoot, 'backups'));
+    if (process.env.ProgramData || process.env.PROGRAMDATA) {
+        roots.push(path.resolve(process.env.ProgramData || process.env.PROGRAMDATA, 'ATLAS Airfare Allowance', 'backups'));
+    }
+    roots.push(path.resolve(__dirname, 'backups'));
+    return [...new Set(roots.map((item) => path.resolve(item)))];
+}
+
+function getWritableBackupDir() {
+    const roots = getAtlasBackupRoots();
+    for (const root of roots) {
+        try {
+            fs.mkdirSync(root, { recursive: true });
+            fs.accessSync(root, fs.constants.W_OK);
+            return root;
+        } catch (err) {
+            logger.warn(`Backup folder is not writable: ${root}`, err.message);
+        }
+    }
+    throw new Error('No writable ATLAS backup folder is available.');
+}
+
+function assertBackupInsideKnownRoot(backupFile) {
+    const resolvedBackup = path.resolve(backupFile || '');
+    const roots = getAtlasBackupRoots();
+    const allowed = roots.some((root) => {
+        const normalizedRoot = path.resolve(root);
+        return resolvedBackup === normalizedRoot || resolvedBackup.startsWith(`${normalizedRoot}${path.sep}`);
+    });
+    if (!allowed || !fs.existsSync(resolvedBackup)) {
+        const rootList = roots.join('; ');
+        throw new Error(`Backup file must exist inside an ATLAS backups folder: ${rootList}`);
+    }
+    return resolvedBackup;
+}
+
+async function verifySqlBackupMedia(connection, backupFile) {
+    await connection.request().query(`RESTORE VERIFYONLY FROM DISK = ${sqlLiteral(backupFile)} WITH CHECKSUM`);
+}
+
 app.post('/api/admin/backup', authenticateToken, requireRole('admin'), async (req, res) => {
     try {
         const databaseName = req.body.databaseName || dbConfig.database;
         const safeDatabase = sqlIdentifier(databaseName);
-        const backupDir = path.join(__dirname, 'backups');
-        fs.mkdirSync(backupDir, { recursive: true });
+        const backupDir = getWritableBackupDir();
         const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
         const backupFile = path.join(backupDir, `${databaseName}_${timestamp}.bak`);
 
         const db = await getConnection();
-        await db.request().query(`BACKUP DATABASE ${safeDatabase} TO DISK = ${sqlLiteral(backupFile)} WITH INIT, COPY_ONLY, CHECKSUM`);
+        await db.request().query(`BACKUP DATABASE ${safeDatabase} TO DISK = ${sqlLiteral(backupFile)} WITH INIT, COPY_ONLY, CHECKSUM, STATS = 10`);
+        await verifySqlBackupMedia(db, backupFile);
         await db.request()
             .input('DatabaseName', sql.NVarChar(128), databaseName)
             .input('BackupFile', sql.NVarChar(500), backupFile)
@@ -4802,20 +4873,27 @@ app.post('/api/admin/backup', authenticateToken, requireRole('admin'), async (re
 // GET /api/admin/backups
 app.get('/api/admin/backups', authenticateToken, requireRole('admin'), async (req, res) => {
     try {
-        const backupDir = path.resolve(path.join(__dirname, 'backups'));
-        fs.mkdirSync(backupDir, { recursive: true });
-        const files = fs.readdirSync(backupDir)
-            .filter((name) => name.toLowerCase().endsWith('.bak'))
-            .map((name) => {
-                const fullPath = path.join(backupDir, name);
-                const stat = fs.statSync(fullPath);
-                return {
-                    fileName: name,
-                    backupFile: fullPath,
-                    databaseName: name.replace(/_\d{14}\.bak$/i, ''),
-                    sizeBytes: stat.size,
-                    createdAt: stat.mtime
-                };
+        const files = getAtlasBackupRoots()
+            .flatMap((backupDir) => {
+                try {
+                    fs.mkdirSync(backupDir, { recursive: true });
+                    return fs.readdirSync(backupDir)
+                        .filter((name) => name.toLowerCase().endsWith('.bak'))
+                        .map((name) => {
+                            const fullPath = path.join(backupDir, name);
+                            const stat = fs.statSync(fullPath);
+                            return {
+                                fileName: name,
+                                backupFile: fullPath,
+                                databaseName: name.replace(/_\d{14}\.bak$/i, ''),
+                                sizeBytes: stat.size,
+                                createdAt: stat.mtime
+                            };
+                        });
+                } catch (err) {
+                    logger.warn(`Backup list folder skipped: ${backupDir}`, err.message);
+                    return [];
+                }
             })
             .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 
@@ -4832,18 +4910,23 @@ app.post('/api/admin/restore', authenticateToken, requireRole('admin'), async (r
         const { databaseName, backupFile, confirm } = req.body;
         if (confirm !== 'RESTORE') return res.status(400).json({ error: 'Restore requires confirmation' });
         const safeDatabase = sqlIdentifier(databaseName);
-        const backupDir = path.resolve(path.join(__dirname, 'backups'));
-        const resolvedBackup = path.resolve(backupFile || '');
-        if (!resolvedBackup.startsWith(backupDir) || !fs.existsSync(resolvedBackup)) {
-            return res.status(400).json({ error: 'Backup file must exist inside the ATLAS backups folder' });
-        }
+        const resolvedBackup = assertBackupInsideKnownRoot(backupFile);
 
-        const db = await getConnection();
-        await db.request().batch(`
-            ALTER DATABASE ${safeDatabase} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-            RESTORE DATABASE ${safeDatabase} FROM DISK = ${sqlLiteral(resolvedBackup)} WITH REPLACE;
-            ALTER DATABASE ${safeDatabase} SET MULTI_USER;
-        `);
+        await closeSharedConnection();
+        const adminDb = await getAdminConnection('master');
+        try {
+            await verifySqlBackupMedia(adminDb, resolvedBackup);
+            await adminDb.request().query(`ALTER DATABASE ${safeDatabase} SET SINGLE_USER WITH ROLLBACK IMMEDIATE`);
+            await adminDb.request().query(`RESTORE DATABASE ${safeDatabase} FROM DISK = ${sqlLiteral(resolvedBackup)} WITH REPLACE, CHECKSUM, STATS = 10`);
+        } finally {
+            try {
+                await adminDb.request().query(`ALTER DATABASE ${safeDatabase} SET MULTI_USER`);
+            } catch (multiUserErr) {
+                logger.error('Restore cleanup MULTI_USER error:', multiUserErr);
+            }
+            await adminDb.close();
+        }
+        await getConnection();
 
         await logAudit(req.user.userId, req.user.username, 'RESTORE', 'Database', null, null, { databaseName, backupFile: resolvedBackup },
             `Restored database ${databaseName}`, req);

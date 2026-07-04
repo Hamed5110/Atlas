@@ -22,6 +22,10 @@ assert.match(serverText, /POST \/api\/opening-balances\/import/i, 'Opening balan
 assert.match(serverText, /POST \/api\/admin\/backup/i, 'Backup API should exist');
 assert.match(serverText, /POST \/api\/admin\/restore/i, 'Restore API should exist');
 assert.match(serverText, /confirm !== 'RESTORE'/, 'Restore API should require explicit confirmation');
+assert.match(serverText, /RESTORE VERIFYONLY FROM DISK/i, 'Restore API should verify backup media before restore');
+assert.match(serverText, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/i, 'Restore API should handle active sessions before restore');
+assert.match(serverText, /SET MULTI_USER/i, 'Restore API should return database to multi-user mode');
+assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'/i, 'Airfare policy delete should expose a POST fallback for restricted clients');
 assert.doesNotMatch(serverText, /USE\s+\$\{safeDatabase\}/, 'Company setup should not leave the SQL pool inside company database');
 
 console.log('company admin SQL/API checks passed');
