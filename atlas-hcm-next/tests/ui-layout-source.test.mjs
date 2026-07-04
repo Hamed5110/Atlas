@@ -216,6 +216,7 @@ assert.match(source, /New Rule[\s\S]*History[\s\S]*Logic/, "preferences should e
 assert.match(source, /policyEmployeeSearch/, "employee exception policy should use searchable employee selection");
 assert.match(source, /policy-employee-list/, "employee exception policy should show selectable employee rows");
 assert.match(source, /reloadPolicyEmployees/, "preferences employee exception should be able to reload employees from SQL");
+assert.match(source, /Selected employee is confirmed above[\s\S]*Clear search/, "preferences employee exception search should not show a false missing-employee error after selection");
 assert.match(source, /preferences-page/, "preferences should render the policy editor inside the settings page workspace");
 assert.match(source, /AI System Integrity/, "AI insights should include a system diagnostics header");
 assert.match(source, /SystemIntegrityModel/, "AI insights should type the automatic system integrity model");

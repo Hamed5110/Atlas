@@ -387,6 +387,7 @@ const money = new Intl.NumberFormat("en-BH", { style: "currency", currency: "BHD
 const today = new Date().toISOString().slice(0, 10);
 const SESSION_STORAGE_KEY = "atlas.session";
 const UI_PREFERENCES_STORAGE_KEY = "atlas.ui.preferences";
+const QUICK_ADD_OPTIONS_STORAGE_KEY = "atlas.employee.reference.values";
 const SESSION_TIMEOUT_MS = 35 * 60 * 1000;
 const MAX_COMPANY_PAYABLE = 999999;
 const paymentModeLabels: Record<string, string> = {
@@ -526,6 +527,25 @@ const defaultWorkOptions = {
 
 type QuickAddOptionKey = keyof typeof defaultWorkOptions | "jobBand" | "nationality" | "reportingTo";
 type QuickAddOptions = Record<QuickAddOptionKey, string[]>;
+type EmployeeFormReferenceField = "company" | "department" | "branch" | "section" | "location" | "designation" | "group" | "payrollStatus" | "jobBand" | "nationality" | "reportingTo";
+
+const quickAddOptionKeys: QuickAddOptionKey[] = ["company", "department", "branch", "section", "location", "designation", "group", "status", "jobBand", "nationality", "reportingTo"];
+
+function emptyQuickAddOptions(): QuickAddOptions {
+  return {
+    company: [],
+    department: [],
+    branch: [],
+    section: [],
+    location: [],
+    designation: [],
+    group: [],
+    status: [],
+    jobBand: [],
+    nationality: [],
+    reportingTo: []
+  };
+}
 
 const emptyEmployeeForm = () => ({
   code: "",
@@ -646,19 +666,7 @@ export default function DashboardPage() {
     maximumPayout: 150
   });
   const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
-  const [quickAddOptions, setQuickAddOptions] = useState<QuickAddOptions>({
-    company: [],
-    department: [],
-    branch: [],
-    section: [],
-    location: [],
-    designation: [],
-    group: [],
-    status: [],
-    jobBand: [],
-    nationality: [],
-    reportingTo: []
-  });
+  const [quickAddOptions, setQuickAddOptions] = useState<QuickAddOptions>(emptyQuickAddOptions);
   const [whatsappForm, setWhatsappForm] = useState({
     employeeId: "",
     recipientType: "employee" as "employee" | "manager" | "custom",
@@ -1047,6 +1055,27 @@ export default function DashboardPage() {
       window.localStorage.removeItem(UI_PREFERENCES_STORAGE_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(QUICK_ADD_OPTIONS_STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as Partial<QuickAddOptions>;
+      const next = emptyQuickAddOptions();
+      quickAddOptionKeys.forEach((key) => {
+        next[key] = uniqueOptions(Array.isArray(saved[key]) ? saved[key] : []);
+      });
+      setQuickAddOptions(next);
+    } catch {
+      window.localStorage.removeItem(QUICK_ADD_OPTIONS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(QUICK_ADD_OPTIONS_STORAGE_KEY, JSON.stringify(quickAddOptions));
+  }, [quickAddOptions]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4120,6 +4149,42 @@ export default function DashboardPage() {
     setMessage(`${label} added: ${normalized}`);
   }
 
+  function updateEmployeeReferenceField(field: EmployeeFormReferenceField, value: string) {
+    setEmployeeForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleEditQuickAddOption(key: QuickAddOptionKey, field: EmployeeFormReferenceField, label: string, currentValue: string) {
+    const existing = currentValue.trim();
+    if (!existing) {
+      setMessage(`Select ${label} before editing.`);
+      return;
+    }
+    const nextValue = window.prompt(`Edit ${label}`, existing);
+    const normalized = nextValue?.trim();
+    if (!normalized || normalized === existing) return;
+    setQuickAddOptions((current) => ({
+      ...current,
+      [key]: uniqueOptions([...(current[key] || []).filter((option) => option.toLowerCase() !== existing.toLowerCase()), normalized])
+    }));
+    updateEmployeeReferenceField(field, normalized);
+    setMessage(`${label} updated: ${normalized}`);
+  }
+
+  function handleDeleteQuickAddOption(key: QuickAddOptionKey, field: EmployeeFormReferenceField, label: string, currentValue: string) {
+    const existing = currentValue.trim();
+    if (!existing) {
+      setMessage(`Select ${label} before deleting.`);
+      return;
+    }
+    const existsInCustomValues = (quickAddOptions[key] || []).some((option) => option.toLowerCase() === existing.toLowerCase());
+    setQuickAddOptions((current) => ({
+      ...current,
+      [key]: (current[key] || []).filter((option) => option.toLowerCase() !== existing.toLowerCase())
+    }));
+    updateEmployeeReferenceField(field, "");
+    setMessage(existsInCustomValues ? `${label} removed: ${existing}` : `${label} cleared from this employee form. Master/default values stay protected.`);
+  }
+
   const displayedReport = getDisplayedReport();
   const displayedReportTotalRows = buildReportTotalRows(displayedReport);
 
@@ -4536,11 +4601,11 @@ export default function DashboardPage() {
                 <Field label="Employee code"><input placeholder="Employee code" disabled={Boolean(editingEmployeeId)} value={employeeForm.code} onChange={(e) => setEmployeeForm({ ...employeeForm, code: e.target.value })} /></Field>
                 <Field label="Full name"><input placeholder="Full name" value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></Field>
                 <Field label="Bank code"><input placeholder="Bank code" value={employeeForm.bankCode} onChange={(e) => setEmployeeForm({ ...employeeForm, bankCode: e.target.value })} /></Field>
-                <SelectField placeholder="Job band" value={employeeForm.jobBand} options={workOptions.jobBand} onChange={(value) => setEmployeeForm({ ...employeeForm, jobBand: value })} onAddOption={() => handleQuickAddOption("jobBand", "Job band", (value) => setEmployeeForm((current) => ({ ...current, jobBand: value })))} />
+                <SelectField placeholder="Job band" value={employeeForm.jobBand} options={workOptions.jobBand} onChange={(value) => setEmployeeForm({ ...employeeForm, jobBand: value })} onAddOption={() => handleQuickAddOption("jobBand", "Job band", (value) => setEmployeeForm((current) => ({ ...current, jobBand: value })))} onEditOption={() => handleEditQuickAddOption("jobBand", "jobBand", "Job band", employeeForm.jobBand)} onDeleteOption={() => handleDeleteQuickAddOption("jobBand", "jobBand", "Job band", employeeForm.jobBand)} />
                 <Field label="Join date"><input type="date" value={employeeForm.joinDate} onChange={(e) => setEmployeeForm({ ...employeeForm, joinDate: e.target.value })} /></Field>
                 <Field label="CPR / Bahrain ID"><input placeholder="CPR / Bahrain ID" value={employeeForm.cpr} onChange={(e) => setEmployeeForm({ ...employeeForm, cpr: e.target.value })} /></Field>
                 <Field label="Passport number"><input placeholder="Passport number" value={employeeForm.passport} onChange={(e) => setEmployeeForm({ ...employeeForm, passport: e.target.value })} /></Field>
-                <SelectField placeholder="Nationality" value={employeeForm.nationality} options={workOptions.nationality} onChange={(value) => setEmployeeForm({ ...employeeForm, nationality: value })} onAddOption={() => handleQuickAddOption("nationality", "Nationality", (value) => setEmployeeForm((current) => ({ ...current, nationality: value })))} />
+                <SelectField placeholder="Nationality" value={employeeForm.nationality} options={workOptions.nationality} onChange={(value) => setEmployeeForm({ ...employeeForm, nationality: value })} onAddOption={() => handleQuickAddOption("nationality", "Nationality", (value) => setEmployeeForm((current) => ({ ...current, nationality: value })))} onEditOption={() => handleEditQuickAddOption("nationality", "nationality", "Nationality", employeeForm.nationality)} onDeleteOption={() => handleDeleteQuickAddOption("nationality", "nationality", "Nationality", employeeForm.nationality)} />
                 <Field label="Bahraini national"><select value={employeeForm.bahrainiNational} onChange={(e) => setEmployeeForm({ ...employeeForm, bahrainiNational: e.target.value })}>
                   <option value="No">Non Bahraini</option>
                   <option value="Yes">Bahraini</option>
@@ -4549,15 +4614,15 @@ export default function DashboardPage() {
               </div>
               <div className="form-section-label">Work</div>
               <div className="form-grid two">
-                <SelectField placeholder="Company" value={employeeForm.company} options={workOptions.company} onChange={(value) => setEmployeeForm({ ...employeeForm, company: value })} onAddOption={() => handleQuickAddOption("company", "Company", (value) => setEmployeeForm((current) => ({ ...current, company: value })))} />
-                <SelectField placeholder="Department" value={employeeForm.department} options={workOptions.department} onChange={(value) => setEmployeeForm({ ...employeeForm, department: value })} onAddOption={() => handleQuickAddOption("department", "Department", (value) => setEmployeeForm((current) => ({ ...current, department: value })))} />
-                <SelectField placeholder="Branch" value={employeeForm.branch} options={workOptions.branch} onChange={(value) => setEmployeeForm({ ...employeeForm, branch: value })} onAddOption={() => handleQuickAddOption("branch", "Branch", (value) => setEmployeeForm((current) => ({ ...current, branch: value })))} />
-                <SelectField placeholder="Section" value={employeeForm.section} options={workOptions.section} onChange={(value) => setEmployeeForm({ ...employeeForm, section: value })} onAddOption={() => handleQuickAddOption("section", "Section", (value) => setEmployeeForm((current) => ({ ...current, section: value })))} />
-                <SelectField placeholder="Location" value={employeeForm.location} options={workOptions.location} onChange={(value) => setEmployeeForm({ ...employeeForm, location: value })} onAddOption={() => handleQuickAddOption("location", "Location", (value) => setEmployeeForm((current) => ({ ...current, location: value })))} />
-                <SelectField placeholder="Designation" value={employeeForm.designation} options={workOptions.designation} onChange={(value) => setEmployeeForm({ ...employeeForm, designation: value })} onAddOption={() => handleQuickAddOption("designation", "Designation", (value) => setEmployeeForm((current) => ({ ...current, designation: value })))} />
-                <SelectField placeholder="Pay group" value={employeeForm.group} options={workOptions.group} onChange={(value) => setEmployeeForm({ ...employeeForm, group: value })} onAddOption={() => handleQuickAddOption("group", "Pay group", (value) => setEmployeeForm((current) => ({ ...current, group: value })))} />
-                <SelectField placeholder="Reporting to" value={employeeForm.reportingTo} options={workOptions.reportingTo} onChange={(value) => setEmployeeForm({ ...employeeForm, reportingTo: value })} onAddOption={() => handleQuickAddOption("reportingTo", "Reporting to", (value) => setEmployeeForm((current) => ({ ...current, reportingTo: value })))} />
-                <SelectField placeholder="Employee status" value={employeeForm.payrollStatus} options={workOptions.status} onChange={(value) => setEmployeeForm({ ...employeeForm, payrollStatus: value })} onAddOption={() => handleQuickAddOption("status", "Employee status", (value) => setEmployeeForm((current) => ({ ...current, payrollStatus: value })))} />
+                <SelectField placeholder="Company" value={employeeForm.company} options={workOptions.company} onChange={(value) => setEmployeeForm({ ...employeeForm, company: value })} onAddOption={() => handleQuickAddOption("company", "Company", (value) => setEmployeeForm((current) => ({ ...current, company: value })))} onEditOption={() => handleEditQuickAddOption("company", "company", "Company", employeeForm.company)} onDeleteOption={() => handleDeleteQuickAddOption("company", "company", "Company", employeeForm.company)} />
+                <SelectField placeholder="Department" value={employeeForm.department} options={workOptions.department} onChange={(value) => setEmployeeForm({ ...employeeForm, department: value })} onAddOption={() => handleQuickAddOption("department", "Department", (value) => setEmployeeForm((current) => ({ ...current, department: value })))} onEditOption={() => handleEditQuickAddOption("department", "department", "Department", employeeForm.department)} onDeleteOption={() => handleDeleteQuickAddOption("department", "department", "Department", employeeForm.department)} />
+                <SelectField placeholder="Branch" value={employeeForm.branch} options={workOptions.branch} onChange={(value) => setEmployeeForm({ ...employeeForm, branch: value })} onAddOption={() => handleQuickAddOption("branch", "Branch", (value) => setEmployeeForm((current) => ({ ...current, branch: value })))} onEditOption={() => handleEditQuickAddOption("branch", "branch", "Branch", employeeForm.branch)} onDeleteOption={() => handleDeleteQuickAddOption("branch", "branch", "Branch", employeeForm.branch)} />
+                <SelectField placeholder="Section" value={employeeForm.section} options={workOptions.section} onChange={(value) => setEmployeeForm({ ...employeeForm, section: value })} onAddOption={() => handleQuickAddOption("section", "Section", (value) => setEmployeeForm((current) => ({ ...current, section: value })))} onEditOption={() => handleEditQuickAddOption("section", "section", "Section", employeeForm.section)} onDeleteOption={() => handleDeleteQuickAddOption("section", "section", "Section", employeeForm.section)} />
+                <SelectField placeholder="Location" value={employeeForm.location} options={workOptions.location} onChange={(value) => setEmployeeForm({ ...employeeForm, location: value })} onAddOption={() => handleQuickAddOption("location", "Location", (value) => setEmployeeForm((current) => ({ ...current, location: value })))} onEditOption={() => handleEditQuickAddOption("location", "location", "Location", employeeForm.location)} onDeleteOption={() => handleDeleteQuickAddOption("location", "location", "Location", employeeForm.location)} />
+                <SelectField placeholder="Designation" value={employeeForm.designation} options={workOptions.designation} onChange={(value) => setEmployeeForm({ ...employeeForm, designation: value })} onAddOption={() => handleQuickAddOption("designation", "Designation", (value) => setEmployeeForm((current) => ({ ...current, designation: value })))} onEditOption={() => handleEditQuickAddOption("designation", "designation", "Designation", employeeForm.designation)} onDeleteOption={() => handleDeleteQuickAddOption("designation", "designation", "Designation", employeeForm.designation)} />
+                <SelectField placeholder="Pay group" value={employeeForm.group} options={workOptions.group} onChange={(value) => setEmployeeForm({ ...employeeForm, group: value })} onAddOption={() => handleQuickAddOption("group", "Pay group", (value) => setEmployeeForm((current) => ({ ...current, group: value })))} onEditOption={() => handleEditQuickAddOption("group", "group", "Pay group", employeeForm.group)} onDeleteOption={() => handleDeleteQuickAddOption("group", "group", "Pay group", employeeForm.group)} />
+                <SelectField placeholder="Reporting to" value={employeeForm.reportingTo} options={workOptions.reportingTo} onChange={(value) => setEmployeeForm({ ...employeeForm, reportingTo: value })} onAddOption={() => handleQuickAddOption("reportingTo", "Reporting to", (value) => setEmployeeForm((current) => ({ ...current, reportingTo: value })))} onEditOption={() => handleEditQuickAddOption("reportingTo", "reportingTo", "Reporting to", employeeForm.reportingTo)} onDeleteOption={() => handleDeleteQuickAddOption("reportingTo", "reportingTo", "Reporting to", employeeForm.reportingTo)} />
+                <SelectField placeholder="Employee status" value={employeeForm.payrollStatus} options={workOptions.status} onChange={(value) => setEmployeeForm({ ...employeeForm, payrollStatus: value })} onAddOption={() => handleQuickAddOption("status", "Employee status", (value) => setEmployeeForm((current) => ({ ...current, payrollStatus: value })))} onEditOption={() => handleEditQuickAddOption("status", "payrollStatus", "Employee status", employeeForm.payrollStatus)} onDeleteOption={() => handleDeleteQuickAddOption("status", "payrollStatus", "Employee status", employeeForm.payrollStatus)} />
                 <Field label="Last working date"><input type="date" value={employeeForm.lastWorkingDate} onChange={(e) => setEmployeeForm({ ...employeeForm, lastWorkingDate: e.target.value })} /></Field>
                 <Field label="Email"><input placeholder="Email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></Field>
                 <Field label="WhatsApp number"><input placeholder="973XXXXXXXX" value={employeeForm.whatsappNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, whatsappNumber: e.target.value })} /></Field>
@@ -5531,7 +5596,7 @@ export default function DashboardPage() {
         )}
 
         {activeView === "Preferences" && (
-          <section className="table-grid">
+          <section className="preferences-page">
             <div className="glass-panel table-card">
               <div className="card-title"><Settings size={18} /> Preferences and custom values</div>
               <div className="standard-note">
@@ -5598,7 +5663,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="glass-panel form-card">
+            <div className="glass-panel form-card preferences-policy-card">
               <div className="card-title"><Database size={18} /> Airfare allocation amount</div>
               <p className="muted">Configure maximum payout rules in one clear workspace. Use employee exception only when one employee needs a different payout from the global, company, department, or pay group rule.</p>
               <div className="policy-tabs" role="tablist" aria-label="Airfare preference workspace">
@@ -5656,7 +5721,18 @@ export default function DashboardPage() {
                     <div className="policy-employee-list">
                       {filteredPolicyEmployees.length === 0 && (
                         <div className="empty-state-inline">
-                          <p className="muted">{policyEmployeesLoading ? "Loading employees from SQL..." : "No employee found. Try code, name, department, or reload employees."}</p>
+                          <p className="muted">
+                            {policyEmployeesLoading
+                              ? "Loading employees from SQL..."
+                              : selectedPolicyEmployee
+                                ? "Selected employee is confirmed above. Clear search to show the employee list again."
+                                : "No employee found. Try code, name, department, or reload employees."}
+                          </p>
+                          {selectedPolicyEmployee && (
+                            <button className="mini-soft" type="button" onClick={() => setPolicyEmployeeSearch("")}>
+                              <X size={14} /> Clear search
+                            </button>
+                          )}
                           <button className="mini-soft" type="button" disabled={policyEmployeesLoading || !session} onClick={() => void reloadPolicyEmployees()}>
                             <RefreshCw size={14} /> Reload employees
                           </button>
@@ -6186,19 +6262,28 @@ function EmployeeTable({
   );
 }
 
-function SelectField({ placeholder, value, options, onChange, onAddOption }: {
+function SelectField({ placeholder, value, options, onChange, onAddOption, onEditOption, onDeleteOption }: {
   placeholder: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
   onAddOption?: () => void;
+  onEditOption?: () => void;
+  onDeleteOption?: () => void;
 }) {
   return (
     <Field label={placeholder} onDoubleClick={onAddOption}>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{placeholder}</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
+      <div className="select-manage-control">
+        <select value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">{placeholder}</option>
+          {options.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+        <div className="select-manage-actions" aria-label={`${placeholder} actions`}>
+          {onAddOption && <button className="mini-soft" type="button" title={`Add ${placeholder}`} onClick={onAddOption}><Plus size={13} /> Add</button>}
+          {onEditOption && <button className="mini-soft" type="button" title={`Edit selected ${placeholder}`} disabled={!value} onClick={onEditOption}>Edit</button>}
+          {onDeleteOption && <button className="mini-danger" type="button" title={`Delete selected ${placeholder}`} disabled={!value} onClick={onDeleteOption}><Trash2 size={13} /></button>}
+        </div>
+      </div>
     </Field>
   );
 }

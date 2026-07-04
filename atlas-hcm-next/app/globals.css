@@ -934,6 +934,25 @@ h3 { font-size: 20px; letter-spacing: 0; }
   background: #eff6ff;
   border-color: rgba(21,94,239,.18);
 }
+.select-manage-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.select-manage-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.select-manage-actions .mini-soft {
+  min-width: 58px;
+}
+.select-manage-actions .mini-danger:disabled,
+.select-manage-actions .mini-soft:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+}
 .row-actions {
   display: flex;
   align-items: center;
@@ -2848,6 +2867,13 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .hcm-card {
     min-width: 0;
     width: 100%;
+  }
+  .select-manage-control {
+    grid-template-columns: 1fr;
+  }
+  .select-manage-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
   .support-preview-strip { grid-template-columns: 1fr; }
   .support-guide-actions .shine-button,

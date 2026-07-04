@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.15" ?>
+  <?define ProductVersion = "2.3.16" ?>
   <?ifdef UpdateOnly ?>
     <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
     <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
