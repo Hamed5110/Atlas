@@ -182,6 +182,7 @@ assert.match(source, /report-check-panel/, "report checks panel should have a de
 assert.match(css, /\.sidebar-collapsed/, "collapsed sidebar should have dedicated shell styling");
 assert.match(css, /\.right-panels-collapsed/, "global right panel collapse should have dedicated styling");
 assert.match(css, /\.right-panels-collapsed \.reports-workspace > \.report-check-panel\s*{[\s\S]*display:\s*none/, "global right panel collapse should hide the reports check panel");
+assert.match(css, /\.right-panels-collapsed \.preferences-page > \.preferences-policy-card/, "global right panel collapse should hide the preferences policy editor");
 assert.match(css, /\.icon-button\.active/, "active icon buttons should show selected state");
 assert.match(css, /\.accent-emerald/, "emerald accent theme should be styled");
 assert.match(css, /\.accent-slate/, "slate accent theme should be styled");
@@ -190,6 +191,8 @@ assert.match(css, /\.density-comfortable/, "comfortable application density shou
 assert.match(css, /\.readiness-panel/, "year end readiness panel should be styled");
 assert.match(css, /\.readiness-grid/, "year end readiness checks should use a responsive grid");
 assert.match(css, /\.table-row\.policy-rate-row/, "policy rate history should use clear separate scope columns");
+assert.match(source, /handleDeleteAirfarePolicyRate/, "preferences policy rules should expose delete logic");
+assert.match(source, /Delete preference rule/, "preferences policy rules should expose delete buttons for global, company, department, pay group, and employee rules");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
 assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/, "preferences should be a full-width settings page, not a right-side panel");
@@ -322,6 +325,7 @@ assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeDepartme
 assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeGroup NVARCHAR\(100\)/, "SQL policy lookup should support pay group matrix airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@Department NVARCHAR\(100\) = NULL/, "SQL policy save should support department matrix airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@EmpGroup NVARCHAR\(100\) = NULL/, "SQL policy save should support pay group matrix airfare amounts");
+assert.match(server, /app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*IsActive = 0[\s\S]*logAudit/, "backend should soft-delete airfare policy rules with audit history");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
 assert.match(server, /imgSrc:\s*\[[\s\S]*"blob:"/, "security policy should allow fetched company logos rendered through blob URLs");

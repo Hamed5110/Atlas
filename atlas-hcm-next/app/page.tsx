@@ -1617,6 +1617,29 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
+    if (!session) return setMessage("Please sign in first.");
+    if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can delete preference policy rules.");
+    const scopeLabel = rate.EmployeeID
+      ? `employee ${rate.EmployeeCode || rate.EmployeeID}`
+      : rate.EmpGroup ? `pay group ${rate.EmpGroup}`
+      : rate.Department ? `department ${rate.Department}`
+      : rate.CompanyID ? `company ${rate.CompanyName || rate.CompanyID}` : "global default";
+    const confirmed = window.confirm(`Delete ${scopeLabel} airfare policy #${rate.PolicyRateID}? Historical allocations will stay unchanged.`);
+    if (!confirmed) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${rate.PolicyRateID}`, session.token, session.sessionId, "DELETE");
+      await loadLiveData();
+      setMessage(`Deleted ${scopeLabel} airfare policy #${rate.PolicyRateID}. Historical allocations remain locked.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete airfare policy.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleCreateAllocation() {
     if (!session) return setMessage("Please sign in before saving.");
     if (!selectedEmployee) return setMessage("Select an employee first.");
@@ -5646,7 +5669,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="premium-table">
-                <div className="table-row loan-head policy-rate-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span></div>
+                <div className="table-row loan-head policy-rate-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span><span>Action</span></div>
                 {airfarePolicyRates.length === 0 && <p className="muted">No custom airfare policy found. System will use BHD 150.00 default.</p>}
                 {airfarePolicyRates.map((rate) => (
                   <div className="table-row loan-head policy-rate-row" key={rate.PolicyRateID}>
@@ -5659,6 +5682,9 @@ export default function DashboardPage() {
                     <span><strong>{Number(rate.CycleDays || 60).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 30).toFixed(0)} working days / month</small></span>
                     <span><strong>{money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))}</strong><small>Amount / cycle days</small></span>
                     <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
+                    <span className="row-actions">
+                      <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role) || !rate.IsActive} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /></button>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -5790,7 +5816,7 @@ export default function DashboardPage() {
               )}
               {policyTab === "history" && (
                 <div className="premium-table policy-history-panel">
-                  <div className="table-row loan-head policy-rate-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span></div>
+                  <div className="table-row loan-head policy-rate-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span><span>Action</span></div>
                   {airfarePolicyRates.length === 0 && <p className="muted">No custom airfare policy found. System will use BHD 150.00 default.</p>}
                   {airfarePolicyRates.map((rate) => (
                     <div className="table-row loan-head policy-rate-row" key={`history-${rate.PolicyRateID}`}>
@@ -5803,6 +5829,9 @@ export default function DashboardPage() {
                       <span><strong>{Number(rate.CycleDays || 60).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 30).toFixed(0)} working days / month</small></span>
                       <span><strong>{money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))}</strong><small>Amount / cycle days</small></span>
                       <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
+                      <span className="row-actions">
+                        <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role) || !rate.IsActive} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /></button>
+                      </span>
                     </div>
                   ))}
                 </div>
