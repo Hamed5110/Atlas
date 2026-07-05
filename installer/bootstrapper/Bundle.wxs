@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.22" ?>
+  <?define ProductVersion = "2.3.23" ?>
   <?ifdef UpdateOnly ?>
     <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
     <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
@@ -139,6 +139,7 @@
         Compressed="yes"
         Vital="yes"
         Permanent="no">
+        <MsiProperty Name="INSTALLFOLDER" Value="[ATLASINSTALLROOT]" />
         <MsiProperty Name="ATLASPORT" Value="[ATLASPORT]" />
         <MsiProperty Name="DB_SERVER" Value="localhost" />
         <MsiProperty Name="DB_PORT" Value="1433" />

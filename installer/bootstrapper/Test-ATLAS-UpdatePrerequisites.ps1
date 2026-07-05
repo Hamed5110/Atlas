@@ -34,6 +34,28 @@ function Read-EnvFile {
     return $settings
 }
 
+function Find-AtlasInstallRoot {
+    param([string]$PreferredRoot)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($candidate in @(
+        $PreferredRoot,
+        (Get-RegValue -Name "INSTALLROOT"),
+        (Join-Path $env:ProgramFiles "ATLAS Airfare Allowance"),
+        "C:\Airfare_Allowance",
+        (Get-Location).Path
+    )) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+            $candidates.Add(([string]$candidate).TrimEnd('\')) | Out-Null
+        }
+    }
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (Test-Path -LiteralPath (Join-Path $candidate "server.js")) {
+            return $candidate
+        }
+    }
+    return $PreferredRoot
+}
+
 function Test-Tcp {
     param([string]$HostName, [int]$Port)
     try {
@@ -50,6 +72,7 @@ function Test-Tcp {
 
 if (-not $InstallRoot) { $InstallRoot = Get-RegValue -Name "INSTALLROOT" }
 if (-not $InstallRoot) { $InstallRoot = Join-Path $env:ProgramFiles "ATLAS Airfare Allowance" }
+$InstallRoot = Find-AtlasInstallRoot -PreferredRoot $InstallRoot
 if (-not $DataRoot) { $DataRoot = Get-RegValue -Name "DATAROOT" }
 if (-not $DataRoot) { $DataRoot = Join-Path $env:ProgramData "ATLAS Airfare Allowance" }
 
