@@ -2200,8 +2200,15 @@ export default function DashboardPage() {
 
   async function handleDeleteEmployee(employee: Employee) {
     if (!session) return setMessage("Please sign in before deleting.");
-    const ok = window.confirm(`Delete ${employee.FullName}?`);
-    if (!ok) return;
+    const employeeCode = String(employee.EmployeeCode || employee.EmployeeID);
+    const typed = window.prompt([
+      `Delete employee ${employee.FullName}?`,
+      `Employee code: ${employeeCode}`,
+      "Type the employee code to confirm deletion."
+    ].join("\n"));
+    if (typed !== employeeCode) {
+      return setMessage("Employee delete cancelled. The employee code did not match.");
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -2213,12 +2220,63 @@ export default function DashboardPage() {
         next.delete(employee.EmployeeID);
         return next;
       });
-      setMessage(`Employee #${employee.EmployeeID} deleted.`);
+      setMessage(`Employee ${employeeCode} - ${employee.FullName} deleted.`);
     } catch (error) {
-      setMessage(formatDeleteError("Employee delete failed", employee.EmployeeID, error));
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("EMPLOYEE_DELETE_BLOCKED")) {
+        const detail = parseEmployeeDeleteBlock(message);
+        const linkedText = [
+          `${detail.loans} loan(s)`,
+          `${detail.allocations} airfare allocation(s)`,
+          `${detail.emergencyTickets} emergency ticket(s)`,
+          `${detail.openingBalances} opening balance row(s)`
+        ].join(", ");
+        const forceOk = window.confirm([
+          `Employee ${employeeCode} has linked records: ${linkedText}.`,
+          "Full delete will remove the employee and those linked operational records.",
+          "Audit log entries and historical system logs remain protected.",
+          "Continue with full employee delete?"
+        ].join("\n"));
+        if (!forceOk) {
+          setMessage(`Employee ${employeeCode} was not deleted. Linked records are still safe.`);
+          return;
+        }
+        try {
+          await atlasMutation(`/employees/${employee.EmployeeID}?force=true`, session.token, session.sessionId, "DELETE");
+          await loadLiveData();
+          if (editingEmployeeId === employee.EmployeeID) resetEmployeeForm();
+          setSelectedEmployeeIds((current) => {
+            const next = new Set(current);
+            next.delete(employee.EmployeeID);
+            return next;
+          });
+          setMessage(`Employee ${employeeCode} - ${employee.FullName} fully deleted with linked operational records.`);
+        } catch (forceError) {
+          setMessage(formatDeleteError("Full employee delete failed", employee.EmployeeID, forceError));
+        }
+      } else {
+        setMessage(formatDeleteError("Employee delete failed", employee.EmployeeID, error));
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  function parseEmployeeDeleteBlock(message: string) {
+    const jsonStart = message.indexOf("{");
+    if (jsonStart >= 0) {
+      try {
+        const payload = JSON.parse(message.slice(jsonStart));
+        const details = payload.details || {};
+        return {
+          loans: Number(details.loans) || 0,
+          allocations: Number(details.allocations) || 0,
+          emergencyTickets: Number(details.emergencyTickets) || 0,
+          openingBalances: Number(details.openingBalances) || 0
+        };
+      } catch {}
+    }
+    return { loans: 0, allocations: 0, emergencyTickets: 0, openingBalances: 0 };
   }
 
   function formatDeleteError(action: string, id: number, error: unknown) {
