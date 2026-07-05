@@ -124,10 +124,14 @@ namespace AtlasBootstrapperRunner
             var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
             var logFolder = Path.Combine(dataRoot, "logs");
             var latestLog = FindLatestLog(logFolder);
-            var title = exitCode == 0 ? "ATLAS patch completed" : "ATLAS patch failed";
-            var icon = exitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error;
+            var latestStatus = ReadPatchStatus(latestLog);
+            var warningStatus = exitCode == 0 && string.Equals(latestStatus, "WARNING", StringComparison.OrdinalIgnoreCase);
+            var title = exitCode == 0 ? (warningStatus ? "ATLAS patch completed with warnings" : "ATLAS patch completed") : "ATLAS patch failed";
+            var icon = exitCode == 0 ? (warningStatus ? MessageBoxIcon.Warning : MessageBoxIcon.Information) : MessageBoxIcon.Error;
             var message = exitCode == 0
-                ? "ATLAS Airfare Allowance update patch completed successfully.\r\n\r\nFiles were updated, the service was restarted, and health checks passed."
+                ? (warningStatus
+                    ? "ATLAS Airfare Allowance files were updated, and existing configuration was preserved.\r\n\r\nSome verification checks need review. Open the latest log shown below."
+                    : "ATLAS Airfare Allowance update patch completed successfully.\r\n\r\nFiles were updated, the service was restarted, and health checks passed.")
                 : "ATLAS Airfare Allowance update patch failed.\r\n\r\nReview the error details and send the log file for support.";
             if (!string.IsNullOrWhiteSpace(latestLog))
             {
@@ -138,6 +142,22 @@ namespace AtlasBootstrapperRunner
                 message += "\r\n\r\nLog folder:\r\n" + logFolder;
             }
             MessageBox.Show(message, title, MessageBoxButtons.OK, icon);
+        }
+
+        private static string ReadPatchStatus(string logPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath)) return "";
+                var text = File.ReadAllText(logPath);
+                if (text.IndexOf("PatchStatus=WARNING", StringComparison.OrdinalIgnoreCase) >= 0) return "WARNING";
+                if (text.IndexOf("PatchStatus=FAILED", StringComparison.OrdinalIgnoreCase) >= 0) return "FAILED";
+                if (text.IndexOf("PatchStatus=SUCCESS", StringComparison.OrdinalIgnoreCase) >= 0) return "SUCCESS";
+            }
+            catch
+            {
+            }
+            return "";
         }
 
         private static bool ShouldShowCompletionMessage(string mode)

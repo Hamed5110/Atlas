@@ -1162,6 +1162,8 @@ BEGIN
         BEGIN
             COMMIT TRANSACTION;
             SELECT
+                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+                CAST('none' AS NVARCHAR(40)) AS DeleteAction,
                 CAST('already_removed' AS NVARCHAR(40)) AS DeleteStatus,
                 CAST(1 AS BIT) AS AlreadyRemoved,
                 CAST(0 AS BIT) AS AlreadyHistorical,
@@ -1193,6 +1195,8 @@ BEGIN
 
             COMMIT TRANSACTION;
             SELECT
+                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+                CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
                 CAST('hard_deleted' AS NVARCHAR(40)) AS DeleteStatus,
                 CAST(0 AS BIT) AS AlreadyRemoved,
                 CAST(0 AS BIT) AS AlreadyHistorical,
@@ -1275,6 +1279,8 @@ BEGIN
 
             COMMIT TRANSACTION;
             SELECT
+                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+                CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
                 CAST('already_historical' AS NVARCHAR(40)) AS DeleteStatus,
                 CAST(0 AS BIT) AS AlreadyRemoved,
                 CAST(1 AS BIT) AS AlreadyHistorical,
@@ -1356,6 +1362,8 @@ BEGIN
         COMMIT TRANSACTION;
 
         SELECT
+            CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+            CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
             CAST('deactivated' AS NVARCHAR(40)) AS DeleteStatus,
             CAST(0 AS BIT) AS AlreadyRemoved,
             CAST(0 AS BIT) AS AlreadyHistorical,

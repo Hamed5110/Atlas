@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.34\ATLAS-Airfare-Allowance-2.3.34-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.35\ATLAS-Airfare-Allowance-2.3.35-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.34\ATLAS-Airfare-Allowance-Setup-2.3.34-x64.exe",
-    [string]$ProductVersion = "2.3.34",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.35\ATLAS-Airfare-Allowance-Setup-2.3.35-x64.exe",
+    [string]$ProductVersion = "2.3.35",
     [string]$UpdateManifest = ""
 )
 
@@ -60,6 +60,32 @@ if ($Mode -ne "Build") {
 function Write-Step {
     param([string]$Message)
     Write-Host "[ATLAS] $Message" -ForegroundColor Cyan
+}
+
+function Write-InstallDebugEvent {
+    param(
+        [string]$CurrentStep,
+        [string]$Status = "INFO",
+        [string]$Message = "",
+        [string]$ErrorCode = "",
+        [string]$RemediationSuggestion = "",
+        [string]$DataPath = $script:DataRoot
+    )
+    try {
+        $logDir = Join-Path $DataPath "logs"
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        $debugPath = Join-Path $logDir "install_debug.log"
+        [pscustomobject]@{
+            timestamp = (Get-Date).ToString("o")
+            current_step = $CurrentStep
+            status = $Status
+            message = $Message
+            error_code = $ErrorCode
+            remediation_suggestion = $RemediationSuggestion
+        } | ConvertTo-Json -Compress | Add-Content -LiteralPath $debugPath -Encoding UTF8
+    } catch {
+        Write-Host "[ATLAS] Warning: could not write install_debug.log: $($_.Exception.Message)"
+    }
 }
 
 function Compare-VersionText {
@@ -1480,6 +1506,7 @@ function Invoke-UpdateOnlyPrepare {
 
 function Invoke-UpdateOnlyFinalize {
     $report = $null
+    $warnings = New-Object System.Collections.Generic.List[string]
     try {
         Assert-AtlasInstalledForPatch
         Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
@@ -1489,9 +1516,11 @@ function Invoke-UpdateOnlyFinalize {
         "DataRoot=$DataRoot" | Add-Content $report
         "Step=Review existing installation and configuration" | Add-Content $report
 
+        Write-InstallDebugEvent -CurrentStep "Preserve existing application and MSSQL configuration" -Status "STARTED" -Message "Reading installed .env, registry, and confirmed bootstrapper values." -DataPath $DataRoot
         Save-UpdatePreservedConfig -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
         Restore-UpdatePreservedConfig -InstallPath $InstallRoot -DataPath $DataRoot
         $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
+        Write-InstallDebugEvent -CurrentStep "Preserve existing application and MSSQL configuration" -Status "OK" -Message "Existing ports and database company name preserved." -DataPath $DataRoot
         $effectivePort = [int]$config.AppPort
         "AppPort=$effectivePort" | Add-Content $report
         "SqlPort=$($config.SqlPort)" | Add-Content $report
@@ -1500,25 +1529,52 @@ function Invoke-UpdateOnlyFinalize {
         "ChecksumReport=$checksumReport" | Add-Content $report
 
         "Step=Repair database stored procedures and functions" | Add-Content $report
-        Invoke-AtlasDatabaseObjectRepair -InstallPath $InstallRoot -DataPath $DataRoot -ReportPath $report
+        Write-InstallDebugEvent -CurrentStep "Repair database stored procedures and functions" -Status "STARTED" -Message "Applying missing stored procedures, functions, and indexes using existing MSSQL settings." -DataPath $DataRoot
+        try {
+            Invoke-AtlasDatabaseObjectRepair -InstallPath $InstallRoot -DataPath $DataRoot -ReportPath $report
+            Write-InstallDebugEvent -CurrentStep "Repair database stored procedures and functions" -Status "OK" -Message "Database objects verified." -DataPath $DataRoot
+        } catch {
+            $warning = "DatabaseRepairWarning=$($_.Exception.Message)"
+            $warnings.Add($warning) | Out-Null
+            $warning | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Repair database stored procedures and functions" -Status "WARNING" -Message $_.Exception.Message -ErrorCode "DATABASE_OBJECT_REPAIR" -RemediationSuggestion "Confirm SQL Server TCP/IP port, sa password, and database permissions, then run Repair/Troubleshoot." -DataPath $DataRoot
+            Write-Step "Warning: database object repair could not finish during update: $($_.Exception.Message)"
+        }
 
         try {
             "Step=Restart ATLAS service task" | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Restart ATLAS service task" -Status "STARTED" -Message "Refreshing scheduled task and starting ATLAS." -DataPath $DataRoot
             Start-Atlas -InstallPath $InstallRoot
             Start-Sleep -Seconds 8
+            Write-InstallDebugEvent -CurrentStep "Restart ATLAS service task" -Status "OK" -Message "ATLAS startup task completed." -DataPath $DataRoot
         } catch {
-            "StartWarning=$($_.Exception.Message)" | Add-Content $report
+            $warning = "StartWarning=$($_.Exception.Message)"
+            $warnings.Add($warning) | Out-Null
+            $warning | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Restart ATLAS service task" -Status "WARNING" -Message $_.Exception.Message -ErrorCode "ATLAS_STARTUP" -RemediationSuggestion "Run Repair/Troubleshoot or start ATLAS from the desktop shortcut after confirming ports are open." -DataPath $DataRoot
             Write-Step "Warning: ATLAS startup could not be completed automatically: $($_.Exception.Message)"
-            throw
         }
 
         "Step=Verify ATLAS health endpoint" | Add-Content $report
+        Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "STARTED" -Message "Checking http://127.0.0.1:$effectivePort/api/health." -DataPath $DataRoot
         if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
             "Health=NotReady" | Add-Content $report
-            throw "ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health. Review log: $report"
+            $warning = "HealthWarning=ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health."
+            $warnings.Add($warning) | Out-Null
+            $warning | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "WARNING" -Message "ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health." -ErrorCode "ATLAS_HEALTH_NOT_READY" -RemediationSuggestion "Open the latest server logs and confirm application port $effectivePort is allowed by Windows Firewall." -DataPath $DataRoot
+        } else {
+            "Health=Healthy" | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "OK" -Message "ATLAS health endpoint is healthy." -DataPath $DataRoot
         }
-        "Health=Healthy" | Add-Content $report
+        if ($warnings.Count -gt 0) {
+            "PatchStatus=WARNING" | Add-Content $report
+            "WarningCount=$($warnings.Count)" | Add-Content $report
+            Write-Step "Update-only patch copied files and preserved configuration, but requires review. Report: $report"
+            return
+        }
         "PatchStatus=SUCCESS" | Add-Content $report
+        Write-InstallDebugEvent -CurrentStep "Finalize ATLAS update patch" -Status "OK" -Message "Patch finished successfully." -DataPath $DataRoot
         Write-Step "Update-only patch completed. ATLAS is healthy on http://127.0.0.1:$effectivePort/."
     } catch {
         try {
@@ -1529,6 +1585,7 @@ function Invoke-UpdateOnlyFinalize {
             }
             "FinalizeWarning=$($_.Exception.Message)" | Add-Content $report
             "PatchStatus=FAILED" | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Finalize ATLAS update patch" -Status "FAILED" -Message $_.Exception.Message -ErrorCode "UPDATE_FINALIZE" -RemediationSuggestion "Send the latest update-finalize log and install_debug.log for support." -DataPath $DataRoot
         } catch {}
         throw "Update finalize failed: $($_.Exception.Message). Review log: $report"
     }

@@ -548,6 +548,11 @@ function isMissingSqlProcedureError(err, procedureName) {
     return /Could not find stored procedure/i.test(text) && text.toLowerCase().includes(procedureName.toLowerCase());
 }
 
+function isAirfarePolicyDeleteFallbackError(err) {
+    const text = `${err?.message || ''} ${err?.originalError?.info?.message || ''}`;
+    return /Could not find stored procedure|foreign key|REFERENCE constraint|conflicted with the DELETE|constraint/i.test(text);
+}
+
 function isSqlRetryableError(err) {
     return [1205, 2021].includes(Number(err?.number)) ||
         /deadlocked|modified during DDL execution|Please retry/i.test(String(err?.message || ''));
@@ -596,6 +601,132 @@ async function ensureAtlasSqlObjects(db, options = {}) {
         });
     }
     await sqlObjectsPromise;
+}
+
+async function fallbackDeactivateAirfarePolicyRate(db, policyRateId, deletedBy, deleteReason) {
+    const result = await db.request()
+        .input('PolicyRateID', sql.BigInt, policyRateId)
+        .input('DeletedBy', sql.Int, deletedBy || null)
+        .input('DeleteReason', sql.NVarChar(400), deleteReason || 'Policy removed from current preferences. Historical transactions preserved.')
+        .batch(`
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
+IF OBJECT_ID(N'dbo.AirfarePolicyRates', N'U') IS NULL
+    THROW 52021, 'AirfarePolicyRates table was not found.', 1;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'IsDeleted') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD IsDeleted BIT NOT NULL CONSTRAINT DF_AirfarePolicyRates_IsDeleted_Runtime DEFAULT (0);
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeletedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DeletedAt DATETIME2(0) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeletedBy') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DeletedBy INT NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeleteReason') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DeleteReason NVARCHAR(400) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'ArchivedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD ArchivedAt DATETIME2(0) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DependencySnapshotJson') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DependencySnapshotJson NVARCHAR(MAX) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyStatus') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD PolicyStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_AirfarePolicyRates_PolicyStatus_Runtime DEFAULT (N'active');
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    DECLARE @allocationUsageCount INT = 0;
+    DECLARE @auditUsageCount INT = 0;
+    DECLARE @totalDependencyCount INT = 0;
+    DECLARE @dependencySnapshot NVARCHAR(MAX);
+    DECLARE @exists BIT = 0;
+
+    SELECT @exists = 1
+    FROM dbo.AirfarePolicyRates WITH (UPDLOCK, HOLDLOCK)
+    WHERE PolicyRateID = @PolicyRateID;
+
+    IF @exists = 0
+    BEGIN
+        COMMIT TRANSACTION;
+        SELECT
+            CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+            CAST('none' AS NVARCHAR(40)) AS DeleteAction,
+            CAST('already_removed' AS NVARCHAR(40)) AS DeleteStatus,
+            CAST(1 AS BIT) AS AlreadyRemoved,
+            CAST(0 AS BIT) AS AlreadyHistorical,
+            CAST(0 AS BIT) AS Deactivated,
+            CAST(0 AS BIT) AS HardDeleted,
+            CAST(@PolicyRateID AS BIGINT) AS PolicyRateID,
+            CAST(1 AS BIT) AS FallbackUsed;
+        RETURN;
+    END;
+
+    IF OBJECT_ID(N'dbo.Allocations', N'U') IS NOT NULL AND COL_LENGTH('dbo.Allocations', 'PolicyRateID') IS NOT NULL
+        SELECT @allocationUsageCount = COUNT_BIG(*) FROM dbo.Allocations WITH (HOLDLOCK) WHERE PolicyRateID = @PolicyRateID;
+
+    IF OBJECT_ID(N'dbo.AuditLog', N'U') IS NOT NULL
+        SELECT @auditUsageCount = COUNT_BIG(*) FROM dbo.AuditLog WITH (HOLDLOCK) WHERE EntityType = 'AirfarePolicyRate' AND EntityID = @PolicyRateID;
+
+    SET @totalDependencyCount = ISNULL(@allocationUsageCount, 0) + ISNULL(@auditUsageCount, 0);
+    SET @dependencySnapshot = CONCAT(N'{"allocations":', @allocationUsageCount, N',"auditLog":', @auditUsageCount, N',"totalDependencies":', @totalDependencyCount, N',"strategy":"runtime_fallback_soft_delete"}');
+
+    IF @totalDependencyCount = 0
+    BEGIN
+        BEGIN TRY
+            DELETE FROM dbo.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID;
+            COMMIT TRANSACTION;
+            SELECT
+                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+                CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
+                CAST('hard_deleted' AS NVARCHAR(40)) AS DeleteStatus,
+                CAST(0 AS BIT) AS AlreadyRemoved,
+                CAST(0 AS BIT) AS AlreadyHistorical,
+                CAST(0 AS BIT) AS Deactivated,
+                CAST(1 AS BIT) AS HardDeleted,
+                @PolicyRateID AS PolicyRateID,
+                CAST(1 AS BIT) AS FallbackUsed,
+                @dependencySnapshot AS DependencySnapshotJson;
+            RETURN;
+        END TRY
+        BEGIN CATCH
+            IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+            BEGIN TRANSACTION;
+        END CATCH
+    END;
+
+    UPDATE dbo.AirfarePolicyRates
+       SET IsActive = CASE WHEN COL_LENGTH('dbo.AirfarePolicyRates', 'IsActive') IS NULL THEN IsActive ELSE 0 END,
+           IsDeleted = 1,
+           EffectiveTo = CASE
+               WHEN COL_LENGTH('dbo.AirfarePolicyRates', 'EffectiveTo') IS NULL THEN EffectiveTo
+               WHEN EffectiveTo IS NOT NULL THEN EffectiveTo
+               WHEN CAST(SYSUTCDATETIME() AS DATE) < EffectiveFrom THEN EffectiveFrom
+               ELSE CAST(SYSUTCDATETIME() AS DATE)
+           END,
+           DeletedAt = SYSUTCDATETIME(),
+           DeletedBy = @DeletedBy,
+           DeleteReason = COALESCE(@DeleteReason, N'Policy removed from current preferences. Historical transactions preserved.'),
+           ArchivedAt = SYSUTCDATETIME(),
+           DependencySnapshotJson = @dependencySnapshot,
+           PolicyStatus = N'archived'
+     WHERE PolicyRateID = @PolicyRateID;
+
+    COMMIT TRANSACTION;
+
+    SELECT TOP (1)
+        CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+        CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
+        CAST('deactivated' AS NVARCHAR(40)) AS DeleteStatus,
+        CAST(0 AS BIT) AS AlreadyRemoved,
+        CAST(0 AS BIT) AS AlreadyHistorical,
+        CAST(1 AS BIT) AS Deactivated,
+        CAST(0 AS BIT) AS HardDeleted,
+        CAST(1 AS BIT) AS FallbackUsed,
+        @allocationUsageCount AS AllocationUsageCount,
+        @auditUsageCount AS AuditUsageCount,
+        @dependencySnapshot AS DependencySnapshotJson,
+        r.*
+    FROM dbo.AirfarePolicyRates r
+    WHERE r.PolicyRateID = @PolicyRateID;
+END TRY
+BEGIN CATCH
+    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+`);
+    return result;
 }
 
 async function cleanupQaTemporaryCompanies(db) {
@@ -4372,7 +4503,11 @@ async function deactivateAirfarePolicyRate(req, res) {
 
     try {
         const db = await getConnection();
-        await ensureAtlasSqlObjects(db);
+        try {
+            await ensureAtlasSqlObjects(db);
+        } catch (sqlObjectErr) {
+            logger.warn('ATLAS SQL object verification could not finish before delete; runtime delete fallback remains available.', sqlObjectErr);
+        }
         const executeDelete = () => db.request()
             .input('PolicyRateID', sql.BigInt, policyRateId)
             .input('DeletedBy', sql.Int, req.user.userId)
@@ -4382,14 +4517,30 @@ async function deactivateAirfarePolicyRate(req, res) {
         try {
             result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate');
         } catch (err) {
-            if (!isMissingSqlProcedureError(err, 'sp_ATLAS_DeactivateAirfarePolicyRate')) throw err;
-            logger.warn('Safe-delete procedure missing during request; repairing SQL objects and retrying delete.');
-            await ensureAtlasSqlObjects(db, { force: true });
-            result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate after SQL object repair');
+            if (!isAirfarePolicyDeleteFallbackError(err)) throw err;
+            logger.warn('Safe-delete procedure failed during request; repairing SQL objects and retrying delete.', err);
+            try {
+                if (isMissingSqlProcedureError(err, 'sp_ATLAS_DeactivateAirfarePolicyRate')) {
+                    await ensureAtlasSqlObjects(db, { force: true });
+                    result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate after SQL object repair');
+                } else {
+                    throw err;
+                }
+            } catch (repairErr) {
+                logger.warn('Safe-delete SQL repair did not finish; using runtime fallback archive path.', repairErr);
+                result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
+                    db,
+                    policyRateId,
+                    req.user.userId,
+                    `Preference delete requested by ${req.user.username || 'system'}`
+                ), 'runtime fallback deactivate airfare policy rate');
+            }
         }
         const deletedPolicy = result.recordset?.[0] || null;
         if (!deletedPolicy || deletedPolicy.AlreadyRemoved) {
             return res.json({
+                status: 'success',
+                action: 'none',
                 message: 'Airfare policy rule is already removed. No change was needed.',
                 policyRate: null,
                 alreadyRemoved: true
@@ -4397,6 +4548,8 @@ async function deactivateAirfarePolicyRate(req, res) {
         }
         if (deletedPolicy.AlreadyHistorical) {
             return res.json({
+                status: 'success',
+                action: 'soft_delete',
                 message: 'Airfare policy rule is already historical. No change was needed.',
                 policyRate: deletedPolicy,
                 alreadyHistorical: true
@@ -4405,7 +4558,15 @@ async function deactivateAirfarePolicyRate(req, res) {
 
         await logAudit(req.user.userId, req.user.username, 'DELETE', 'AirfarePolicyRate', policyRateId, null, deletedPolicy,
             `Deactivated airfare policy rate #${policyRateId}`, req);
-        res.json({ message: 'Airfare policy rule removed from current rules.', policyRate: deletedPolicy });
+        const action = deletedPolicy.DeleteAction || (deletedPolicy.HardDeleted ? 'hard_delete' : 'soft_delete');
+        res.json({
+            status: 'success',
+            action,
+            message: action === 'hard_delete'
+                ? 'Airfare policy rule deleted because it had no historical dependencies.'
+                : 'Airfare policy rule archived. Historical allocations remain safe.',
+            policyRate: deletedPolicy
+        });
     } catch (err) {
         logger.error('Delete airfare policy rate error:', err);
         res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });

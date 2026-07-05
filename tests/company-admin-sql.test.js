@@ -31,8 +31,13 @@ assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare polic
 assert.match(serverText, /ensureAtlasSafeDeleteProcedure/i, 'Airfare policy delete should verify the safe-delete procedure before use');
 assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the safe-delete procedure is missing');
 assert.match(serverText, /isMissingSqlProcedureError/i, 'Airfare policy delete should retry after repairing a missing SQL procedure');
+assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime soft-delete if database repair is blocked');
+assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
+assert.match(serverText, /action:\s*'soft_delete'|const action = deletedPolicy\.DeleteAction/i, 'Airfare policy delete should return the action taken');
 assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should normalize named SQL instances to explicit TCP port connections');
-assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8'), /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
+const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
+assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
+assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_AirfarePolicy_Delete_Report.sql'), 'utf8'), /ForeignKeyName/i, 'Airfare policy report should expose foreign key linkage');
 assert.doesNotMatch(serverText, /USE\s+\$\{safeDatabase\}/, 'Company setup should not leave the SQL pool inside company database');
 
@@ -45,6 +50,8 @@ assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sa
 assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should preserve existing .env and confirmed SQL port before MSI copy');
 assert.match(deployText, /Restore-UpdatePreservedConfig/i, 'Update patch should restore preserved MSSQL config before database repair');
 assert.match(deployText, /Set-AtlasRegistryValue/i, 'Update patch should repair registry DB port after MSI update');
+assert.match(deployText, /install_debug\.log/i, 'Update patch finalizer should write structured install_debug.log events');
+assert.match(deployText, /PatchStatus=WARNING/i, 'Update patch should keep copied files and report review warnings instead of rolling back on health warnings');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
@@ -57,8 +64,9 @@ assert.match(runnerText, /ATLAS completion message failed/i, 'Bootstrapper runne
 assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload existing app and SQL ports during update');
 assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
+assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.34" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.35" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
