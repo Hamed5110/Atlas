@@ -1660,11 +1660,7 @@ export default function DashboardPage() {
   }
 
   async function deleteAirfarePolicyRate(policyRateId: number) {
-    try {
-      return await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${policyRateId}/delete`, session?.token || "", session?.sessionId || "", "POST");
-    } catch {
-      return await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${policyRateId}`, session?.token || "", session?.sessionId || "", "DELETE");
-    }
+    return await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${policyRateId}`, session?.token || "", session?.sessionId || "", "DELETE");
   }
 
   async function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {

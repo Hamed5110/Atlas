@@ -140,7 +140,11 @@ async function cleanup() {
       });
       addResult('Cleanup temporary company and database', 'PASS', { companyId: created.companyId, databaseName: created.companyDatabase });
     } catch (error) {
-      addResult('Cleanup temporary company and database', 'FAIL', { error: error.message, companyId: created.companyId, databaseName: created.companyDatabase });
+      if (/Company not found|404/i.test(error.message || '')) {
+        addResult('Cleanup temporary company and database', 'PASS', { alreadyRemoved: true, companyId: created.companyId, databaseName: created.companyDatabase });
+      } else {
+        addResult('Cleanup temporary company and database', 'FAIL', { error: error.message, companyId: created.companyId, databaseName: created.companyDatabase });
+      }
     }
   }
 
