@@ -721,6 +721,10 @@ FROM dbo.OpeningBalanceImportBatches
 ORDER BY ImportBatchID DESC;
 GO
 
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+
 IF OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.AirfarePolicyRates (
@@ -752,6 +756,19 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AirfarePolicyRates_Effective' AND object_id = OBJECT_ID('dbo.AirfarePolicyRates'))
     CREATE INDEX IX_AirfarePolicyRates_Effective ON dbo.AirfarePolicyRates(CompanyID, EffectiveFrom, EffectiveTo, IsActive);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AirfarePolicyRates_CurrentScope' AND object_id = OBJECT_ID('dbo.AirfarePolicyRates'))
+    CREATE INDEX IX_AirfarePolicyRates_CurrentScope
+    ON dbo.AirfarePolicyRates(CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom DESC, PolicyRateID DESC)
+    INCLUDE (MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth)
+    WHERE IsActive = 1 AND EffectiveTo IS NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AirfarePolicyRates_DeleteLookup' AND object_id = OBJECT_ID('dbo.AirfarePolicyRates'))
+    CREATE INDEX IX_AirfarePolicyRates_DeleteLookup
+    ON dbo.AirfarePolicyRates(PolicyRateID, IsActive, EffectiveTo)
+    INCLUDE (CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom, MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth, CreatedAt);
 GO
 
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'IsActive') IS NOT NULL
@@ -829,7 +846,7 @@ BEGIN
         CycleDays = CASE WHEN CycleDays <= 0 THEN 60 ELSE CycleDays END,
         WorkingDaysPerMonth = CASE WHEN WorkingDaysPerMonth <= 0 THEN 30 ELSE WorkingDaysPerMonth END,
         AirfareDaysPerMonth = CASE WHEN AirfareDaysPerMonth <= 0 THEN 2.5 ELSE AirfareDaysPerMonth END,
-        IsActive = 1
+        IsActive = CASE WHEN EffectiveFrom < '20260618' THEN 0 ELSE IsActive END
     WHERE CompanyID IS NULL AND EffectiveFrom = '19000101';
 END;
 
@@ -947,6 +964,160 @@ BEGIN
     VALUES (@CompanyID, @EmployeeID, @Department, @EmpGroup, @EffectiveFrom, NULL, @MaxPayoutAmount, 60, 30, 2.5, 1, @CreatedBy);
 
     EXEC dbo.sp_ATLAS_GetEffectiveAirfarePolicy @AllocationDate = @EffectiveFrom, @CompanyID = @CompanyID, @EmployeeID = @EmployeeID;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_DeactivateAirfarePolicyRate
+    @PolicyRateID BIGINT,
+    @DeletedBy INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
+    IF @PolicyRateID IS NULL OR @PolicyRateID <= 0
+        THROW 52011, 'Valid policy rate is required.', 1;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @policy TABLE
+        (
+            PolicyRateID BIGINT NULL,
+            CompanyID INT NULL,
+            CompanyName NVARCHAR(200) NULL,
+            EmployeeID INT NULL,
+            EmployeeCode NVARCHAR(50) NULL,
+            FullName NVARCHAR(200) NULL,
+            Department NVARCHAR(100) NULL,
+            EmpGroup NVARCHAR(100) NULL,
+            EffectiveFrom DATE NULL,
+            EffectiveTo DATE NULL,
+            MaxPayoutAmount DECIMAL(12,2) NULL,
+            CycleDays DECIMAL(10,2) NULL,
+            WorkingDaysPerMonth DECIMAL(10,2) NULL,
+            AirfareDaysPerMonth DECIMAL(10,2) NULL,
+            PerDayRate DECIMAL(12,6) NULL,
+            IsActive BIT NULL,
+            CreatedAt DATETIME2(0) NULL
+        );
+
+        INSERT INTO @policy
+        SELECT TOP (1)
+            r.PolicyRateID,
+            r.CompanyID,
+            c.CompanyName,
+            r.EmployeeID,
+            e.EmployeeCode,
+            e.FullName,
+            r.Department,
+            r.EmpGroup,
+            r.EffectiveFrom,
+            r.EffectiveTo,
+            r.MaxPayoutAmount,
+            r.CycleDays,
+            r.WorkingDaysPerMonth,
+            r.AirfareDaysPerMonth,
+            CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
+            r.IsActive,
+            r.CreatedAt
+        FROM dbo.AirfarePolicyRates r WITH (UPDLOCK, HOLDLOCK, INDEX(PK_AirfarePolicyRates))
+        LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
+        LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
+        WHERE r.PolicyRateID = @PolicyRateID;
+
+        IF NOT EXISTS (SELECT 1 FROM @policy)
+        BEGIN
+            COMMIT TRANSACTION;
+            SELECT
+                CAST('already_removed' AS NVARCHAR(40)) AS DeleteStatus,
+                CAST(1 AS BIT) AS AlreadyRemoved,
+                CAST(0 AS BIT) AS AlreadyHistorical,
+                CAST(0 AS BIT) AS Deactivated,
+                CAST(NULL AS BIGINT) AS PolicyRateID,
+                CAST(NULL AS INT) AS CompanyID,
+                CAST(NULL AS NVARCHAR(200)) AS CompanyName,
+                CAST(NULL AS INT) AS EmployeeID,
+                CAST(NULL AS NVARCHAR(50)) AS EmployeeCode,
+                CAST(NULL AS NVARCHAR(200)) AS FullName,
+                CAST(NULL AS NVARCHAR(100)) AS Department,
+                CAST(NULL AS NVARCHAR(100)) AS EmpGroup,
+                CAST(NULL AS DATE) AS EffectiveFrom,
+                CAST(NULL AS DATE) AS EffectiveTo,
+                CAST(NULL AS DECIMAL(12,2)) AS MaxPayoutAmount,
+                CAST(NULL AS DECIMAL(10,2)) AS CycleDays,
+                CAST(NULL AS DECIMAL(10,2)) AS WorkingDaysPerMonth,
+                CAST(NULL AS DECIMAL(10,2)) AS AirfareDaysPerMonth,
+                CAST(NULL AS DECIMAL(12,6)) AS PerDayRate,
+                CAST(NULL AS BIT) AS IsActive,
+                CAST(NULL AS DATETIME2(0)) AS CreatedAt;
+            RETURN;
+        END;
+
+        IF EXISTS (SELECT 1 FROM @policy WHERE IsActive = 0 OR EffectiveTo IS NOT NULL)
+        BEGIN
+            COMMIT TRANSACTION;
+            SELECT
+                CAST('already_historical' AS NVARCHAR(40)) AS DeleteStatus,
+                CAST(0 AS BIT) AS AlreadyRemoved,
+                CAST(1 AS BIT) AS AlreadyHistorical,
+                CAST(0 AS BIT) AS Deactivated,
+                *
+            FROM @policy;
+            RETURN;
+        END;
+
+        UPDATE r
+           SET IsActive = 0,
+               EffectiveTo = CASE
+                   WHEN r.EffectiveTo IS NOT NULL THEN r.EffectiveTo
+                   WHEN CAST(SYSUTCDATETIME() AS DATE) < r.EffectiveFrom THEN r.EffectiveFrom
+                   ELSE CAST(SYSUTCDATETIME() AS DATE)
+               END
+        FROM dbo.AirfarePolicyRates r WITH (UPDLOCK, HOLDLOCK)
+        WHERE r.PolicyRateID = @PolicyRateID;
+
+        DELETE FROM @policy;
+        INSERT INTO @policy
+        SELECT TOP (1)
+            r.PolicyRateID,
+            r.CompanyID,
+            c.CompanyName,
+            r.EmployeeID,
+            e.EmployeeCode,
+            e.FullName,
+            r.Department,
+            r.EmpGroup,
+            r.EffectiveFrom,
+            r.EffectiveTo,
+            r.MaxPayoutAmount,
+            r.CycleDays,
+            r.WorkingDaysPerMonth,
+            r.AirfareDaysPerMonth,
+            CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
+            r.IsActive,
+            r.CreatedAt
+        FROM dbo.AirfarePolicyRates r
+        LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
+        LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
+        WHERE r.PolicyRateID = @PolicyRateID;
+
+        COMMIT TRANSACTION;
+
+        SELECT
+            CAST('deactivated' AS NVARCHAR(40)) AS DeleteStatus,
+            CAST(0 AS BIT) AS AlreadyRemoved,
+            CAST(0 AS BIT) AS AlreadyHistorical,
+            CAST(1 AS BIT) AS Deactivated,
+            *
+        FROM @policy;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        DECLARE @message NVARCHAR(2048) = ERROR_MESSAGE();
+        THROW 52012, @message, 1;
+    END CATCH
 END;
 GO
 

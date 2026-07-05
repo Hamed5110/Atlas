@@ -4308,77 +4308,27 @@ async function deactivateAirfarePolicyRate(req, res) {
     try {
         const db = await getConnection();
         await ensureAtlasSqlObjects(db);
-        const oldResult = await withSqlRetry(() => db.request()
+        const result = await withSqlRetry(() => db.request()
             .input('PolicyRateID', sql.BigInt, policyRateId)
-            .query(`
-                SELECT TOP 1
-                    r.PolicyRateID,
-                    r.CompanyID,
-                    c.CompanyName,
-                    r.EmployeeID,
-                    e.EmployeeCode,
-                    e.FullName,
-                    r.Department,
-                    r.EmpGroup,
-                    r.EffectiveFrom,
-                    r.EffectiveTo,
-                    r.MaxPayoutAmount,
-                    r.CycleDays,
-                    r.WorkingDaysPerMonth,
-                    r.AirfareDaysPerMonth,
-                    CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
-                    r.IsActive,
-                    r.CreatedAt
-                FROM dbo.AirfarePolicyRates r
-                LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
-                LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
-                WHERE r.PolicyRateID = @PolicyRateID
-            `), 'get airfare policy rate before delete');
-        const oldPolicy = oldResult.recordset?.[0];
-        if (!oldPolicy) {
+            .input('DeletedBy', sql.Int, req.user.userId)
+            .execute('dbo.sp_ATLAS_DeactivateAirfarePolicyRate'), 'deactivate airfare policy rate');
+        const deletedPolicy = result.recordset?.[0] || null;
+        if (!deletedPolicy || deletedPolicy.AlreadyRemoved) {
             return res.json({
                 message: 'Airfare policy rule is already removed. No change was needed.',
                 policyRate: null,
                 alreadyRemoved: true
             });
         }
-        if (!oldPolicy.IsActive || oldPolicy.EffectiveTo) {
+        if (deletedPolicy.AlreadyHistorical) {
             return res.json({
                 message: 'Airfare policy rule is already historical. No change was needed.',
-                policyRate: oldPolicy,
+                policyRate: deletedPolicy,
                 alreadyHistorical: true
             });
         }
 
-        const result = await withSqlRetry(() => db.request()
-            .input('PolicyRateID', sql.BigInt, policyRateId)
-            .query(`
-                UPDATE dbo.AirfarePolicyRates
-                   SET IsActive = 0,
-                       EffectiveTo = CASE
-                           WHEN EffectiveTo IS NOT NULL THEN EffectiveTo
-                           WHEN CAST(SYSUTCDATETIME() AS DATE) < EffectiveFrom THEN EffectiveFrom
-                           ELSE CAST(SYSUTCDATETIME() AS DATE)
-                       END
-                 OUTPUT
-                    INSERTED.PolicyRateID,
-                    INSERTED.CompanyID,
-                    INSERTED.EmployeeID,
-                    INSERTED.Department,
-                    INSERTED.EmpGroup,
-                    INSERTED.EffectiveFrom,
-                    INSERTED.EffectiveTo,
-                    INSERTED.MaxPayoutAmount,
-                    INSERTED.CycleDays,
-                    INSERTED.WorkingDaysPerMonth,
-                    INSERTED.AirfareDaysPerMonth,
-                    CAST(INSERTED.MaxPayoutAmount / NULLIF(INSERTED.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
-                    INSERTED.IsActive,
-                    INSERTED.CreatedAt
-                 WHERE PolicyRateID = @PolicyRateID;
-            `), 'deactivate airfare policy rate');
-        const deletedPolicy = result.recordset?.[0] || oldPolicy;
-        await logAudit(req.user.userId, req.user.username, 'DELETE', 'AirfarePolicyRate', policyRateId, oldPolicy, deletedPolicy,
+        await logAudit(req.user.userId, req.user.username, 'DELETE', 'AirfarePolicyRate', policyRateId, null, deletedPolicy,
             `Deactivated airfare policy rate #${policyRateId}`, req);
         res.json({ message: 'Airfare policy rule removed from current rules.', policyRate: deletedPolicy });
     } catch (err) {

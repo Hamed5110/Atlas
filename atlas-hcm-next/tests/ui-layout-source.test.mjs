@@ -340,9 +340,11 @@ assert.match(server, /MAX_COMPANY_PAYABLE\s*=\s*150/, "backend should enforce BH
 assert.match(server, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "backend should enforce the fixed 360-day standard year");
 assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.max\(150\)/, "backend should reject airfare policy values above BHD 150");
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should reject airfare policy values above BHD 150");
-assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*IsActive = 0[\s\S]*logAudit[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should soft-delete airfare policy rules with audit history");
+assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*sp_ATLAS_DeactivateAirfarePolicyRate[\s\S]*logAudit[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should soft-delete airfare policy rules through SQL safe-delete with audit history");
 assert.match(server, /Airfare policy rule is already historical[\s\S]*alreadyHistorical/, "backend should treat repeated historical policy deletes as a successful no-op");
 assert.match(server, /Airfare policy rule is already removed[\s\S]*alreadyRemoved/, "backend should treat missing policy deletes as a successful no-op");
+assert.match(server, /sp_ATLAS_DeactivateAirfarePolicyRate/, "backend should delegate policy deletion to the database safe-delete procedure");
+assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_DeactivateAirfarePolicyRate[\s\S]*SET XACT_ABORT ON[\s\S]*SERIALIZABLE[\s\S]*TRY[\s\S]*CATCH/, "SQL should provide transactional safe-delete procedure for policy rules");
 assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a POST fallback for policy deletes");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
