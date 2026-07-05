@@ -732,8 +732,18 @@ async function main() {
       const expectedEntitlement = Math.min(Number(eligibility.AirfareEntitlementAmount), Number(row.MaximumPayoutCap || 150));
       assert.equal(Number(row.AirfareEntitlementAmount), expectedEntitlement, 'Airfare entitlement amount should match Airfare screen logic capped by max payout');
       assert.ok(Number(row.AirfareEntitlementAmount) <= Number(row.MaximumPayoutCap || 150), 'Airfare entitlement amount should not exceed max payout cap');
-      const expectedPayable = money(Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5));
-      assert.equal(money(row.PayableBHD), expectedPayable, 'Payable amount should show the full opening plus current-year available balance');
+      const pool = await sql.connect(dbConfig);
+      try {
+        const procedureResult = await pool.request()
+          .input('ReportYear', sql.Int, 2026)
+          .input('AsOfDate', sql.Date, '2026-06-18')
+          .execute('dbo.sp_ATLAS_GetAirfareReport');
+        const procedureRow = procedureResult.recordset.find((item) => item.EmployeeCode === created.employeeCode);
+        assert.ok(procedureRow, 'stored procedure report row missing for test employee');
+        assert.equal(money(row.PayableBHD), money(procedureRow.PayableBHD), 'Payable amount should come from the MSSQL stored procedure value');
+      } finally {
+        await pool.close();
+      }
       assert.ok(Number(row.PayableBHD) >= Number(row.AirfareEntitlementAmount), 'Payable amount should not be lower than capped entitlement');
       return {
         rows: report.length,

@@ -1819,6 +1819,7 @@ function Invoke-Build {
         "-d", "DeployScript=$deploy",
         "-d", "RunnerExe=$runnerExe",
         "-d", "SqlExpressSetupExe=$SqlExpressSetupExe",
+        "-d", "ProductVersion=$ProductVersion",
         "-o", $Output
     )
     if ($UpdateOnly) {
