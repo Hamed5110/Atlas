@@ -1670,7 +1670,17 @@ export default function DashboardPage() {
   }
 
   async function deleteAirfarePolicyRate(policyRateId: number) {
-    return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}`, session?.token || "", session?.sessionId || "", "DELETE");
+    const token = session?.token || "";
+    const sessionId = session?.sessionId || "";
+    try {
+      return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}`, token, sessionId, "DELETE");
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "";
+      if (/405|403|404|failed|method|not allowed|forbidden/i.test(message)) {
+        return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}/delete`, token, sessionId, "POST");
+      }
+      throw deleteError;
+    }
   }
 
   function formatAirfarePolicyDeleteMessage(scopeLabel: string, policyRateId: number, result: AirfarePolicyDeleteResult) {

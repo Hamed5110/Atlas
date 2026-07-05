@@ -316,6 +316,7 @@ export async function atlasHealth() {
 }
 
 async function readApiError(res: Response, fallback: string) {
+  const statusPrefix = res.status ? `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}` : "";
   try {
     const data = await res.json();
     if (data && typeof data === "object") {
@@ -336,11 +337,20 @@ async function readApiError(res: Response, fallback: string) {
         const remaining = Number(data.currentYearRemaining || 0);
         return `${data.error || "Allocation review required."} First ticket ${firstDate}, ${moneyFormat(firstCost)}. Current year remaining ${moneyFormat(remaining)}.`;
       }
-      return data.error || data.message || fallback;
+      const message = data.error || data.message || fallback;
+      return statusPrefix ? `${message} (${statusPrefix})` : message;
     }
-    return data.error || data.message || fallback;
+    const primitiveMessage = String(data || fallback);
+    return statusPrefix ? `${primitiveMessage} (${statusPrefix})` : primitiveMessage;
   } catch {
-    return fallback;
+    try {
+      const text = await res.text();
+      const cleanText = text.replace(/\s+/g, " ").trim().slice(0, 240);
+      if (cleanText) return statusPrefix ? `${fallback}: ${cleanText} (${statusPrefix})` : `${fallback}: ${cleanText}`;
+    } catch {
+      // Fall through to the status-aware fallback.
+    }
+    return statusPrefix ? `${fallback} (${statusPrefix})` : fallback;
   }
 }
 
