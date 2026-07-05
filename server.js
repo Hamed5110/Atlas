@@ -4311,6 +4311,7 @@ async function deactivateAirfarePolicyRate(req, res) {
         const result = await withSqlRetry(() => db.request()
             .input('PolicyRateID', sql.BigInt, policyRateId)
             .input('DeletedBy', sql.Int, req.user.userId)
+            .input('DeleteReason', sql.NVarChar(400), `Preference delete requested by ${req.user.username || 'system'}`)
             .execute('dbo.sp_ATLAS_DeactivateAirfarePolicyRate'), 'deactivate airfare policy rate');
         const deletedPolicy = result.recordset?.[0] || null;
         if (!deletedPolicy || deletedPolicy.AlreadyRemoved) {

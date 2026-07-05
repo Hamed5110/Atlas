@@ -27,6 +27,7 @@ assert.match(serverText, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/i, 'Restore AP
 assert.match(serverText, /SET MULTI_USER/i, 'Restore API should return database to multi-user mode');
 assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'/i, 'Airfare policy delete should expose a POST fallback for restricted clients');
 assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare policy delete should use the SQL safe-delete procedure');
+assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8'), /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.doesNotMatch(serverText, /USE\s+\$\{safeDatabase\}/, 'Company setup should not leave the SQL pool inside company database');
 
 console.log('company admin SQL/API checks passed');

@@ -15,9 +15,11 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.25-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.26-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.25-x64.exe"
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.26-x64.exe",
+    [string]$ProductVersion = "2.3.26",
+    [string]$UpdateManifest = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +42,100 @@ if ($Mode -ne "Build") {
 function Write-Step {
     param([string]$Message)
     Write-Host "[ATLAS] $Message" -ForegroundColor Cyan
+}
+
+function Compare-VersionText {
+    param([string]$Left, [string]$Right)
+    try {
+        $leftVersion = [version]$Left
+        $rightVersion = [version]$Right
+        return $leftVersion.CompareTo($rightVersion)
+    } catch {
+        return [string]::Compare([string]$Left, [string]$Right, $true)
+    }
+}
+
+function Test-AtlasUpdateManifest {
+    param(
+        [string]$Manifest,
+        [string]$CurrentVersion,
+        [string]$DataPath
+    )
+    $reportDir = Join-Path $DataPath "logs"
+    New-Item -ItemType Directory -Path $reportDir -Force -ErrorAction SilentlyContinue | Out-Null
+    $report = Join-Path $reportDir ("update-check-{0}.json" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+    $result = [ordered]@{
+        checkedAt = (Get-Date).ToString("o")
+        currentVersion = $CurrentVersion
+        manifest = $Manifest
+        status = "skipped"
+        latestVersion = $null
+        packageUrl = $null
+        message = "No update manifest configured."
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Manifest)) {
+        $localManifest = Join-Path $DataPath "update-manifest.json"
+        if (Test-Path -LiteralPath $localManifest) { $Manifest = $localManifest }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Manifest)) {
+        try {
+            if ($Manifest -match '^https?://') {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                $manifestJson = Invoke-WebRequest -Uri $Manifest -UseBasicParsing -TimeoutSec 15 | Select-Object -ExpandProperty Content
+            } else {
+                $manifestJson = Get-Content -LiteralPath $Manifest -Raw
+            }
+            $manifestObject = $manifestJson | ConvertFrom-Json
+            $latestVersion = [string]$manifestObject.latestVersion
+            if ([string]::IsNullOrWhiteSpace($latestVersion)) { $latestVersion = [string]$manifestObject.version }
+            $packageUrl = [string]$manifestObject.packageUrl
+            if ([string]::IsNullOrWhiteSpace($packageUrl)) { $packageUrl = [string]$manifestObject.url }
+            $result.status = if ((Compare-VersionText -Left $latestVersion -Right $CurrentVersion) -gt 0) { "update_available" } else { "current" }
+            $result.latestVersion = $latestVersion
+            $result.packageUrl = $packageUrl
+            $result.message = if ($result.status -eq "update_available") { "Update $latestVersion is available." } else { "Current package is up to date." }
+        } catch {
+            $result.status = "warning"
+            $result.message = "Update manifest check failed: $($_.Exception.Message)"
+        }
+    }
+
+    $result | ConvertTo-Json -Depth 5 | Set-Content -Path $report -Encoding UTF8
+    Write-Step "Update manifest check: $($result.message)"
+    return [pscustomobject]$result
+}
+
+function Invoke-ChecksumDiagnostic {
+    param([string]$InstallPath, [string]$DataPath)
+    $reportDir = Join-Path $DataPath "logs"
+    New-Item -ItemType Directory -Path $reportDir -Force -ErrorAction SilentlyContinue | Out-Null
+    $report = Join-Path $reportDir ("checksum-diagnostic-{0}.json" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+    $targets = @(
+        (Join-Path $InstallPath "server.js"),
+        (Join-Path $InstallPath "package.json"),
+        (Join-Path $InstallPath "package-lock.json"),
+        (Join-Path $InstallPath ".env"),
+        (Join-Path $InstallPath "atlas-hcm-next\package.json"),
+        (Join-Path $InstallPath "database\ATLAS_HCM_SQL_Objects.sql")
+    )
+    $rows = foreach ($target in $targets) {
+        if (Test-Path -LiteralPath $target) {
+            $item = Get-Item -LiteralPath $target
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $target
+            [pscustomobject]@{ path = $target; exists = $true; length = $item.Length; sha256 = $hash.Hash }
+        } else {
+            [pscustomobject]@{ path = $target; exists = $false; length = 0; sha256 = $null }
+        }
+    }
+    [pscustomobject]@{
+        checkedAt = (Get-Date).ToString("o")
+        installPath = $InstallPath
+        files = @($rows)
+    } | ConvertTo-Json -Depth 6 | Set-Content -Path $report -Encoding UTF8
+    Write-Step "Checksum diagnostic report: $report"
+    return $report
 }
 
 function Assert-Admin {
@@ -1132,6 +1228,7 @@ function Assert-AtlasInstalledForPatch {
 
 function Invoke-UpdateOnlyPrepare {
     Assert-AtlasInstalledForPatch
+    Test-AtlasUpdateManifest -Manifest $UpdateManifest -CurrentVersion $ProductVersion -DataPath $DataRoot | Out-Null
     try {
         Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
     } catch {
@@ -1195,6 +1292,7 @@ function Invoke-UpdateOnlyFinalize {
 }
 
 function Invoke-Preflight {
+    Test-AtlasUpdateManifest -Manifest $UpdateManifest -CurrentVersion $ProductVersion -DataPath $DataRoot | Out-Null
     Prompt-AtlasInstallSettings
     $hostInfo = Get-AtlasHostInfo
     Write-Step "Host detected: $($hostInfo.HostName), loopback: $($hostInfo.Loopback), port: $Port"
@@ -1204,6 +1302,10 @@ function Invoke-InstallOrRepair {
     param([switch]$Repair)
     Assert-Admin
     Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    Test-AtlasUpdateManifest -Manifest $UpdateManifest -CurrentVersion $ProductVersion -DataPath $DataRoot | Out-Null
+    if ($Repair -or $SetupAction -eq "Repair") {
+        Invoke-ChecksumDiagnostic -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+    }
     Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
     New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
 
@@ -1282,6 +1384,8 @@ function Invoke-InstallOrRepair {
 function Invoke-Troubleshoot {
     Assert-Admin
     Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+    Test-AtlasUpdateManifest -Manifest $UpdateManifest -CurrentVersion $ProductVersion -DataPath $DataRoot | Out-Null
+    Invoke-ChecksumDiagnostic -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
     $report = Join-Path $DataRoot ("troubleshoot_{0}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
     "ATLAS Troubleshooter $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
     "InstallRoot=$InstallRoot" | Add-Content $report

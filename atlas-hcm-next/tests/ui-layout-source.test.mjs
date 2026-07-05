@@ -10,6 +10,9 @@ const serverPath = existsSync(rootServerCandidate)
   ? rootServerCandidate
   : nestedServerCandidate;
 const server = readFileSync(serverPath, "utf8");
+const rootDeployCandidate = join(process.cwd(), "..", "installer", "bootstrapper", "deploy.ps1");
+const nestedDeployCandidate = join(process.cwd(), "..", "..", "installer", "bootstrapper", "deploy.ps1");
+const deployScript = readFileSync(existsSync(rootDeployCandidate) ? rootDeployCandidate : nestedDeployCandidate, "utf8");
 
 assert.match(css, /\.topbar\s*{[\s\S]*position:\s*sticky/, "topbar should stay available while scrolling");
 assert.match(css, /\.table-grid\s*{[\s\S]*align-items:\s*start/, "two-column layouts should align from the top");
@@ -344,7 +347,9 @@ assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*sp_ATLAS_
 assert.match(server, /Airfare policy rule is already historical[\s\S]*alreadyHistorical/, "backend should treat repeated historical policy deletes as a successful no-op");
 assert.match(server, /Airfare policy rule is already removed[\s\S]*alreadyRemoved/, "backend should treat missing policy deletes as a successful no-op");
 assert.match(server, /sp_ATLAS_DeactivateAirfarePolicyRate/, "backend should delegate policy deletion to the database safe-delete procedure");
-assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_DeactivateAirfarePolicyRate[\s\S]*SET XACT_ABORT ON[\s\S]*SERIALIZABLE[\s\S]*TRY[\s\S]*CATCH/, "SQL should provide transactional safe-delete procedure for policy rules");
+assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_DeactivateAirfarePolicyRate[\s\S]*SET XACT_ABORT ON[\s\S]*SERIALIZABLE[\s\S]*AllocationUsageCount[\s\S]*AirfarePolicyRateArchive[\s\S]*TRY[\s\S]*CATCH/, "SQL should provide transactional dependency-aware archive safe-delete procedure for policy rules");
+assert.match(deployScript, /function Test-AtlasUpdateManifest[\s\S]*update_available[\s\S]*function Invoke-ChecksumDiagnostic[\s\S]*Get-FileHash/, "installer should check update manifests and write checksum diagnostics");
+assert.match(deployScript, /Invoke-UpdateOnlyPrepare[\s\S]*Test-AtlasUpdateManifest[\s\S]*New-Backup/, "update-only patch should check manifest and create backup before file update");
 assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a POST fallback for policy deletes");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
