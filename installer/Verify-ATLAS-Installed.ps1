@@ -71,7 +71,7 @@ function Test-OdbcSqlLogin {
         [string]$User,
         [string]$Password
     )
-    $serverPart = if ($Server -match "\\" -or $Server -match ",\d+$") { $Server } else { "$Server,$Port" }
+    $serverPart = Get-SqlServerPart -Server $Server -Port $Port
     $connectionString = "Driver={$Driver};Server=$serverPart;Database=$Database;Uid=$User;Pwd=$Password;Encrypt=no;TrustServerCertificate=yes;Connection Timeout=5;"
     $connection = New-Object System.Data.Odbc.OdbcConnection($connectionString)
     try {
@@ -85,6 +85,29 @@ function Test-OdbcSqlLogin {
     } finally {
         $connection.Dispose()
     }
+}
+
+function Get-SqlTcpHost {
+    param([string]$Server)
+    $serverName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($serverName)) { return "127.0.0.1" }
+    if ($serverName -match "^(.*),\d+$") { $serverName = $Matches[1].Trim() }
+    if ($serverName -match "\\") { $serverName = ($serverName -split "\\")[0].Trim() }
+    if ([string]::IsNullOrWhiteSpace($serverName) -or $serverName -eq "." -or $serverName -eq "(local)") { return "127.0.0.1" }
+    return $serverName
+}
+
+function Get-SqlServerPart {
+    param([string]$Server, [int]$Port)
+    $serverName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($serverName)) { $serverName = "127.0.0.1" }
+    if ($serverName -match "^(.*),(\d+)$") { return "tcp:$serverName" }
+    if ($Port -gt 0) {
+        if ($serverName -match "\\") { $serverName = ($serverName -split "\\")[0].Trim() }
+        if ([string]::IsNullOrWhiteSpace($serverName)) { $serverName = "127.0.0.1" }
+        return "tcp:$serverName,$Port"
+    }
+    return $serverName
 }
 
 function Test-AtlasHealth {
@@ -133,10 +156,11 @@ if ($drivers -contains $odbcDriver) {
     Add-Result "ODBC driver" "FAIL" "Missing '$odbcDriver'. Installed: $($drivers -join ', ')"
 }
 
-if (Test-TcpPort -Server $dbServer -Port $dbPort) {
-    Add-Result "MSSQL TCP port" "PASS" "$dbServer`:$dbPort reachable"
+$dbTcpHost = Get-SqlTcpHost -Server $dbServer
+if (Test-TcpPort -Server $dbTcpHost -Port $dbPort) {
+    Add-Result "MSSQL TCP port" "PASS" "${dbTcpHost}:$dbPort reachable"
 } else {
-    Add-Result "MSSQL TCP port" "WARN" "$dbServer`:$dbPort not reachable by TCP; named instance/local pipe may still work"
+    Add-Result "MSSQL TCP port" "WARN" "${dbTcpHost}:$dbPort not reachable by TCP; confirm DB_SERVER and DB_PORT"
 }
 
 $login = Test-OdbcSqlLogin -Driver $odbcDriver -Server $dbServer -Port $dbPort -Database $dbName -User $dbUser -Password $dbPassword

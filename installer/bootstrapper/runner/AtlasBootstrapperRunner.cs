@@ -41,7 +41,7 @@ namespace AtlasBootstrapperRunner
                     return RunPreflight(options);
                 }
 
-                return RunPowerShell(mode, args);
+                return RunPowerShell(mode, args, options);
             }
             catch (Exception ex)
             {
@@ -62,7 +62,7 @@ namespace AtlasBootstrapperRunner
             }
         }
 
-        private static int RunPowerShell(string mode, string[] args)
+        private static int RunPowerShell(string mode, string[] args, Dictionary<string, string> options)
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
             var script = Directory.GetFiles(baseDir, "*.ps1", SearchOption.TopDirectoryOnly).FirstOrDefault();
@@ -104,7 +104,55 @@ namespace AtlasBootstrapperRunner
             using (var process = Process.Start(startInfo))
             {
                 process.WaitForExit();
+                ShowCompletionMessage(mode, process.ExitCode, options);
                 return process.ExitCode;
+            }
+        }
+
+        private static void ShowCompletionMessage(string mode, int exitCode, Dictionary<string, string> options)
+        {
+            if (!ShouldShowCompletionMessage(mode)) return;
+
+            var dataRoot = GetOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
+            var logFolder = Path.Combine(dataRoot, "logs");
+            var latestLog = FindLatestLog(logFolder);
+            var title = exitCode == 0 ? "ATLAS patch completed" : "ATLAS patch failed";
+            var icon = exitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error;
+            var message = exitCode == 0
+                ? "ATLAS Airfare Allowance update patch completed successfully.\r\n\r\nFiles were updated, the service was restarted, and health checks passed."
+                : "ATLAS Airfare Allowance update patch failed.\r\n\r\nReview the error details and send the log file for support.";
+            if (!string.IsNullOrWhiteSpace(latestLog))
+            {
+                message += "\r\n\r\nLatest log:\r\n" + latestLog;
+            }
+            else
+            {
+                message += "\r\n\r\nLog folder:\r\n" + logFolder;
+            }
+            MessageBox.Show(message, title, MessageBoxButtons.OK, icon);
+        }
+
+        private static bool ShouldShowCompletionMessage(string mode)
+        {
+            return string.Equals(mode, "UpdateOnlyFinalize", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "Install", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "Repair", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "Troubleshoot", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string FindLatestLog(string logFolder)
+        {
+            try
+            {
+                if (!Directory.Exists(logFolder)) return null;
+                return Directory.GetFiles(logFolder, "*.*", SearchOption.TopDirectoryOnly)
+                    .Where(path => path.EndsWith(".log", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+            }
+            catch
+            {
+                return null;
             }
         }
 

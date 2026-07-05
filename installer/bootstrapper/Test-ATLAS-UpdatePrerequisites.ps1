@@ -70,6 +70,16 @@ function Test-Tcp {
     }
 }
 
+function Get-SqlTcpHost {
+    param([string]$Server)
+    $serverName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($serverName)) { return "127.0.0.1" }
+    if ($serverName -match "^(.*),\d+$") { $serverName = $Matches[1].Trim() }
+    if ($serverName -match "\\") { $serverName = ($serverName -split "\\")[0].Trim() }
+    if ([string]::IsNullOrWhiteSpace($serverName) -or $serverName -eq "." -or $serverName -eq "(local)") { return "127.0.0.1" }
+    return $serverName
+}
+
 if (-not $InstallRoot) { $InstallRoot = Get-RegValue -Name "INSTALLROOT" }
 if (-not $InstallRoot) { $InstallRoot = Join-Path $env:ProgramFiles "ATLAS Airfare Allowance" }
 $InstallRoot = Find-AtlasInstallRoot -PreferredRoot $InstallRoot
@@ -88,6 +98,9 @@ if ($appPort -le 0) { $appPort = 3355 }
 
 $dbPort = 1433
 if ($settings.ContainsKey("DB_PORT")) { [void][int]::TryParse([string]$settings.DB_PORT, [ref]$dbPort) }
+$dbServer = "127.0.0.1"
+if ($settings.ContainsKey("DB_SERVER") -and $settings.DB_SERVER) { $dbServer = [string]$settings.DB_SERVER }
+$dbTcpHost = Get-SqlTcpHost -Server $dbServer
 
 if (Test-Path -LiteralPath (Join-Path $InstallRoot "server.js")) {
     Add-Result "Installed application files" "PASS" $InstallRoot
@@ -113,10 +126,10 @@ if (Test-Tcp -HostName "127.0.0.1" -Port $appPort) {
     Add-Result "ATLAS application port" "WARN" "127.0.0.1:$appPort is not listening; patch can still update files"
 }
 
-if (Test-Tcp -HostName "127.0.0.1" -Port $dbPort) {
-    Add-Result "MSSQL TCP port" "PASS" "127.0.0.1:$dbPort is reachable"
+if (Test-Tcp -HostName $dbTcpHost -Port $dbPort) {
+    Add-Result "MSSQL TCP port" "PASS" "${dbTcpHost}:$dbPort is reachable"
 } else {
-    Add-Result "MSSQL TCP port" "WARN" "127.0.0.1:$dbPort is not reachable"
+    Add-Result "MSSQL TCP port" "WARN" "${dbTcpHost}:$dbPort is not reachable"
 }
 
 $reportDir = Join-Path $DataRoot "logs"

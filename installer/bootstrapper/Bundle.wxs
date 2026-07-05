@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.29" ?>
+  <?define ProductVersion = "2.3.30" ?>
   <?ifdef UpdateOnly ?>
     <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
     <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
@@ -25,6 +25,8 @@
     <?define ApplicationPackageId = "AtlasUpdateApplication" ?>
     <?define ConfigurePackageId = "AtlasUpdateConfigure" ?>
     <?define TroubleshootPackageId = "AtlasUpdateTroubleshoot" ?>
+    <?define ApplicationDisplayName = "Copying patched ATLAS application files" ?>
+    <?define ConfigureDisplayName = "Restarting ATLAS and verifying update" ?>
     <?define PreflightVital = "no" ?>
     <?define ConfigureVital = "no" ?>
     <?define DisableRollback = "yes" ?>
@@ -40,6 +42,8 @@
     <?define ApplicationPackageId = "AtlasApplication" ?>
     <?define ConfigurePackageId = "AtlasConfigure" ?>
     <?define TroubleshootPackageId = "AtlasTroubleshoot" ?>
+    <?define ApplicationDisplayName = "Installing ATLAS application files" ?>
+    <?define ConfigureDisplayName = "Configuring database and starting ATLAS" ?>
     <?define PreflightVital = "yes" ?>
     <?define ConfigureVital = "yes" ?>
     <?define DisableRollback = "no" ?>
@@ -134,7 +138,7 @@
       <MsiPackage
         Id="$(var.ApplicationPackageId)"
         CacheId="ATLAS_$(var.CacheFlavor)_Application_MSI_$(var.ProductVersion)"
-        DisplayName="ATLAS Airfare Allowance"
+        DisplayName="$(var.ApplicationDisplayName)"
         SourceFile="$(var.AppMsi)"
         Compressed="yes"
         Vital="yes"
@@ -153,7 +157,7 @@
       <ExePackage
         Id="$(var.ConfigurePackageId)"
         CacheId="ATLAS_$(var.CacheFlavor)_Configure_PowerShell_$(var.ProductVersion)"
-        DisplayName="ATLAS database migration and service start"
+        DisplayName="$(var.ConfigureDisplayName)"
         SourceFile="$(var.RunnerExe)"
         Name="tools\atlas-configure-runner.exe"
         PerMachine="yes"

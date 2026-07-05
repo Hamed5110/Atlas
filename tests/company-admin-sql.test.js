@@ -28,8 +28,24 @@ assert.match(serverText, /SET MULTI_USER/i, 'Restore API should return database 
 assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'/i, 'Airfare policy delete should expose a POST fallback for restricted clients');
 assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId'/i, 'Airfare policy delete should expose a direct POST fallback for clients missing the /delete route');
 assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare policy delete should use the SQL safe-delete procedure');
+assert.match(serverText, /ensureAtlasSafeDeleteProcedure/i, 'Airfare policy delete should verify the safe-delete procedure before use');
+assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the safe-delete procedure is missing');
+assert.match(serverText, /isMissingSqlProcedureError/i, 'Airfare policy delete should retry after repairing a missing SQL procedure');
+assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should normalize named SQL instances to explicit TCP port connections');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8'), /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_AirfarePolicy_Delete_Report.sql'), 'utf8'), /ForeignKeyName/i, 'Airfare policy report should expose foreign key linkage');
 assert.doesNotMatch(serverText, /USE\s+\$\{safeDatabase\}/, 'Company setup should not leave the SQL pool inside company database');
+
+const deployText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'deploy.ps1'), 'utf8');
+assert.match(deployText, /Invoke-AtlasDatabaseObjectRepair/i, 'Update patch should repair database procedures during finalize');
+assert.match(deployText, /Initialize-ATLAS-Database\.ps1/i, 'Database object repair should use the bundled initializer');
+assert.match(deployText, /Get-AtlasSqlTcpHost/i, 'Update patch should test the configured SQL host instead of hard-coded localhost');
+assert.doesNotMatch(deployText, /\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/, 'Update patch should not overwrite an existing configured SQL server/instance');
+
+const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
+assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
+assert.match(fs.readFileSync(path.join(__dirname, '..', 'setup-atlas.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Setup troubleshooter should test the configured SQL TCP host');
+assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'Verify-ATLAS-Installed.ps1'), 'utf8'), /Get-SqlServerPart/i, 'Installed verifier should use configured SQL TCP port for login checks');
+assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Test-ATLAS-UpdatePrerequisites.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Update prerequisites should test configured SQL host and port');
 
 console.log('company admin SQL/API checks passed');

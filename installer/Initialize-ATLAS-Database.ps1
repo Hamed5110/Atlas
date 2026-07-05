@@ -25,8 +25,22 @@ function Read-AtlasEnv {
 
 function Get-SqlServerPart {
     param([string]$Server, [int]$Port)
-    if ($Server -match "\\" -or $Server -match ",\d+$") { return $Server }
-    return "$Server,$Port"
+    $serverName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($serverName)) { $serverName = "127.0.0.1" }
+
+    if ($serverName -match "^(.*),(\d+)$") {
+        return "tcp:$serverName"
+    }
+
+    if ($Port -gt 0) {
+        if ($serverName -match "\\") {
+            $serverName = ($serverName -split "\\")[0]
+            if ([string]::IsNullOrWhiteSpace($serverName)) { $serverName = "127.0.0.1" }
+        }
+        return "tcp:$serverName,$Port"
+    }
+
+    return $serverName
 }
 
 function New-SqlConnection {

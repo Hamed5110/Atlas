@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.29\ATLAS-Airfare-Allowance-2.3.29-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.30\ATLAS-Airfare-Allowance-2.3.30-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.29\ATLAS-Airfare-Allowance-Setup-2.3.29-x64.exe",
-    [string]$ProductVersion = "2.3.29",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.30\ATLAS-Airfare-Allowance-Setup-2.3.30-x64.exe",
+    [string]$ProductVersion = "2.3.30",
     [string]$UpdateManifest = ""
 )
 
@@ -1031,6 +1031,22 @@ function Get-AtlasEnvInt {
     return $Fallback
 }
 
+function Get-AtlasSqlTcpHost {
+    param([string]$Server)
+    $hostName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($hostName)) { return "127.0.0.1" }
+    if ($hostName -match "^(.*),\d+$") { $hostName = $Matches[1].Trim() }
+    if ($hostName -match "\\") { $hostName = ($hostName -split "\\")[0].Trim() }
+    if ([string]::IsNullOrWhiteSpace($hostName) -or $hostName -eq "." -or $hostName -eq "(local)") { return "127.0.0.1" }
+    return $hostName
+}
+
+function Test-AtlasLocalSqlHost {
+    param([string]$Server)
+    $hostName = (Get-AtlasSqlTcpHost -Server $Server).ToLowerInvariant()
+    return @("127.0.0.1", "localhost", $env:COMPUTERNAME.ToLowerInvariant()) -contains $hostName
+}
+
 function Repair-AtlasConfigForPatch {
     param([string]$InstallPath)
 
@@ -1070,24 +1086,30 @@ function Repair-AtlasConfigForPatch {
     }
 
     $currentSqlPort = Get-AtlasEnvInt -Settings $settings -Name "DB_PORT" -Fallback 0
+    $configuredDbServer = if ($settings.Contains("DB_SERVER")) { [string]$settings["DB_SERVER"] } else { "127.0.0.1" }
+    $configuredSqlHost = Get-AtlasSqlTcpHost -Server $configuredDbServer
     $effectiveSqlPort = $currentSqlPort
-    if ($effectiveSqlPort -gt 0 -and (Test-TcpPort -Server "127.0.0.1" -PortNumber $effectiveSqlPort)) {
-        Write-Step "Update patch kept existing reachable MSSQL port 127.0.0.1:$effectiveSqlPort."
+    if ($effectiveSqlPort -gt 0 -and (Test-TcpPort -Server $configuredSqlHost -PortNumber $effectiveSqlPort)) {
+        Write-Step "Update patch kept existing reachable MSSQL endpoint ${configuredSqlHost}:$effectiveSqlPort."
     } else {
+        if (-not (Test-AtlasLocalSqlHost -Server $configuredDbServer)) {
+            throw "Configured MSSQL endpoint ${configuredSqlHost}:$effectiveSqlPort is not reachable. Confirm DB_SERVER and DB_PORT in $(Join-Path $InstallPath ".env")."
+        }
+
         $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $SqlInstance
         Ensure-SqlService -InstanceName $effectiveSqlInstance
         $detectedSqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort 0
-        if ($detectedSqlPort -gt 0 -and (Test-TcpPort -Server "127.0.0.1" -PortNumber $detectedSqlPort)) {
+        if ($detectedSqlPort -gt 0 -and (Test-TcpPort -Server $configuredSqlHost -PortNumber $detectedSqlPort)) {
             $effectiveSqlPort = $detectedSqlPort
-            Write-Step "Update patch repaired MSSQL port to detected local SQL port 127.0.0.1:$effectiveSqlPort."
+            Write-Step "Update patch repaired MSSQL port to detected local SQL port ${configuredSqlHost}:$effectiveSqlPort."
         } elseif ($currentSqlPort -gt 0) {
             Enable-SqlTcpPort -InstanceName $effectiveSqlInstance -PortNumber $currentSqlPort
             $effectiveSqlPort = $currentSqlPort
-            Write-Step "Update patch restored SQL TCP/IP on existing configured port 127.0.0.1:$effectiveSqlPort."
+            Write-Step "Update patch restored SQL TCP/IP on existing configured port ${configuredSqlHost}:$effectiveSqlPort."
         } else {
             $effectiveSqlPort = 1433
             Enable-SqlTcpPort -InstanceName $effectiveSqlInstance -PortNumber $effectiveSqlPort
-            Write-Step "Update patch created missing MSSQL port configuration on 127.0.0.1:$effectiveSqlPort."
+            Write-Step "Update patch created missing MSSQL port configuration on ${configuredSqlHost}:$effectiveSqlPort."
         }
     }
 
@@ -1095,11 +1117,6 @@ function Repair-AtlasConfigForPatch {
         $settings["DB_PORT"] = [string]$effectiveSqlPort
         $changed = $true
     }
-    if ($settings.Contains("DB_SERVER") -and [string]$settings["DB_SERVER"] -match '\\') {
-        $settings["DB_SERVER"] = "127.0.0.1"
-        $changed = $true
-    }
-
     if ($changed) {
         Write-AtlasEnvConfig -InstallPath $InstallPath -Settings $settings
         Write-Step "Update patch refreshed ATLAS runtime config at $(Join-Path $InstallPath ".env")."
@@ -1141,6 +1158,56 @@ function Test-AtlasHealth {
     } catch {
         return $false
     }
+}
+
+function Invoke-AtlasDatabaseObjectRepair {
+    param(
+        [string]$InstallPath,
+        [string]$DataPath,
+        [string]$ReportPath = $null
+    )
+
+    $initializer = Join-Path $InstallPath "Initialize-ATLAS-Database.ps1"
+    if (-not (Test-Path $initializer)) {
+        throw "ATLAS database initializer was not found: $initializer"
+    }
+
+    $logDir = Join-Path $DataPath "logs"
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $outLog = Join-Path $logDir "database-object-repair-$stamp.out.log"
+    $errLog = Join-Path $logDir "database-object-repair-$stamp.err.log"
+
+    if ($ReportPath) {
+        "DatabaseObjectRepairOut=$outLog" | Add-Content $ReportPath
+        "DatabaseObjectRepairErr=$errLog" | Add-Content $ReportPath
+    }
+
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$initializer`" -InstallRoot `"$InstallPath`" -Quiet"
+    $process = Start-Process -FilePath "powershell.exe" `
+        -ArgumentList $arguments `
+        -WorkingDirectory $InstallPath `
+        -Wait `
+        -PassThru `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $outLog `
+        -RedirectStandardError $errLog
+
+    if ($process.ExitCode -ne 0) {
+        $errorText = ""
+        if (Test-Path $errLog) {
+            $errorText = (Get-Content -LiteralPath $errLog -Raw -ErrorAction SilentlyContinue).Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($errorText) -and (Test-Path $outLog)) {
+            $errorText = (Get-Content -LiteralPath $outLog -Raw -ErrorAction SilentlyContinue).Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($errorText)) {
+            $errorText = "exit code $($process.ExitCode)"
+        }
+        throw "ATLAS database object repair failed: $errorText"
+    }
+
+    Write-Step "ATLAS database objects verified and repaired."
 }
 
 function Get-AtlasConfiguredPort {
@@ -1282,26 +1349,36 @@ function Invoke-UpdateOnlyFinalize {
         "ATLAS update finalize $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
         "InstallRoot=$InstallRoot" | Add-Content $report
         "DataRoot=$DataRoot" | Add-Content $report
+        "Step=Review existing installation and configuration" | Add-Content $report
 
         $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
         $effectivePort = [int]$config.AppPort
         "AppPort=$effectivePort" | Add-Content $report
         "SqlPort=$($config.SqlPort)" | Add-Content $report
+        "Step=Review patched files and payload manifest" | Add-Content $report
+        $checksumReport = Invoke-ChecksumDiagnostic -InstallPath $InstallRoot -DataPath $DataRoot
+        "ChecksumReport=$checksumReport" | Add-Content $report
+
+        "Step=Repair database stored procedures and functions" | Add-Content $report
+        Invoke-AtlasDatabaseObjectRepair -InstallPath $InstallRoot -DataPath $DataRoot -ReportPath $report
 
         try {
+            "Step=Restart ATLAS service task" | Add-Content $report
             Start-Atlas -InstallPath $InstallRoot
             Start-Sleep -Seconds 8
         } catch {
             "StartWarning=$($_.Exception.Message)" | Add-Content $report
             Write-Step "Warning: ATLAS startup could not be completed automatically: $($_.Exception.Message)"
+            throw
         }
 
+        "Step=Verify ATLAS health endpoint" | Add-Content $report
         if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
             "Health=NotReady" | Add-Content $report
-            Write-Step "Warning: ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health yet. Patch files were installed; run Troubleshooter if needed."
-            return
+            throw "ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health. Review log: $report"
         }
         "Health=Healthy" | Add-Content $report
+        "PatchStatus=SUCCESS" | Add-Content $report
         Write-Step "Update-only patch completed. ATLAS is healthy on http://127.0.0.1:$effectivePort/."
     } catch {
         try {
@@ -1311,9 +1388,9 @@ function Invoke-UpdateOnlyFinalize {
                 "ATLAS update finalize $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
             }
             "FinalizeWarning=$($_.Exception.Message)" | Add-Content $report
+            "PatchStatus=FAILED" | Add-Content $report
         } catch {}
-        Write-Step "Warning: update finalize had a problem, but patch files remain installed: $($_.Exception.Message)"
-        return
+        throw "Update finalize failed: $($_.Exception.Message). Review log: $report"
     }
 }
 

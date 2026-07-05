@@ -433,9 +433,24 @@ function serveFrontendIndex(req, res) {
 // =====================================================
 // MSSQL DATABASE CONFIG
 // =====================================================
+function normalizeSqlConnectionEndpoint(rawServer, rawPort) {
+    let server = String(rawServer || 'localhost\\ATLAS').trim();
+    let port = parseInt(rawPort, 10) || 1433;
+    const commaPortMatch = server.match(/^(.*),(\d+)$/);
+    if (commaPortMatch) {
+        server = commaPortMatch[1].trim();
+        port = parseInt(commaPortMatch[2], 10) || port;
+    }
+    if (port > 0 && server.includes('\\')) {
+        server = server.split('\\')[0].trim() || '127.0.0.1';
+    }
+    return { server, port };
+}
+
+const sqlEndpoint = normalizeSqlConnectionEndpoint(process.env.DB_SERVER, process.env.DB_PORT);
 const dbConfig = {
-    server: process.env.DB_SERVER || 'localhost\\ATLAS',
-    port: parseInt(process.env.DB_PORT) || 1433,
+    server: sqlEndpoint.server,
+    port: sqlEndpoint.port,
     database: process.env.DB_NAME || 'Atlasairfare010',
     user: process.env.DB_USER || 'atlas_user',
     password: process.env.DB_PASSWORD || '',
@@ -489,6 +504,50 @@ async function closeSharedConnection() {
 let sqlObjectsReady = false;
 let sqlObjectsPromise = null;
 
+function splitSqlBatches(sqlText) {
+    return String(sqlText || '')
+        .split(/^\s*GO\s*(?:--.*)?$/gim)
+        .map((batch) => batch.trim())
+        .filter(Boolean);
+}
+
+async function hasSqlObject(db, objectName, objectType = 'P') {
+    const result = await db.request()
+        .input('ObjectName', sql.NVarChar(256), objectName)
+        .input('ObjectType', sql.NVarChar(8), objectType)
+        .query('SELECT OBJECT_ID(@ObjectName, @ObjectType) AS ObjectID;');
+    return Boolean(result.recordset?.[0]?.ObjectID);
+}
+
+async function applySqlScriptFile(db, relativePath, label) {
+    const scriptPath = path.join(__dirname, relativePath);
+    if (!fs.existsSync(scriptPath)) {
+        throw new Error(`${label} SQL script was not found: ${scriptPath}`);
+    }
+
+    const sqlText = fs.readFileSync(scriptPath, 'utf8');
+    for (const batch of splitSqlBatches(sqlText)) {
+        await db.request().batch(batch);
+    }
+}
+
+async function ensureAtlasSafeDeleteProcedure(db, force = false) {
+    const procedureName = 'dbo.sp_ATLAS_DeactivateAirfarePolicyRate';
+    if (!force && await hasSqlObject(db, procedureName, 'P')) return;
+
+    logger.warn(`${procedureName} missing or forced; applying ATLAS HCM SQL objects.`);
+    await applySqlScriptFile(db, path.join('database', 'ATLAS_HCM_SQL_Objects.sql'), 'ATLAS HCM objects');
+
+    if (!await hasSqlObject(db, procedureName, 'P')) {
+        throw new Error(`${procedureName} could not be installed from ATLAS_HCM_SQL_Objects.sql.`);
+    }
+}
+
+function isMissingSqlProcedureError(err, procedureName) {
+    const text = `${err?.message || ''} ${err?.originalError?.info?.message || ''}`;
+    return /Could not find stored procedure/i.test(text) && text.toLowerCase().includes(procedureName.toLowerCase());
+}
+
 function isSqlRetryableError(err) {
     return [1205, 2021].includes(Number(err?.number)) ||
         /deadlocked|modified during DDL execution|Please retry/i.test(String(err?.message || ''));
@@ -513,12 +572,18 @@ async function withSqlRetry(operation, label, attempts = 3) {
     throw lastError;
 }
 
-async function ensureAtlasSqlObjects(db) {
-    if (sqlObjectsReady) return;
+async function ensureAtlasSqlObjects(db, options = {}) {
+    const force = Boolean(options.force);
+    if (!force && sqlObjectsReady) return;
+    if (force) {
+        sqlObjectsReady = false;
+        sqlObjectsPromise = null;
+    }
     if (!sqlObjectsPromise) {
         sqlObjectsPromise = (async () => {
             await ensureEmployeeEligibilitySql(db);
             await ensureAirfarePolicySql(db);
+            await ensureAtlasSafeDeleteProcedure(db, force);
             await ensureAllocationPaymentSql(db);
             await ensureLoanOperationSql(db);
             await ensureYearEndOperationSql(db);
@@ -4308,11 +4373,20 @@ async function deactivateAirfarePolicyRate(req, res) {
     try {
         const db = await getConnection();
         await ensureAtlasSqlObjects(db);
-        const result = await withSqlRetry(() => db.request()
+        const executeDelete = () => db.request()
             .input('PolicyRateID', sql.BigInt, policyRateId)
             .input('DeletedBy', sql.Int, req.user.userId)
             .input('DeleteReason', sql.NVarChar(400), `Preference delete requested by ${req.user.username || 'system'}`)
-            .execute('dbo.sp_ATLAS_DeactivateAirfarePolicyRate'), 'deactivate airfare policy rate');
+            .execute('dbo.sp_ATLAS_DeactivateAirfarePolicyRate');
+        let result;
+        try {
+            result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate');
+        } catch (err) {
+            if (!isMissingSqlProcedureError(err, 'sp_ATLAS_DeactivateAirfarePolicyRate')) throw err;
+            logger.warn('Safe-delete procedure missing during request; repairing SQL objects and retrying delete.');
+            await ensureAtlasSqlObjects(db, { force: true });
+            result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate after SQL object repair');
+        }
         const deletedPolicy = result.recordset?.[0] || null;
         if (!deletedPolicy || deletedPolicy.AlreadyRemoved) {
             return res.json({

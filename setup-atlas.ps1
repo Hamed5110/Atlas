@@ -24,13 +24,24 @@ function New-RandomSecret {
 }
 
 function Get-SqlEndpoint {
-    if ($Server -match ",\d+$" -or $Server -match "\\") {
-        return $Server
+    $serverName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($serverName)) { $serverName = "127.0.0.1" }
+    if ($serverName -match "^(.*),(\d+)$") { return "tcp:$serverName" }
+    if ($DbPort -gt 0) {
+        if ($serverName -match "\\") { $serverName = ($serverName -split "\\")[0].Trim() }
+        if ([string]::IsNullOrWhiteSpace($serverName)) { $serverName = "127.0.0.1" }
+        return "tcp:$serverName,$DbPort"
     }
-    if ($DbPort -and $DbPort -ne 1433) {
-        return "$Server,$DbPort"
-    }
-    return $Server
+    return $serverName
+}
+
+function Get-SqlTcpHost {
+    $serverName = ([string]$Server).Trim()
+    if ([string]::IsNullOrWhiteSpace($serverName)) { return "127.0.0.1" }
+    if ($serverName -match "^(.*),\d+$") { $serverName = $Matches[1].Trim() }
+    if ($serverName -match "\\") { $serverName = ($serverName -split "\\")[0].Trim() }
+    if ([string]::IsNullOrWhiteSpace($serverName) -or $serverName -eq "." -or $serverName -eq "(local)") { return "127.0.0.1" }
+    return $serverName
 }
 
 function Read-DefaultedValue {
@@ -148,14 +159,15 @@ function Invoke-InstallTroubleshooter {
     }
 
     try {
-        $connection = Test-NetConnection -ComputerName $Server -Port $DbPort -WarningAction SilentlyContinue
+        $sqlTcpHost = Get-SqlTcpHost
+        $connection = Test-NetConnection -ComputerName $sqlTcpHost -Port $DbPort -WarningAction SilentlyContinue
         if ($connection.TcpTestSucceeded) {
-            Add-SetupCheck "SQL TCP connection $Server`:$DbPort" "PASS"
+            Add-SetupCheck "SQL TCP connection ${sqlTcpHost}:$DbPort" "PASS"
         } else {
-            Add-SetupCheck "SQL TCP connection $Server`:$DbPort" "WARN" @{ message = "TCP connection did not succeed. SQL setup may still work through local named pipes or a named instance." }
+            Add-SetupCheck "SQL TCP connection ${sqlTcpHost}:$DbPort" "WARN" @{ message = "TCP connection did not succeed. Confirm the configured SQL TCP port." }
         }
     } catch {
-        Add-SetupCheck "SQL TCP connection $Server`:$DbPort" "WARN" @{ error = $_.Exception.Message }
+        Add-SetupCheck "SQL TCP connection ${sqlTcpHost}:$DbPort" "WARN" @{ error = $_.Exception.Message }
     }
 
     return Write-SetupReport -Mode "troubleshooter" -Checks $checks
