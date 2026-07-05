@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "2.3.36",
+    [string]$Version = "2.3.37",
     [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts"),
     [switch]$SkipVerify
 )

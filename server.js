@@ -1406,6 +1406,53 @@ END;
 `);
 
     await db.request().batch(`
+IF OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyRateID') IS NOT NULL
+   AND NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID('dbo.AirfarePolicyRates')
+          AND name = 'PK_AirfarePolicyRates'
+   )
+BEGIN
+    DECLARE @atlasPolicyPkSql NVARCHAR(MAX);
+    DECLARE @atlasPolicyHasPrimaryKey BIT = CASE WHEN EXISTS (
+        SELECT 1
+        FROM sys.key_constraints
+        WHERE parent_object_id = OBJECT_ID('dbo.AirfarePolicyRates')
+          AND [type] = 'PK'
+    ) THEN 1 ELSE 0 END;
+    DECLARE @atlasPolicyCanBeUnique BIT = CASE WHEN NOT EXISTS (
+        SELECT PolicyRateID
+        FROM dbo.AirfarePolicyRates
+        WHERE PolicyRateID IS NULL
+        GROUP BY PolicyRateID
+        HAVING COUNT_BIG(*) > 1
+    ) THEN 1 ELSE 0 END;
+    DECLARE @atlasPolicyHasClustered BIT = CASE WHEN EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID('dbo.AirfarePolicyRates')
+          AND [type] = 1
+    ) THEN 1 ELSE 0 END;
+
+    IF @atlasPolicyHasPrimaryKey = 0 AND @atlasPolicyCanBeUnique = 1
+    BEGIN
+        SET @atlasPolicyPkSql = N'ALTER TABLE dbo.AirfarePolicyRates ADD CONSTRAINT PK_AirfarePolicyRates PRIMARY KEY '
+            + CASE WHEN @atlasPolicyHasClustered = 1 THEN N'NONCLUSTERED' ELSE N'CLUSTERED' END
+            + N' (PolicyRateID);';
+        EXEC sp_executesql @atlasPolicyPkSql;
+    END
+    ELSE IF @atlasPolicyCanBeUnique = 1
+    BEGIN
+        CREATE UNIQUE NONCLUSTERED INDEX PK_AirfarePolicyRates ON dbo.AirfarePolicyRates(PolicyRateID);
+    END
+    ELSE
+    BEGIN
+        CREATE NONCLUSTERED INDEX PK_AirfarePolicyRates ON dbo.AirfarePolicyRates(PolicyRateID);
+    END
+END;
+
 UPDATE dbo.AirfarePolicyRates
    SET PolicyStatus = CASE
        WHEN ISNULL(IsDeleted, 0) = 1 THEN N'archived'
