@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.38\ATLAS-Airfare-Allowance-2.3.38-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.39\ATLAS-Airfare-Allowance-2.3.39-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.38\ATLAS-Airfare-Allowance-Setup-2.3.38-x64.exe",
-    [string]$ProductVersion = "2.3.38",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.39\ATLAS-Airfare-Allowance-Setup-2.3.39-x64.exe",
+    [string]$ProductVersion = "2.3.39",
     [string]$UpdateManifest = ""
 )
 

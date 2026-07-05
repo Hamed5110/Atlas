@@ -91,6 +91,7 @@ type ReportRow = Record<string, unknown> & {
 };
 type AirfarePolicyDeleteResult = {
   message: string;
+  action?: string;
   policyRate: AirfarePolicyRate | null;
   alreadyRemoved?: boolean;
   alreadyHistorical?: boolean;
@@ -1693,26 +1694,17 @@ export default function DashboardPage() {
 
   function formatAirfarePolicyDeleteMessage(scopeLabel: string, policyRateId: number, result: AirfarePolicyDeleteResult) {
     const policy = result.policyRate;
-    if (result.alreadyRemoved || policy?.HardDeleted) {
-      return `${scopeLabel} airfare policy #${policyRateId} is already removed. No linked allocation data was changed.`;
+    if (policy?.HardDeleted || policy?.Purged || result.action === "hard_delete") {
+      return `${scopeLabel} airfare policy #${policyRateId} purged from preferences.`;
     }
-    const dependencyParts = [
-      Number(policy?.AllocationUsageCount || 0) ? `${policy?.AllocationUsageCount} allocation(s)` : "",
-      Number(policy?.TravelExpenseUsageCount || 0) ? `${policy?.TravelExpenseUsageCount} travel expense(s)` : "",
-      Number(policy?.EmployeeAllowanceUsageCount || 0) ? `${policy?.EmployeeAllowanceUsageCount} allowance row(s)` : "",
-      Number(policy?.AuditUsageCount || 0) ? `${policy?.AuditUsageCount} audit row(s)` : ""
-    ].filter(Boolean);
-    if (result.alreadyHistorical || policy?.AlreadyHistorical || policy?.IsDeleted) {
-      return `${scopeLabel} airfare policy #${policyRateId} is archived. ${dependencyParts.length ? `Protected links: ${dependencyParts.join(", ")}.` : "No active dependency blocks remain."}`;
-    }
-    return `${scopeLabel} airfare policy #${policyRateId} removed from current rules. Historical allocations remain locked.`;
+    return `${scopeLabel} airfare policy #${policyRateId} purge completed.`;
   }
 
   async function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
     if (!session) return setMessage("Please sign in first.");
     if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can delete preference policy rules.");
     const scopeLabel = getPolicyScopeLabel(rate);
-    const confirmed = window.confirm(`Delete ${scopeLabel} airfare policy #${rate.PolicyRateID}? Historical allocations will stay unchanged.`);
+    const confirmed = window.confirm(`Delete ${scopeLabel} airfare policy #${rate.PolicyRateID} from preferences?`);
     if (!confirmed) return;
     setBusy(true);
     setMessage("");
@@ -5858,7 +5850,7 @@ export default function DashboardPage() {
                     <span><strong>{money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))}</strong><small>Amount / cycle days</small></span>
                     <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
                     <span className="row-actions">
-                      <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role) || !rate.IsActive} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /></button>
+                      <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /></button>
                     </span>
                   </div>
                 ))}

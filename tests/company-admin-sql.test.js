@@ -27,19 +27,24 @@ assert.match(serverText, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/i, 'Restore AP
 assert.match(serverText, /SET MULTI_USER/i, 'Restore API should return database to multi-user mode');
 assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'/i, 'Airfare policy delete should expose a POST fallback for restricted clients');
 assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId'/i, 'Airfare policy delete should expose a direct POST fallback for clients missing the /delete route');
-assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare policy delete should use the SQL safe-delete procedure');
+assert.match(serverText, /sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy delete should use the SQL purge procedure');
 assert.match(serverText, /ensureAtlasSafeDeleteProcedure/i, 'Airfare policy delete should verify the safe-delete procedure before use');
 assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the safe-delete procedure is missing');
 assert.match(serverText, /isMissingSqlProcedureError/i, 'Airfare policy delete should retry after repairing a missing SQL procedure');
 assert.match(serverText, /sqlNumber === 308/i, 'Airfare policy delete should catch stale SQL index-hint error 308 and use fallback');
 assert.match(serverText, /PK_AirfarePolicyRates/i, 'Airfare policy delete should catch stale PK index hint failures from old procedures');
 assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime soft-delete if database repair is blocked');
+assert.match(serverText, /Installed delete procedure returned a non-purge state/i, 'Airfare policy delete should force hard purge when old procedures return soft-delete states');
+assert.match(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should hard-delete the policy row');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
-assert.match(serverText, /action:\s*'soft_delete'|const action = deletedPolicy\.DeleteAction/i, 'Airfare policy delete should return the action taken');
+assert.match(serverText, /Airfare policy rule purged from preferences/i, 'Airfare policy delete should report purge success');
 assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should normalize named SQL instances to explicit TCP port connections');
 const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
+assert.match(hcmSqlText, /sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy SQL should include the unconditional purge procedure');
+assert.match(hcmSqlText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy purge procedure should remove the target policy row');
+assert.match(hcmSqlText, /SET PolicyRateID = NULL/i, 'Airfare policy purge should clear allocation policy links before deleting');
 assert.match(hcmSqlText, /PolicyStatus[^]*GO[^]*UPDATE dbo\.AirfarePolicyRates[^]*IsDeleted/i, 'Airfare policy compatibility columns should be committed in their own batch before status backfill');
 assert.match(hcmSqlText, /sys\.indexes[^]*PK_AirfarePolicyRates/i, 'Airfare policy migration should repair the PK/index metadata when missing');
 assert.doesNotMatch(hcmSqlText, /INDEX\s*\(\s*PK_AirfarePolicyRates\s*\)/i, 'Airfare policy delete should not force a brittle named index hint');
@@ -62,6 +67,8 @@ const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', '
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
 assert.match(initializeText, /Test-AtlasBaseSchemaExists/i, 'Database initializer should detect existing installations');
 assert.match(initializeText, /Base schema already exists; skipping create-only schema/i, 'Database initializer should skip create-only schema on update and continue repair scripts');
+const pageText = fs.readFileSync(path.join(__dirname, '..', 'atlas-hcm-next', 'app', 'page.tsx'), 'utf8');
+assert.doesNotMatch(pageText, /disabled=\{busy \|\| !session \|\| !\["admin", "manager"\]\.includes\(session\.user\.role\) \|\| !rate\.IsActive\}/, 'Preference delete button should not be disabled for inactive rows');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'setup-atlas.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Setup troubleshooter should test the configured SQL TCP host');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'Verify-ATLAS-Installed.ps1'), 'utf8'), /Get-SqlServerPart/i, 'Installed verifier should use configured SQL TCP port for login checks');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Test-ATLAS-UpdatePrerequisites.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Update prerequisites should test configured SQL host and port');
@@ -73,7 +80,7 @@ assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa log
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.38" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.39" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
@@ -92,5 +99,9 @@ assert.match(loginFixText, /login_fix_debug\.log/i, 'Login repair utility should
 assert.match(loginFixText, /Scanning SQL Ports/i, 'Login repair utility should scan SQL ports');
 assert.match(loginFixText, /Verifying Database Handshake/i, 'Login repair utility should verify DB login');
 assert.match(loginFixText, /Writing Runtime Configuration/i, 'Login repair utility should sync .env and registry settings');
+const syncUnlockText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_deployment_sync_unlock.py'), 'utf8');
+assert.match(syncUnlockText, /deployment_sync_error\.log/i, 'Deployment sync unlocker should write deployment_sync_error.log');
+assert.match(syncUnlockText, /RESET_UI_LOCKS|Resetting interface preference locks/i, 'Deployment sync unlocker should clear UI lock state');
+assert.match(syncUnlockText, /DB_PORT|PORT/i, 'Deployment sync unlocker should synchronize app and SQL ports');
 
 console.log('company admin SQL/API checks passed');

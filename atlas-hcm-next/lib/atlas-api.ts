@@ -176,9 +176,15 @@ export type AirfarePolicyRate = {
   AlreadyHistorical?: boolean;
   Deactivated?: boolean;
   HardDeleted?: boolean;
+  Purged?: boolean;
   AllocationUsageCount?: number;
   RecentAllocationUsageCount?: number;
+  AllocationLinksCleared?: number;
+  ArchiveRowsDeleted?: number;
   AuditUsageCount?: number;
+  AuditRowsDeleted?: number;
+  DynamicRowsCleared?: number;
+  DynamicRowsDeleted?: number;
   TravelExpenseUsageCount?: number;
   EmployeeAllowanceUsageCount?: number;
   HistoryUsageCount?: number;

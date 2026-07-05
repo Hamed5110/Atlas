@@ -1434,6 +1434,155 @@ BEGIN
 END;
 GO
 
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_PurgeAirfarePolicyRate
+    @PolicyRateID BIGINT,
+    @DeletedBy INT = NULL,
+    @DeleteReason NVARCHAR(400) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
+    IF @PolicyRateID IS NULL OR @PolicyRateID <= 0
+        THROW 52031, 'Valid policy rate is required.', 1;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @exists BIT = 0;
+        DECLARE @allocationLinksCleared INT = 0;
+        DECLARE @archiveRowsDeleted INT = 0;
+        DECLARE @auditRowsDeleted INT = 0;
+        DECLARE @dynamicRowsCleared INT = 0;
+        DECLARE @dynamicRowsDeleted INT = 0;
+        DECLARE @affected INT = 0;
+        DECLARE @schemaName SYSNAME;
+        DECLARE @tableName SYSNAME;
+        DECLARE @columnName SYSNAME;
+        DECLARE @isNullable BIT;
+        DECLARE @sql NVARCHAR(MAX);
+
+        SELECT @exists = 1
+        FROM dbo.AirfarePolicyRates WITH (UPDLOCK, HOLDLOCK)
+        WHERE PolicyRateID = @PolicyRateID;
+
+        IF @exists = 0
+        BEGIN
+            COMMIT TRANSACTION;
+            SELECT
+                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+                CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
+                CAST('not_found_purged' AS NVARCHAR(40)) AS DeleteStatus,
+                CAST(0 AS BIT) AS AlreadyRemoved,
+                CAST(0 AS BIT) AS AlreadyHistorical,
+                CAST(0 AS BIT) AS Deactivated,
+                CAST(1 AS BIT) AS HardDeleted,
+                CAST(1 AS BIT) AS Purged,
+                @PolicyRateID AS PolicyRateID;
+            RETURN;
+        END;
+
+        IF OBJECT_ID(N'dbo.Allocations', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.Allocations', N'PolicyRateID') IS NOT NULL
+        BEGIN
+            UPDATE dbo.Allocations
+               SET PolicyRateID = NULL
+             WHERE PolicyRateID = @PolicyRateID;
+            SET @allocationLinksCleared = @@ROWCOUNT;
+        END;
+
+        IF OBJECT_ID(N'dbo.AirfarePolicyRateArchive', N'U') IS NOT NULL
+        BEGIN
+            DELETE FROM dbo.AirfarePolicyRateArchive WHERE PolicyRateID = @PolicyRateID;
+            SET @archiveRowsDeleted = @@ROWCOUNT;
+        END;
+
+        IF OBJECT_ID(N'dbo.AuditLog', N'U') IS NOT NULL
+        BEGIN
+            DELETE FROM dbo.AuditLog WHERE EntityType = N'AirfarePolicyRate' AND EntityID = @PolicyRateID;
+            SET @auditRowsDeleted = @@ROWCOUNT;
+        END;
+
+        DECLARE policy_fk_cursor CURSOR LOCAL FAST_FORWARD FOR
+            SELECT
+                OBJECT_SCHEMA_NAME(fkc.parent_object_id),
+                OBJECT_NAME(fkc.parent_object_id),
+                pc.name,
+                pc.is_nullable
+            FROM sys.foreign_key_columns fkc
+            INNER JOIN sys.columns pc
+                ON pc.object_id = fkc.parent_object_id
+               AND pc.column_id = fkc.parent_column_id
+            INNER JOIN sys.columns rc
+                ON rc.object_id = fkc.referenced_object_id
+               AND rc.column_id = fkc.referenced_column_id
+            WHERE fkc.referenced_object_id = OBJECT_ID(N'dbo.AirfarePolicyRates')
+              AND rc.name = N'PolicyRateID'
+              AND fkc.parent_object_id <> OBJECT_ID(N'dbo.AirfarePolicyRates');
+
+        OPEN policy_fk_cursor;
+        FETCH NEXT FROM policy_fk_cursor INTO @schemaName, @tableName, @columnName, @isNullable;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            IF @isNullable = 1
+            BEGIN
+                SET @sql = N'UPDATE ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
+                           N' SET ' + QUOTENAME(@columnName) + N' = NULL WHERE ' + QUOTENAME(@columnName) + N' = @id; SET @affected = @@ROWCOUNT;';
+                EXEC sp_executesql @sql, N'@id BIGINT, @affected INT OUTPUT', @id = @PolicyRateID, @affected = @affected OUTPUT;
+                SET @dynamicRowsCleared = @dynamicRowsCleared + ISNULL(@affected, 0);
+            END
+            ELSE
+            BEGIN
+                SET @sql = N'DELETE FROM ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
+                           N' WHERE ' + QUOTENAME(@columnName) + N' = @id; SET @affected = @@ROWCOUNT;';
+                EXEC sp_executesql @sql, N'@id BIGINT, @affected INT OUTPUT', @id = @PolicyRateID, @affected = @affected OUTPUT;
+                SET @dynamicRowsDeleted = @dynamicRowsDeleted + ISNULL(@affected, 0);
+            END;
+            FETCH NEXT FROM policy_fk_cursor INTO @schemaName, @tableName, @columnName, @isNullable;
+        END;
+        CLOSE policy_fk_cursor;
+        DEALLOCATE policy_fk_cursor;
+
+        IF OBJECT_ID(N'dbo.AirfarePolicyAllocations', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.AirfarePolicyAllocations', N'PolicyRateID') IS NOT NULL
+        BEGIN
+            DELETE FROM dbo.AirfarePolicyAllocations WHERE PolicyRateID = @PolicyRateID;
+            SET @dynamicRowsDeleted = @dynamicRowsDeleted + @@ROWCOUNT;
+        END;
+
+        IF OBJECT_ID(N'dbo.AirfarePolicyRateHistory', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.AirfarePolicyRateHistory', N'PolicyRateID') IS NOT NULL
+        BEGIN
+            DELETE FROM dbo.AirfarePolicyRateHistory WHERE PolicyRateID = @PolicyRateID;
+            SET @dynamicRowsDeleted = @dynamicRowsDeleted + @@ROWCOUNT;
+        END;
+
+        DELETE FROM dbo.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID;
+
+        COMMIT TRANSACTION;
+
+        SELECT
+            CAST('success' AS NVARCHAR(40)) AS ApiStatus,
+            CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
+            CAST('purged' AS NVARCHAR(40)) AS DeleteStatus,
+            CAST(0 AS BIT) AS AlreadyRemoved,
+            CAST(0 AS BIT) AS AlreadyHistorical,
+            CAST(0 AS BIT) AS Deactivated,
+            CAST(1 AS BIT) AS HardDeleted,
+            CAST(1 AS BIT) AS Purged,
+            @PolicyRateID AS PolicyRateID,
+            @allocationLinksCleared AS AllocationLinksCleared,
+            @archiveRowsDeleted AS ArchiveRowsDeleted,
+            @auditRowsDeleted AS AuditRowsDeleted,
+            @dynamicRowsCleared AS DynamicRowsCleared,
+            @dynamicRowsDeleted AS DynamicRowsDeleted;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        DECLARE @message NVARCHAR(2048) = ERROR_MESSAGE();
+        THROW 52032, @message, 1;
+    END CATCH
+END;
+GO
+
 CREATE OR ALTER FUNCTION dbo.fn_ATLAS_AirfareAmount
 (
     @ClosingDays DECIMAL(10,4),
