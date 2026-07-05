@@ -204,6 +204,7 @@ assert.match(source, /handleEditAirfarePolicyRate/, "preferences policy rules sh
 assert.match(source, /Delete selected \(\{selectedPolicyRateIds\.size\}\)/, "preferences policy rules should support selected bulk delete");
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}[\s\S]*"DELETE"/, "preferences delete should use the original stable policy DELETE endpoint");
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*"POST"/, "preferences delete should retry through POST fallback when DELETE is blocked by a proxy or client security layer");
+assert.match(source, /fallbackError[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}[\s\S]*"POST"/, "preferences delete should retry through a direct POST fallback if the /delete compatibility route is missing");
 assert.match(source, /function isCurrentAirfarePolicyRate[\s\S]*rate\.IsActive && !rate\.EffectiveTo/, "preferences should only delete current policy rules");
 assert.match(source, /History locked/, "historical and replaced policy rows should not show a delete action");
 assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
@@ -350,6 +351,7 @@ assert.match(server, /sp_ATLAS_DeactivateAirfarePolicyRate/, "backend should del
 assert.match(source, /formatAirfarePolicyDeleteMessage[\s\S]*Protected links[\s\S]*Airfare policy delete failed/, "preferences should format policy dependency/archive delete responses as readable notifications");
 assert.match(source, /airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*POST/, "preferences should retry policy delete through POST fallback when DELETE is blocked");
 assert.match(readFileSync(join(process.cwd(), "lib", "atlas-api.ts"), "utf8"), /HTTP \$\{res\.status\}[\s\S]*res\.text\(\)/, "API helper should expose HTTP status and non-JSON error bodies");
+assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a direct POST compatibility route for policy deletes");
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_DeactivateAirfarePolicyRate[\s\S]*SET XACT_ABORT ON[\s\S]*SERIALIZABLE[\s\S]*travel_expenses[\s\S]*employee_allowances[\s\S]*hard_deleted[\s\S]*AirfarePolicyRateArchive[\s\S]*TRY[\s\S]*CATCH/, "SQL should provide transactional dependency-aware archive or hard-delete procedure for policy rules");
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_AirfarePolicy_Delete_Report.sql"), "utf8"), /ForeignKeyName[\s\S]*AirfarePolicyRates[\s\S]*IndexName/, "SQL report should list policy rules, foreign keys, and indexes");
 assert.match(deployScript, /function Test-AtlasUpdateManifest[\s\S]*update_available[\s\S]*function Invoke-ChecksumDiagnostic[\s\S]*Get-FileHash/, "installer should check update manifests and write checksum diagnostics");

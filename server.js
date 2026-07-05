@@ -4340,6 +4340,7 @@ async function deactivateAirfarePolicyRate(req, res) {
 
 app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
 app.post('/api/airfare-policy-rates/:policyRateId/delete', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
+app.post('/api/airfare-policy-rates/:policyRateId', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
 
 // EMERGENCY TICKET ROUTES
 // =====================================================
@@ -4768,16 +4769,15 @@ function getAtlasBackupRoots() {
     const roots = [];
     const configuredDataRoot = process.env.ATLAS_DATA_ROOT || process.env.DATA_ROOT;
     if (configuredDataRoot) roots.push(path.resolve(configuredDataRoot, 'backups'));
-    if (process.env.ProgramData || process.env.PROGRAMDATA) {
-        roots.push(path.resolve(process.env.ProgramData || process.env.PROGRAMDATA, 'ATLAS Airfare Allowance', 'backups'));
-    }
+    roots.push(path.resolve(process.env.ProgramData || process.env.PROGRAMDATA || 'C:\\ProgramData', 'ATLAS Airfare Allowance', 'backups'));
     roots.push(path.resolve(__dirname, 'backups'));
     return [...new Set(roots.map((item) => path.resolve(item)))];
 }
 
-function getWritableBackupDir() {
+function getWritableAtlasBackupDir() {
     const roots = getAtlasBackupRoots();
     for (const root of roots) {
+        if (path.resolve(root) === path.resolve(__dirname, 'backups')) continue;
         try {
             fs.mkdirSync(root, { recursive: true });
             fs.accessSync(root, fs.constants.W_OK);
@@ -4787,6 +4787,29 @@ function getWritableBackupDir() {
         }
     }
     throw new Error('No writable ATLAS backup folder is available.');
+}
+
+async function getSqlDefaultBackupDir(connection) {
+    try {
+        const result = await connection.request().query(`
+            SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS NVARCHAR(4000)) AS BackupPath
+        `);
+        const backupPath = String(result.recordset?.[0]?.BackupPath || '').trim();
+        if (backupPath) return path.resolve(backupPath);
+    } catch (err) {
+        logger.warn('SQL default backup path could not be detected:', err.message);
+    }
+    return null;
+}
+
+async function resolveSqlBackupFile(connection, databaseName) {
+    const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    const fileName = `${databaseName}_${timestamp}.bak`;
+    const sqlBackupDir = await getSqlDefaultBackupDir(connection);
+    if (sqlBackupDir) {
+        return path.join(sqlBackupDir, fileName);
+    }
+    return path.join(getWritableAtlasBackupDir(), fileName);
 }
 
 function assertBackupInsideKnownRoot(backupFile) {
@@ -4803,6 +4826,24 @@ function assertBackupInsideKnownRoot(backupFile) {
     return resolvedBackup;
 }
 
+async function resolveBackupForRestore(connection, backupFile) {
+    const resolvedBackup = path.resolve(backupFile || '');
+    try {
+        return assertBackupInsideKnownRoot(resolvedBackup);
+    } catch (rootError) {
+        const result = await connection.request()
+            .input('BackupFile', sql.NVarChar(500), resolvedBackup)
+            .query(`SELECT TOP 1 BackupFile
+                    FROM dbo.CompanyBackups
+                    WHERE BackupFile = @BackupFile AND Status = 'completed'
+                    ORDER BY BackupID DESC`);
+        if (result.recordset.length > 0 && fs.existsSync(resolvedBackup)) {
+            return resolvedBackup;
+        }
+        throw rootError;
+    }
+}
+
 async function verifySqlBackupMedia(connection, backupFile) {
     await connection.request().query(`RESTORE VERIFYONLY FROM DISK = ${sqlLiteral(backupFile)} WITH CHECKSUM`);
 }
@@ -4811,11 +4852,8 @@ app.post('/api/admin/backup', authenticateToken, requireRole('admin'), async (re
     try {
         const databaseName = req.body.databaseName || dbConfig.database;
         const safeDatabase = sqlIdentifier(databaseName);
-        const backupDir = getWritableBackupDir();
-        const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-        const backupFile = path.join(backupDir, `${databaseName}_${timestamp}.bak`);
-
         const db = await getConnection();
+        const backupFile = await resolveSqlBackupFile(db, databaseName);
         await db.request().query(`BACKUP DATABASE ${safeDatabase} TO DISK = ${sqlLiteral(backupFile)} WITH INIT, COPY_ONLY, CHECKSUM, STATS = 10`);
         await verifySqlBackupMedia(db, backupFile);
         await db.request()
@@ -4858,8 +4896,33 @@ app.get('/api/admin/backups', authenticateToken, requireRole('admin'), async (re
                     logger.warn(`Backup list folder skipped: ${backupDir}`, err.message);
                     return [];
                 }
-            })
-            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+            });
+        const seen = new Set(files.map((file) => path.resolve(file.backupFile).toLowerCase()));
+        try {
+            const db = await getConnection();
+            const recorded = await db.request().query(`
+                SELECT TOP 200 DatabaseName, BackupFile, CreatedAt
+                FROM dbo.CompanyBackups
+                WHERE Status = 'completed'
+                ORDER BY BackupID DESC
+            `);
+            for (const row of recorded.recordset || []) {
+                const backupFile = path.resolve(row.BackupFile || '');
+                if (!backupFile || seen.has(backupFile.toLowerCase()) || !fs.existsSync(backupFile)) continue;
+                const stat = fs.statSync(backupFile);
+                seen.add(backupFile.toLowerCase());
+                files.push({
+                    fileName: path.basename(backupFile),
+                    backupFile,
+                    databaseName: row.DatabaseName,
+                    sizeBytes: stat.size,
+                    createdAt: row.CreatedAt || stat.mtime
+                });
+            }
+        } catch (recordedErr) {
+            logger.warn('Recorded backup list skipped:', recordedErr.message);
+        }
+        files.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 
         res.json(files);
     } catch (err) {
@@ -4874,7 +4937,8 @@ app.post('/api/admin/restore', authenticateToken, requireRole('admin'), async (r
         const { databaseName, backupFile, confirm } = req.body;
         if (confirm !== 'RESTORE') return res.status(400).json({ error: 'Restore requires confirmation' });
         const safeDatabase = sqlIdentifier(databaseName);
-        const resolvedBackup = assertBackupInsideKnownRoot(backupFile);
+        const appDb = await getConnection();
+        const resolvedBackup = await resolveBackupForRestore(appDb, backupFile);
 
         await closeSharedConnection();
         const adminDb = await getAdminConnection('master');

@@ -26,6 +26,7 @@ assert.match(serverText, /RESTORE VERIFYONLY FROM DISK/i, 'Restore API should ve
 assert.match(serverText, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/i, 'Restore API should handle active sessions before restore');
 assert.match(serverText, /SET MULTI_USER/i, 'Restore API should return database to multi-user mode');
 assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'/i, 'Airfare policy delete should expose a POST fallback for restricted clients');
+assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId'/i, 'Airfare policy delete should expose a direct POST fallback for clients missing the /delete route');
 assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare policy delete should use the SQL safe-delete procedure');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8'), /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_AirfarePolicy_Delete_Report.sql'), 'utf8'), /ForeignKeyName/i, 'Airfare policy report should expose foreign key linkage');

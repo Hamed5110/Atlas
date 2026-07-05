@@ -1677,7 +1677,15 @@ export default function DashboardPage() {
     } catch (deleteError) {
       const message = deleteError instanceof Error ? deleteError.message : "";
       if (/405|403|404|failed|method|not allowed|forbidden/i.test(message)) {
-        return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}/delete`, token, sessionId, "POST");
+        try {
+          return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}/delete`, token, sessionId, "POST");
+        } catch (fallbackError) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "";
+          if (/404|failed|not found/i.test(fallbackMessage)) {
+            return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}`, token, sessionId, "POST");
+          }
+          throw fallbackError;
+        }
       }
       throw deleteError;
     }
