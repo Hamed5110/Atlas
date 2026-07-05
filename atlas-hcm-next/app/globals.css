@@ -1290,31 +1290,34 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .preferences-page {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(360px, .9fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, .95fr);
   gap: 16px;
 }
 .preferences-page > .glass-panel {
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 .preferences-policy-card {
   max-width: none;
+  min-width: 0;
 }
 .preferences-policy-card .policy-rule-picker {
-  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
 }
 .preferences-policy-card .form-grid.one {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: start;
 }
 .preferences-policy-card .policy-employee-picker {
   grid-column: 1 / -1;
 }
 .preferences-policy-card .calc-result {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 .policy-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   gap: 8px;
   padding: 6px;
   border: 1px solid rgba(148, 163, 184, .24);
@@ -1322,6 +1325,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   background: #f8fafc;
 }
 .policy-tabs button {
+  min-width: 0;
   min-height: 42px;
   border: 0;
   border-radius: 10px;
@@ -1329,6 +1333,17 @@ h3 { font-size: 20px; letter-spacing: 0; }
   color: var(--muted);
   font-weight: 900;
   cursor: pointer;
+}
+.policy-tabs button,
+.policy-rule-option,
+.preferences-policy-card .calc-result span {
+  min-width: 0;
+}
+.policy-rule-option strong,
+.policy-rule-option span,
+.preferences-policy-card .calc-result strong,
+.preferences-policy-card .calc-result small {
+  overflow-wrap: anywhere;
 }
 .policy-tabs button.active {
   background: #fff;

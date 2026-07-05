@@ -210,9 +210,11 @@ assert.match(source, /History locked/, "historical and replaced policy rows shou
 assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
-assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.6fr\)\s+minmax\(360px,\s*\.9fr\)/, "preferences should use a desktop right panel that can collapse");
+assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.55fr\)\s+minmax\(320px,\s*\.95fr\)/, "preferences should use a desktop right panel that can collapse without forcing overflow");
 assert.match(css, /\.preferences-policy-card/, "airfare policy editor should be styled as a main preferences section");
-assert.match(css, /\.preferences-policy-card \.form-grid\.one\s*{[\s\S]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "preferences and opening balance cards should not force desktop-width form columns");
+assert.match(css, /\.preferences-policy-card \.form-grid\.one\s*{[\s\S]*repeat\(auto-fit,\s*minmax\(180px,\s*1fr\)\)/, "preferences and opening balance cards should not force desktop-width form columns");
+assert.match(css, /\.preferences-policy-card \.policy-rule-picker\s*{[\s\S]*repeat\(auto-fit,\s*minmax\(118px,\s*1fr\)\)/, "preferences rule type cards should wrap inside narrow right panels");
+assert.match(css, /\.policy-tabs\s*{[\s\S]*repeat\(auto-fit,\s*minmax\(104px,\s*1fr\)\)/, "preferences tabs should wrap instead of overflowing narrow panels");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.preferences-policy-card \.form-grid\.one,[\s\S]*\.preferences-policy-card \.calc-result,[\s\S]*\.preferences-policy-card \.policy-rule-picker[\s\S]*grid-template-columns:\s*1fr/, "preferences and opening balance cards should collapse to one column on mobile");
 assert.match(css, /\.sidebar-toggle/, "sidebar collapse button should be styled");
 assert.match(css, /\.report-check-panel\.collapsed/, "collapsed report checks panel should be styled");
