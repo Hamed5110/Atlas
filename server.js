@@ -1366,6 +1366,58 @@ IF COL_LENGTH('dbo.AirfarePolicyRates', 'IsActive') IS NULL
 BEGIN
     ALTER TABLE dbo.AirfarePolicyRates ADD IsActive BIT NOT NULL CONSTRAINT DF_AirfarePolicyRates_IsActive_Live DEFAULT (1);
 END;
+`);
+
+    await db.request().batch(`
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'IsDeleted') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD IsDeleted BIT NOT NULL CONSTRAINT DF_AirfarePolicyRates_IsDeleted_Live DEFAULT (0);
+END;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeletedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD DeletedAt DATETIME2(0) NULL;
+END;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeletedBy') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD DeletedBy INT NULL;
+END;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeleteReason') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD DeleteReason NVARCHAR(400) NULL;
+END;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'ArchivedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD ArchivedAt DATETIME2(0) NULL;
+END;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'DependencySnapshotJson') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD DependencySnapshotJson NVARCHAR(MAX) NULL;
+END;
+
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyStatus') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD PolicyStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_AirfarePolicyRates_PolicyStatus_Live DEFAULT (N'active');
+END;
+`);
+
+    await db.request().batch(`
+UPDATE dbo.AirfarePolicyRates
+   SET PolicyStatus = CASE
+       WHEN ISNULL(IsDeleted, 0) = 1 THEN N'archived'
+       WHEN IsActive = 1 AND EffectiveTo IS NULL THEN N'active'
+       ELSE N'historical'
+   END
+WHERE PolicyStatus IS NULL
+   OR PolicyStatus <> CASE
+       WHEN ISNULL(IsDeleted, 0) = 1 THEN N'archived'
+       WHEN IsActive = 1 AND EffectiveTo IS NULL THEN N'active'
+       ELSE N'historical'
+   END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.AirfarePolicyRates') AND name = N'IX_ATLAS_AirfarePolicyRates_EffectiveScope')
 BEGIN

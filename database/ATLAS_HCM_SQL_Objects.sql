@@ -759,6 +759,7 @@ IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeleteReason') IS NULL ALTER TABLE dbo.
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'ArchivedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD ArchivedAt DATETIME2(0) NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'DependencySnapshotJson') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DependencySnapshotJson NVARCHAR(MAX) NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyStatus') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD PolicyStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_AirfarePolicyRates_PolicyStatus DEFAULT (N'active');
+GO
 
 UPDATE dbo.AirfarePolicyRates
    SET PolicyStatus = CASE

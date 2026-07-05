@@ -38,6 +38,7 @@ assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should norma
 const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
+assert.match(hcmSqlText, /PolicyStatus[^]*GO[^]*UPDATE dbo\.AirfarePolicyRates[^]*IsDeleted/i, 'Airfare policy compatibility columns should be committed in their own batch before status backfill');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_AirfarePolicy_Delete_Report.sql'), 'utf8'), /ForeignKeyName/i, 'Airfare policy report should expose foreign key linkage');
 assert.doesNotMatch(serverText, /USE\s+\$\{safeDatabase\}/, 'Company setup should not leave the SQL pool inside company database');
 
@@ -66,7 +67,7 @@ assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa log
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.35" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.36" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
@@ -80,5 +81,10 @@ assert.match(deployWizardText, /install_debug\.log/i, 'Python deployment wizard 
 assert.match(deployWizardText, /CURRENT_STEP|current_step/i, 'Python deployment wizard should emit structured current-step logs');
 assert.match(deployWizardText, /REMEDIATION_SUGGESTION|remediation_suggestion/i, 'Python deployment wizard should emit remediation suggestions');
 assert.match(deployWizardText, /MSSQL_PORT_SCAN/i, 'Python deployment wizard should scan MSSQL ports');
+const loginFixText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_login_fix.py'), 'utf8');
+assert.match(loginFixText, /login_fix_debug\.log/i, 'Login repair utility should write login_fix_debug.log');
+assert.match(loginFixText, /Scanning SQL Ports/i, 'Login repair utility should scan SQL ports');
+assert.match(loginFixText, /Verifying Database Handshake/i, 'Login repair utility should verify DB login');
+assert.match(loginFixText, /Writing Runtime Configuration/i, 'Login repair utility should sync .env and registry settings');
 
 console.log('company admin SQL/API checks passed');
