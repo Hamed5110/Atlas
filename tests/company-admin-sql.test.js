@@ -41,11 +41,18 @@ assert.match(deployText, /Invoke-AtlasDatabaseObjectRepair/i, 'Update patch shou
 assert.match(deployText, /Initialize-ATLAS-Database\.ps1/i, 'Database object repair should use the bundled initializer');
 assert.match(deployText, /Get-AtlasSqlTcpHost/i, 'Update patch should test the configured SQL host instead of hard-coded localhost');
 assert.doesNotMatch(deployText, /\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/, 'Update patch should not overwrite an existing configured SQL server/instance');
+assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sanitize Burn-quoted install/data paths before use');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'setup-atlas.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Setup troubleshooter should test the configured SQL TCP host');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'Verify-ATLAS-Installed.ps1'), 'utf8'), /Get-SqlServerPart/i, 'Installed verifier should use configured SQL TCP port for login checks');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Test-ATLAS-UpdatePrerequisites.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Update prerequisites should test configured SQL host and port');
+const runnerText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'runner', 'AtlasBootstrapperRunner.cs'), 'utf8');
+assert.match(runnerText, /GetPathOption/i, 'Bootstrapper runner should sanitize path options before reading logs');
+assert.match(runnerText, /ATLAS completion message failed/i, 'Bootstrapper runner should never mask finalize errors with message-box path failures');
+const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.31" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 
 console.log('company admin SQL/API checks passed');

@@ -15,15 +15,33 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.30\ATLAS-Airfare-Allowance-2.3.30-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.31\ATLAS-Airfare-Allowance-2.3.31-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.30\ATLAS-Airfare-Allowance-Setup-2.3.30-x64.exe",
-    [string]$ProductVersion = "2.3.30",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.31\ATLAS-Airfare-Allowance-Setup-2.3.31-x64.exe",
+    [string]$ProductVersion = "2.3.31",
     [string]$UpdateManifest = ""
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+
+function Normalize-AtlasPathArgument {
+    param(
+        [string]$Value,
+        [string]$Fallback
+    )
+    $cleaned = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($cleaned)) { $cleaned = $Fallback }
+    $cleaned = $cleaned.Replace("&amp;quot;", "").Replace("&quot;", "").Replace("&#34;", "").Replace('"', '').Trim()
+    if ([string]::IsNullOrWhiteSpace($cleaned)) { $cleaned = $Fallback }
+    foreach ($invalidChar in [System.IO.Path]::GetInvalidPathChars()) {
+        $cleaned = $cleaned.Replace([string]$invalidChar, "")
+    }
+    return $cleaned.TrimEnd('\', '/')
+}
+
+$InstallRoot = Normalize-AtlasPathArgument -Value $InstallRoot -Fallback "C:\Program Files\ATLAS Airfare Allowance"
+$DataRoot = Normalize-AtlasPathArgument -Value $DataRoot -Fallback "C:\ProgramData\ATLAS Airfare Allowance"
 
 $script:TranscriptStarted = $false
 if ($Mode -ne "Build") {

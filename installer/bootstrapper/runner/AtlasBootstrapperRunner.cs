@@ -53,7 +53,7 @@ namespace AtlasBootstrapperRunner
         private static int RunPreflight(Dictionary<string, string> options)
         {
             var defaultPort = GetIntOption(options, "Port", 3355);
-            var dataRoot = GetOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
+            var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
             Directory.CreateDirectory(dataRoot);
 
             using (var form = new PreflightForm(defaultPort, dataRoot))
@@ -104,7 +104,14 @@ namespace AtlasBootstrapperRunner
             using (var process = Process.Start(startInfo))
             {
                 process.WaitForExit();
-                ShowCompletionMessage(mode, process.ExitCode, options);
+                try
+                {
+                    ShowCompletionMessage(mode, process.ExitCode, options);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("ATLAS completion message failed: " + ex.Message);
+                }
                 return process.ExitCode;
             }
         }
@@ -113,7 +120,7 @@ namespace AtlasBootstrapperRunner
         {
             if (!ShouldShowCompletionMessage(mode)) return;
 
-            var dataRoot = GetOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
+            var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
             var logFolder = Path.Combine(dataRoot, "logs");
             var latestLog = FindLatestLog(logFolder);
             var title = exitCode == 0 ? "ATLAS patch completed" : "ATLAS patch failed";
@@ -179,6 +186,27 @@ namespace AtlasBootstrapperRunner
             return options.TryGetValue(name, out value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;
         }
 
+        private static string GetPathOption(Dictionary<string, string> options, string name, string fallback)
+        {
+            return CleanPathValue(GetOption(options, name, fallback), fallback);
+        }
+
+        private static string CleanPathValue(string value, string fallback)
+        {
+            var cleaned = NormalizeBurnArg(value ?? string.Empty)
+                .Replace("&amp;quot;", string.Empty)
+                .Replace("&quot;", string.Empty)
+                .Replace("\"", string.Empty)
+                .Trim();
+            if (string.IsNullOrWhiteSpace(cleaned)) cleaned = fallback;
+
+            foreach (var invalid in Path.GetInvalidPathChars())
+            {
+                cleaned = cleaned.Replace(invalid.ToString(), string.Empty);
+            }
+            return cleaned.TrimEnd('\\', '/');
+        }
+
         private static int GetIntOption(Dictionary<string, string> options, string name, int fallback)
         {
             string value;
@@ -197,6 +225,7 @@ namespace AtlasBootstrapperRunner
             var normalized = value
                 .Replace("&amp;quot;", "\"")
                 .Replace("&quot;", "\"")
+                .Replace("&#34;", "\"")
                 .Trim();
             if (normalized.Length >= 2 && normalized[0] == '"' && normalized[normalized.Length - 1] == '"')
             {
