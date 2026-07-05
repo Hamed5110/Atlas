@@ -4336,6 +4336,13 @@ async function deactivateAirfarePolicyRate(req, res) {
             `), 'get airfare policy rate before delete');
         const oldPolicy = oldResult.recordset?.[0];
         if (!oldPolicy) return res.status(404).json({ error: 'Airfare policy rule not found.' });
+        if (!oldPolicy.IsActive || oldPolicy.EffectiveTo) {
+            return res.json({
+                message: 'Airfare policy rule is already historical. No change was needed.',
+                policyRate: oldPolicy,
+                alreadyHistorical: true
+            });
+        }
 
         const result = await withSqlRetry(() => db.request()
             .input('PolicyRateID', sql.BigInt, policyRateId)
