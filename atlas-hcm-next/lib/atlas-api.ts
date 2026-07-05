@@ -164,6 +164,24 @@ export type AirfarePolicyRate = {
   PerDayRate: number;
   IsActive: boolean;
   CreatedAt?: string;
+  IsDeleted?: boolean;
+  PolicyStatus?: string;
+  DeletedAt?: string;
+  DeletedBy?: number;
+  DeleteReason?: string;
+  ArchivedAt?: string;
+  DependencySnapshotJson?: string;
+  DeleteStatus?: string;
+  AlreadyRemoved?: boolean;
+  AlreadyHistorical?: boolean;
+  Deactivated?: boolean;
+  HardDeleted?: boolean;
+  AllocationUsageCount?: number;
+  RecentAllocationUsageCount?: number;
+  AuditUsageCount?: number;
+  TravelExpenseUsageCount?: number;
+  EmployeeAllowanceUsageCount?: number;
+  HistoryUsageCount?: number;
 };
 
 export type Company = {

@@ -89,6 +89,12 @@ type ReportRow = Record<string, unknown> & {
   __recordId?: number;
   __rowKind?: "detail" | "subtotal" | "grand-total";
 };
+type AirfarePolicyDeleteResult = {
+  message: string;
+  policyRate: AirfarePolicyRate | null;
+  alreadyRemoved?: boolean;
+  alreadyHistorical?: boolean;
+};
 type DisplayedReport = {
   title: string;
   columns: string[];
@@ -1664,7 +1670,24 @@ export default function DashboardPage() {
   }
 
   async function deleteAirfarePolicyRate(policyRateId: number) {
-    return await atlasMutation<{ message: string; policyRate: AirfarePolicyRate }>(`/airfare-policy-rates/${policyRateId}`, session?.token || "", session?.sessionId || "", "DELETE");
+    return await atlasMutation<AirfarePolicyDeleteResult>(`/airfare-policy-rates/${policyRateId}`, session?.token || "", session?.sessionId || "", "DELETE");
+  }
+
+  function formatAirfarePolicyDeleteMessage(scopeLabel: string, policyRateId: number, result: AirfarePolicyDeleteResult) {
+    const policy = result.policyRate;
+    if (result.alreadyRemoved || policy?.HardDeleted) {
+      return `${scopeLabel} airfare policy #${policyRateId} is already removed. No linked allocation data was changed.`;
+    }
+    const dependencyParts = [
+      Number(policy?.AllocationUsageCount || 0) ? `${policy?.AllocationUsageCount} allocation(s)` : "",
+      Number(policy?.TravelExpenseUsageCount || 0) ? `${policy?.TravelExpenseUsageCount} travel expense(s)` : "",
+      Number(policy?.EmployeeAllowanceUsageCount || 0) ? `${policy?.EmployeeAllowanceUsageCount} allowance row(s)` : "",
+      Number(policy?.AuditUsageCount || 0) ? `${policy?.AuditUsageCount} audit row(s)` : ""
+    ].filter(Boolean);
+    if (result.alreadyHistorical || policy?.AlreadyHistorical || policy?.IsDeleted) {
+      return `${scopeLabel} airfare policy #${policyRateId} is archived. ${dependencyParts.length ? `Protected links: ${dependencyParts.join(", ")}.` : "No active dependency blocks remain."}`;
+    }
+    return `${scopeLabel} airfare policy #${policyRateId} removed from current rules. Historical allocations remain locked.`;
   }
 
   async function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
@@ -1676,16 +1699,16 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
-      await deleteAirfarePolicyRate(rate.PolicyRateID);
+      const result = await deleteAirfarePolicyRate(rate.PolicyRateID);
       setSelectedPolicyRateIds((current) => {
         const next = new Set(current);
         next.delete(rate.PolicyRateID);
         return next;
       });
       await loadLiveData();
-      setMessage(`Deleted ${scopeLabel} airfare policy #${rate.PolicyRateID}. Historical allocations remain locked.`);
+      setMessage(formatAirfarePolicyDeleteMessage(scopeLabel, rate.PolicyRateID, result));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to delete airfare policy.");
+      setMessage(`Airfare policy delete failed: ${error instanceof Error ? error.message : "Unable to delete airfare policy."}`);
     } finally {
       setBusy(false);
     }
@@ -1701,14 +1724,16 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
+      const results: string[] = [];
       for (const rate of selectedRates) {
-        await deleteAirfarePolicyRate(rate.PolicyRateID);
+        const result = await deleteAirfarePolicyRate(rate.PolicyRateID);
+        results.push(formatAirfarePolicyDeleteMessage(getPolicyScopeLabel(rate), rate.PolicyRateID, result));
       }
       setSelectedPolicyRateIds(new Set());
       await loadLiveData();
-      setMessage(`Deleted ${selectedRates.length} selected preference rule(s). Audit log updated and historical allocations remain locked.`);
+      setMessage(results.length === 1 ? results[0] : `Processed ${results.length} selected preference rule(s). Protected history stayed locked.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to delete selected airfare policies.");
+      setMessage(`Selected airfare policy delete failed: ${error instanceof Error ? error.message : "Unable to delete selected airfare policies."}`);
     } finally {
       setBusy(false);
     }

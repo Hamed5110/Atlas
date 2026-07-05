@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.26-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-2.3.27-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.26-x64.exe",
-    [string]$ProductVersion = "2.3.26",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\ATLAS-Airfare-Allowance-Setup-2.3.27-x64.exe",
+    [string]$ProductVersion = "2.3.27",
     [string]$UpdateManifest = ""
 )
 
@@ -112,26 +112,52 @@ function Invoke-ChecksumDiagnostic {
     $reportDir = Join-Path $DataPath "logs"
     New-Item -ItemType Directory -Path $reportDir -Force -ErrorAction SilentlyContinue | Out-Null
     $report = Join-Path $reportDir ("checksum-diagnostic-{0}.json" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
-    $targets = @(
-        (Join-Path $InstallPath "server.js"),
-        (Join-Path $InstallPath "package.json"),
-        (Join-Path $InstallPath "package-lock.json"),
-        (Join-Path $InstallPath ".env"),
-        (Join-Path $InstallPath "atlas-hcm-next\package.json"),
-        (Join-Path $InstallPath "database\ATLAS_HCM_SQL_Objects.sql")
-    )
-    $rows = foreach ($target in $targets) {
+    $manifestPath = Join-Path $InstallPath "atlas-payload-manifest.json"
+    $manifestRows = @()
+    if (Test-Path -LiteralPath $manifestPath) {
+        try {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $manifestRows = @($manifest.files)
+        } catch {
+            $manifestRows = @()
+        }
+    }
+    if ($manifestRows.Count -gt 0) {
+        $targets = $manifestRows | ForEach-Object {
+            [pscustomobject]@{
+                path = Join-Path $InstallPath ([string]$_.path)
+                expectedSha256 = [string]$_.sha256
+                expectedLength = [int64]$_.length
+            }
+        }
+    } else {
+        $targets = @(
+            "server.js",
+            "package.json",
+            "package-lock.json",
+            ".env",
+            "atlas-hcm-next\package.json",
+            "database\ATLAS_HCM_SQL_Objects.sql"
+        ) | ForEach-Object {
+            [pscustomobject]@{ path = Join-Path $InstallPath $_; expectedSha256 = $null; expectedLength = $null }
+        }
+    }
+    $rows = foreach ($targetSpec in $targets) {
+        $target = [string]$targetSpec.path
         if (Test-Path -LiteralPath $target) {
             $item = Get-Item -LiteralPath $target
             $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $target
-            [pscustomobject]@{ path = $target; exists = $true; length = $item.Length; sha256 = $hash.Hash }
+            $matchesHash = if ($targetSpec.expectedSha256) { $hash.Hash -eq $targetSpec.expectedSha256 } else { $null }
+            $matchesLength = if ($targetSpec.expectedLength) { $item.Length -eq $targetSpec.expectedLength } else { $null }
+            [pscustomobject]@{ path = $target; exists = $true; length = $item.Length; sha256 = $hash.Hash; expectedSha256 = $targetSpec.expectedSha256; expectedLength = $targetSpec.expectedLength; matchesHash = $matchesHash; matchesLength = $matchesLength }
         } else {
-            [pscustomobject]@{ path = $target; exists = $false; length = 0; sha256 = $null }
+            [pscustomobject]@{ path = $target; exists = $false; length = 0; sha256 = $null; expectedSha256 = $targetSpec.expectedSha256; expectedLength = $targetSpec.expectedLength; matchesHash = $false; matchesLength = $false }
         }
     }
     [pscustomobject]@{
         checkedAt = (Get-Date).ToString("o")
         installPath = $InstallPath
+        manifestPath = if (Test-Path -LiteralPath $manifestPath) { $manifestPath } else { $null }
         files = @($rows)
     } | ConvertTo-Json -Depth 6 | Set-Content -Path $report -Encoding UTF8
     Write-Step "Checksum diagnostic report: $report"

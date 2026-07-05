@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "2.3.26",
+    [string]$Version = "2.3.27",
     [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts"),
     [switch]$SkipVerify
 )
@@ -143,6 +143,29 @@ Copy-Tree -Source $nodeSource -Destination $Runtime
 foreach ($folder in @("logs", "backups", "test-reports")) {
     New-Item -ItemType Directory -Path (Join-Path $Payload $folder) -Force | Out-Null
 }
+
+$payloadManifestPath = Join-Path $Payload "atlas-payload-manifest.json"
+$payloadManifestRows = Get-ChildItem -LiteralPath $Payload -Recurse -File -Force |
+    Where-Object { $_.FullName -ne $payloadManifestPath } |
+    Sort-Object FullName |
+    ForEach-Object {
+        $relative = Get-RelativePath -Base $Payload -Path $_.FullName
+        $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
+        [pscustomobject]@{
+            path = $relative
+            length = $_.Length
+            sha256 = $hash.Hash
+        }
+    }
+[pscustomobject]@{
+    product = "ATLAS Airfare Allowance"
+    version = $Version
+    createdAt = (Get-Date).ToString("o")
+    compression = "WiX MediaTemplate EmbedCab=yes CompressionLevel=high; Burn Bundle Compressed=yes"
+    fileCount = @($payloadManifestRows).Count
+    totalBytes = (@($payloadManifestRows) | Measure-Object -Property length -Sum).Sum
+    files = @($payloadManifestRows)
+} | ConvertTo-Json -Depth 6 | Set-Content -Path $payloadManifestPath -Encoding UTF8
 
 Write-Host "Generating WiX package source..."
 $builder = [System.Text.StringBuilder]::new()
