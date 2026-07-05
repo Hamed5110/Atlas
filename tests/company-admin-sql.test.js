@@ -31,6 +31,8 @@ assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare polic
 assert.match(serverText, /ensureAtlasSafeDeleteProcedure/i, 'Airfare policy delete should verify the safe-delete procedure before use');
 assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the safe-delete procedure is missing');
 assert.match(serverText, /isMissingSqlProcedureError/i, 'Airfare policy delete should retry after repairing a missing SQL procedure');
+assert.match(serverText, /sqlNumber === 308/i, 'Airfare policy delete should catch stale SQL index-hint error 308 and use fallback');
+assert.match(serverText, /PK_AirfarePolicyRates/i, 'Airfare policy delete should catch stale PK index hint failures from old procedures');
 assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime soft-delete if database repair is blocked');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
 assert.match(serverText, /action:\s*'soft_delete'|const action = deletedPolicy\.DeleteAction/i, 'Airfare policy delete should return the action taken');
@@ -58,6 +60,8 @@ assert.match(deployText, /PatchStatus=WARNING/i, 'Update patch should keep copie
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
+assert.match(initializeText, /Test-AtlasBaseSchemaExists/i, 'Database initializer should detect existing installations');
+assert.match(initializeText, /Base schema already exists; skipping create-only schema/i, 'Database initializer should skip create-only schema on update and continue repair scripts');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'setup-atlas.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Setup troubleshooter should test the configured SQL TCP host');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'Verify-ATLAS-Installed.ps1'), 'utf8'), /Get-SqlServerPart/i, 'Installed verifier should use configured SQL TCP port for login checks');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Test-ATLAS-UpdatePrerequisites.ps1'), 'utf8'), /Get-SqlTcpHost/i, 'Update prerequisites should test configured SQL host and port');
@@ -69,7 +73,7 @@ assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa log
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.37" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.38" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');

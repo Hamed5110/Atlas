@@ -780,9 +780,8 @@ BEGIN
     DECLARE @atlasPolicyCanBeUnique BIT = CASE WHEN NOT EXISTS (
         SELECT PolicyRateID
         FROM dbo.AirfarePolicyRates
-        WHERE PolicyRateID IS NULL
         GROUP BY PolicyRateID
-        HAVING COUNT_BIG(*) > 1
+        HAVING PolicyRateID IS NULL OR COUNT_BIG(*) > 1
     ) THEN 1 ELSE 0 END;
     DECLARE @atlasPolicyHasClustered BIT = CASE WHEN EXISTS (
         SELECT 1

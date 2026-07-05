@@ -550,7 +550,9 @@ function isMissingSqlProcedureError(err, procedureName) {
 
 function isAirfarePolicyDeleteFallbackError(err) {
     const text = `${err?.message || ''} ${err?.originalError?.info?.message || ''}`;
-    return /Could not find stored procedure|foreign key|REFERENCE constraint|conflicted with the DELETE|constraint/i.test(text);
+    const sqlNumber = Number(err?.number || err?.originalError?.info?.number || 0);
+    return sqlNumber === 308 ||
+        /Could not find stored procedure|foreign key|REFERENCE constraint|conflicted with the DELETE|constraint|Index .* does not exist|specified in the FROM clause|PK_AirfarePolicyRates/i.test(text);
 }
 
 function isSqlRetryableError(err) {
@@ -1425,9 +1427,8 @@ BEGIN
     DECLARE @atlasPolicyCanBeUnique BIT = CASE WHEN NOT EXISTS (
         SELECT PolicyRateID
         FROM dbo.AirfarePolicyRates
-        WHERE PolicyRateID IS NULL
         GROUP BY PolicyRateID
-        HAVING COUNT_BIG(*) > 1
+        HAVING PolicyRateID IS NULL OR COUNT_BIG(*) > 1
     ) THEN 1 ELSE 0 END;
     DECLARE @atlasPolicyHasClustered BIT = CASE WHEN EXISTS (
         SELECT 1

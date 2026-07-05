@@ -74,6 +74,43 @@ function Invoke-SqlText {
     }
 }
 
+function Invoke-SqlScalar {
+    param(
+        [string]$ServerPart,
+        [string]$Database,
+        [string]$User,
+        [string]$Password,
+        [string]$SqlText
+    )
+    $connection = New-SqlConnection -ServerPart $ServerPart -Database $Database -User $User -Password $Password
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandTimeout = 60
+        $command.CommandText = $SqlText
+        return $command.ExecuteScalar()
+    } finally {
+        $connection.Dispose()
+    }
+}
+
+function Test-AtlasBaseSchemaExists {
+    param(
+        [string]$ServerPart,
+        [string]$Database,
+        [string]$User,
+        [string]$Password
+    )
+    $exists = Invoke-SqlScalar -ServerPart $ServerPart -Database $Database -User $User -Password $Password -SqlText @"
+SELECT CASE
+    WHEN OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+      OR OBJECT_ID(N'dbo.Employees', N'U') IS NOT NULL
+      OR OBJECT_ID(N'dbo.Allocations', N'U') IS NOT NULL
+    THEN 1 ELSE 0 END;
+"@
+    return ([int]$exists -eq 1)
+}
+
 function Split-SqlBatches {
     param([string]$SqlText)
     return [regex]::Split($SqlText, "(?im)^\s*GO\s*(?:--.*)?$")
@@ -113,6 +150,8 @@ Invoke-SqlText -ServerPart $serverPart -Database "master" -User $dbUser -Passwor
 Write-Step "Creating database '$dbName' if missing..."
 Invoke-SqlText -ServerPart $serverPart -Database "master" -User $dbUser -Password $dbPassword -SqlText "IF DB_ID(N'$quotedDbName') IS NULL BEGIN EXEC(N'CREATE DATABASE [$safeDbName]'); END;"
 
+$baseSchemaExists = Test-AtlasBaseSchemaExists -ServerPart $serverPart -Database $dbName -User $dbUser -Password $dbPassword
+
 $scripts = @(
     "ATLAS_MSSQL_Schema.sql",
     "ATLAS_HCM_SQL_Objects.sql",
@@ -124,6 +163,10 @@ $scripts = @(
 foreach ($scriptName in $scripts) {
     $scriptPath = Join-Path $databaseDir $scriptName
     if (-not (Test-Path $scriptPath)) { continue }
+    if ($scriptName -eq "ATLAS_MSSQL_Schema.sql" -and $baseSchemaExists) {
+        Write-Step "Base schema already exists; skipping create-only schema and continuing repair scripts..."
+        continue
+    }
 
     Write-Step "Applying $scriptName..."
     $sqlText = Get-Content -LiteralPath $scriptPath -Raw
