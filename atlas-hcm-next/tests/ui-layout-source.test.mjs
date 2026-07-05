@@ -294,6 +294,7 @@ assert.match(server + "\n" + readFileSync(join(process.cwd(), "..", "database", 
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@totalEntitlement[\s\S]*@totalEntitlement - @paidAmount/, "second and later tickets should approve only against remaining entitlement after consumed amount is subtracted");
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /COALESCE\(Entitlement,\s*0\)/, "allocation eligibility should track entitlement consumed instead of whole ticket fare");
 assert.match(server, /PayableBHD:\s*Number\(payable\.toFixed\(2\)\)/, "Airfare Payable API should return full Payable Amount separately from capped entitlement");
+assert.match(server, /payableFromProcedure\s*=\s*Number\(row\.PayableBHD\)[\s\S]*Number\.isFinite\(payableFromProcedure\)[\s\S]*fallbackPayableFromDays/, "Airfare Payable API should trust the MSSQL procedure PayableBHD before using a fallback calculation");
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /entitlement\.RawEntitlement[\s\S]*AS PayableBHD/, "Airfare Payable SQL should expose Payable Amount from the full available balance");
 assert.doesNotMatch(source, /Annual Rule/, "Airfare Payable report should not combine days and amount in one Annual Rule cell");
 assert.doesNotMatch(source, /Payable BHD/, "reports should not use Payable BHD header");

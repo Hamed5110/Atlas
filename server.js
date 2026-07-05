@@ -5617,8 +5617,11 @@ app.get('/api/reports/airfare-payable', authenticateToken, async (req, res) => {
             .execute('dbo.sp_ATLAS_GetAirfareReport'), 'airfare payable report');
         const rows = result.recordset.map((row) => {
             const maxPayout = clampAirfareMaximumPayout(row.MaximumPayoutCap || row.AnnualEntitlementBHD);
-            const fullPayableFromDays = Math.max(0, Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5));
-            const payable = fullPayableFromDays;
+            const payableFromProcedure = Number(row.PayableBHD);
+            const fallbackPayableFromDays = Math.max(0, Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5));
+            const payable = Number.isFinite(payableFromProcedure)
+                ? Math.max(0, payableFromProcedure)
+                : fallbackPayableFromDays;
             const entitlement = Math.min(maxPayout, Math.max(0, Number(row.AirfareEntitlementAmount ?? payable)));
             return {
                 ...row,
