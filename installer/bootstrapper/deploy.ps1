@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.32\ATLAS-Airfare-Allowance-2.3.32-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.33\ATLAS-Airfare-Allowance-2.3.33-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.32\ATLAS-Airfare-Allowance-Setup-2.3.32-x64.exe",
-    [string]$ProductVersion = "2.3.32",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.33\ATLAS-Airfare-Allowance-Setup-2.3.33-x64.exe",
+    [string]$ProductVersion = "2.3.33",
     [string]$UpdateManifest = ""
 )
 
@@ -1473,6 +1473,7 @@ function Invoke-UpdateOnlyFinalize {
         "DataRoot=$DataRoot" | Add-Content $report
         "Step=Review existing installation and configuration" | Add-Content $report
 
+        Save-UpdatePreservedConfig -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
         Restore-UpdatePreservedConfig -InstallPath $InstallRoot -DataPath $DataRoot
         $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
         $effectivePort = [int]$config.AppPort

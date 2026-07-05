@@ -269,6 +269,7 @@ namespace AtlasBootstrapperRunner
         private readonly RadioButton troubleshootRadio = new RadioButton();
         private readonly Label statusLabel = new Label();
         private readonly string dataRoot;
+        private readonly string existingDbServer;
         private readonly List<string> instances;
 
         public PreflightForm(int defaultPort, string dataRoot, string installRoot)
@@ -276,6 +277,7 @@ namespace AtlasBootstrapperRunner
             this.dataRoot = dataRoot;
             instances = GetInstalledSqlInstances();
             var existing = ReadExistingConfig(installRoot);
+            existingDbServer = existing.ContainsKey("DB_SERVER") ? existing["DB_SERVER"] : "";
             Text = "ATLAS setup configuration";
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -293,11 +295,12 @@ namespace AtlasBootstrapperRunner
             installRadio.Left = 190;
             installRadio.Top = 88;
             installRadio.Width = 110;
-            installRadio.Checked = true;
+            installRadio.Checked = !existing.ContainsKey("PORT");
             updateRadio.Text = "Update";
             updateRadio.Left = 305;
             updateRadio.Top = 88;
             updateRadio.Width = 75;
+            updateRadio.Checked = existing.ContainsKey("PORT");
             repairRadio.Text = "Repair";
             repairRadio.Left = 385;
             repairRadio.Top = 88;
@@ -456,7 +459,7 @@ namespace AtlasBootstrapperRunner
                 return;
             }
             var adminPassword = adminPasswordBox.Text ?? "";
-            if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && adminPassword.Length < 8)
+            if ((setupAction.Equals("Install", StringComparison.OrdinalIgnoreCase) || setupAction.Equals("Repair", StringComparison.OrdinalIgnoreCase)) && adminPassword.Length < 8)
             {
                 Fail("Enter an application admin password with at least 8 characters.");
                 return;
@@ -465,7 +468,7 @@ namespace AtlasBootstrapperRunner
             if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && instances.Count > 0)
             {
                 string error;
-                if (!TestSqlLogin(instance, sqlPort, password, out error))
+                if (!TestSqlLogin(existingDbServer, instance, sqlPort, password, out error))
                 {
                     Fail("MSSQL sa login failed: " + error);
                     return;
@@ -603,9 +606,17 @@ namespace AtlasBootstrapperRunner
             return instance.Equals("MSSQLSERVER", StringComparison.OrdinalIgnoreCase) ? "localhost" : "localhost\\" + instance;
         }
 
-        private static string TcpServerName(string instance, int sqlPort)
+        private static string TcpServerName(string dbServer, string instance, int sqlPort)
         {
-            if (sqlPort > 0) return "tcp:127.0.0.1," + sqlPort;
+            if (sqlPort > 0)
+            {
+                var host = string.IsNullOrWhiteSpace(dbServer) ? "127.0.0.1" : dbServer.Trim();
+                if (host.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase)) host = host.Substring(4);
+                if (host.Contains(",")) host = host.Split(',')[0].Trim();
+                if (host.Contains("\\")) host = host.Split('\\')[0].Trim();
+                if (string.IsNullOrWhiteSpace(host) || host == "." || host.Equals("(local)", StringComparison.OrdinalIgnoreCase) || host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) host = "127.0.0.1";
+                return "tcp:" + host + "," + sqlPort;
+            }
             return ServerName(instance);
         }
 
@@ -652,12 +663,12 @@ namespace AtlasBootstrapperRunner
             return values;
         }
 
-        private static bool TestSqlLogin(string instance, int sqlPort, string password, out string error)
+        private static bool TestSqlLogin(string dbServer, string instance, int sqlPort, string password, out string error)
         {
             error = "";
             try
             {
-                var cs = "Server=" + TcpServerName(instance, sqlPort) + ";Database=master;User ID=sa;Password=" + password + ";Encrypt=False;TrustServerCertificate=True;Connection Timeout=10;";
+                var cs = "Server=" + TcpServerName(dbServer, instance, sqlPort) + ";Database=master;User ID=sa;Password=" + password + ";Encrypt=False;TrustServerCertificate=True;Connection Timeout=10;";
                 using (var connection = new SqlConnection(cs))
                 {
                     connection.Open();

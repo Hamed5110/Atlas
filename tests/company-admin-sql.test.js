@@ -56,11 +56,19 @@ assert.match(runnerText, /GetPathOption/i, 'Bootstrapper runner should sanitize 
 assert.match(runnerText, /ATLAS completion message failed/i, 'Bootstrapper runner should never mask finalize errors with message-box path failures');
 assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload existing app and SQL ports during update');
 assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
+assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.32" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.33" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
 assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');
 assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"/, 'MSI should not hardcode DB_SERVER=localhost during update');
+
+const deployWizardText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_deploy_wizard.py'), 'utf8');
+assert.match(deployWizardText, /install_debug\.log/i, 'Python deployment wizard should write install_debug.log');
+assert.match(deployWizardText, /CURRENT_STEP|current_step/i, 'Python deployment wizard should emit structured current-step logs');
+assert.match(deployWizardText, /REMEDIATION_SUGGESTION|remediation_suggestion/i, 'Python deployment wizard should emit remediation suggestions');
+assert.match(deployWizardText, /MSSQL_PORT_SCAN/i, 'Python deployment wizard should scan MSSQL ports');
 
 console.log('company admin SQL/API checks passed');
