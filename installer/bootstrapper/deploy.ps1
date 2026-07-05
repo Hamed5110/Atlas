@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.31\ATLAS-Airfare-Allowance-2.3.31-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.32\ATLAS-Airfare-Allowance-2.3.32-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.31\ATLAS-Airfare-Allowance-Setup-2.3.31-x64.exe",
-    [string]$ProductVersion = "2.3.31",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.32\ATLAS-Airfare-Allowance-Setup-2.3.32-x64.exe",
+    [string]$ProductVersion = "2.3.32",
     [string]$UpdateManifest = ""
 )
 
@@ -263,6 +263,90 @@ function Remove-BootstrapConfig {
     param([string]$DataPath)
     $path = Get-BootstrapConfigPath -DataPath $DataPath
     Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+}
+
+function Get-UpdatePreservedConfigPath {
+    param([string]$DataPath)
+    return (Join-Path $DataPath "update-preserved-config.json")
+}
+
+function Save-UpdatePreservedConfig {
+    param(
+        [string]$InstallPath,
+        [string]$DataPath
+    )
+    $settings = Read-AtlasEnvConfig -InstallPath $InstallPath
+    $saved = Read-BootstrapConfig -DataPath $DataPath
+    $changed = $false
+
+    if ($saved) {
+        if ($saved.Port) {
+            $settings["PORT"] = [string][int]$saved.Port
+            $script:Port = [int]$saved.Port
+            $changed = $true
+        }
+        if ($saved.SqlPort -and [int]$saved.SqlPort -gt 0) {
+            $settings["DB_PORT"] = [string][int]$saved.SqlPort
+            $changed = $true
+        }
+        if ($saved.SqlSaPassword) {
+            $settings["DB_PASSWORD"] = [string]$saved.SqlSaPassword
+            $changed = $true
+        }
+    }
+
+    if (-not $settings.Contains("PORT")) { $settings["PORT"] = [string]$Port; $changed = $true }
+    if (-not $settings.Contains("DB_SERVER") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_SERVER"])) { $settings["DB_SERVER"] = "127.0.0.1"; $changed = $true }
+    if (-not $settings.Contains("DB_PORT") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_PORT"])) { $settings["DB_PORT"] = "1433"; $changed = $true }
+    if (-not $settings.Contains("DB_NAME") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_NAME"])) { $settings["DB_NAME"] = "Atlasairfare010"; $changed = $true }
+    if (-not $settings.Contains("DB_USER") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_USER"])) { $settings["DB_USER"] = "sa"; $changed = $true }
+
+    if ($changed) {
+        Write-AtlasEnvConfig -InstallPath $InstallPath -Settings $settings
+    }
+
+    New-Item -ItemType Directory -Path $DataPath -Force | Out-Null
+    $preservePath = Get-UpdatePreservedConfigPath -DataPath $DataPath
+    [pscustomobject]@{
+        preservedAt = (Get-Date).ToString("o")
+        installPath = $InstallPath
+        appPort = [string]$settings["PORT"]
+        dbServer = [string]$settings["DB_SERVER"]
+        dbPort = [string]$settings["DB_PORT"]
+        dbName = [string]$settings["DB_NAME"]
+        dbUser = [string]$settings["DB_USER"]
+        dbPassword = if ($settings.Contains("DB_PASSWORD")) { [string]$settings["DB_PASSWORD"] } else { "" }
+        settings = $settings
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $preservePath -Encoding UTF8
+
+    Write-Step "Update patch preserved ATLAS ports and MSSQL settings: app port $($settings["PORT"]), SQL $($settings["DB_SERVER"]):$($settings["DB_PORT"])."
+    return $preservePath
+}
+
+function Restore-UpdatePreservedConfig {
+    param(
+        [string]$InstallPath,
+        [string]$DataPath
+    )
+    $preservePath = Get-UpdatePreservedConfigPath -DataPath $DataPath
+    if (-not (Test-Path -LiteralPath $preservePath)) {
+        Write-Step "No preserved update config was found. Existing .env will be used."
+        return
+    }
+    $preserved = Get-Content -LiteralPath $preservePath -Raw | ConvertFrom-Json
+    $settings = [ordered]@{}
+    foreach ($property in $preserved.settings.PSObject.Properties) {
+        $settings[$property.Name] = [string]$property.Value
+    }
+    if ($settings.Count -eq 0) { return }
+    Write-AtlasEnvConfig -InstallPath $InstallPath -Settings $settings
+    Set-AtlasRegistryValue -Name "ATLASPORT" -Value ([string]$settings["PORT"])
+    Set-AtlasRegistryValue -Name "DB_SERVER" -Value ([string]$settings["DB_SERVER"])
+    Set-AtlasRegistryValue -Name "DB_PORT" -Value ([string]$settings["DB_PORT"])
+    Set-AtlasRegistryValue -Name "DB_NAME" -Value ([string]$settings["DB_NAME"])
+    Set-AtlasRegistryValue -Name "DB_USER" -Value ([string]$settings["DB_USER"])
+    if ($settings.Contains("DB_PASSWORD")) { Set-AtlasRegistryValue -Name "DB_PASSWORD" -Value ([string]$settings["DB_PASSWORD"]) }
+    Write-Step "Update patch restored preserved MSSQL configuration before database repair: $($settings["DB_SERVER"]):$($settings["DB_PORT"])."
 }
 
 function Convert-SecureStringToPlain {
@@ -1259,6 +1343,21 @@ function Get-AtlasRegistryValue {
     return $null
 }
 
+function Set-AtlasRegistryValue {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+    foreach ($path in @("HKLM:\SOFTWARE\ATLAS Airfare Allowance", "HKLM:\SOFTWARE\WOW6432Node\ATLAS Airfare Allowance")) {
+        try {
+            if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
+            New-ItemProperty -Path $path -Name $Name -Value $Value -PropertyType String -Force -ErrorAction Stop | Out-Null
+        } catch {
+            Write-Step "Warning: could not update registry value $Name at $path`: $($_.Exception.Message)"
+        }
+    }
+}
+
 function Get-AtlasUninstallInstallLocation {
     foreach ($root in @(
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -1346,6 +1445,11 @@ function Invoke-UpdateOnlyPrepare {
         Write-Step "Warning: update prepare could not create/check folders yet: $($_.Exception.Message)"
     }
     try {
+        Save-UpdatePreservedConfig -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+    } catch {
+        Write-Step "Warning: update prepare could not preserve existing config yet: $($_.Exception.Message)"
+    }
+    try {
         New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
     } catch {
         Write-Step "Warning: update prepare backup was skipped: $($_.Exception.Message)"
@@ -1369,6 +1473,7 @@ function Invoke-UpdateOnlyFinalize {
         "DataRoot=$DataRoot" | Add-Content $report
         "Step=Review existing installation and configuration" | Add-Content $report
 
+        Restore-UpdatePreservedConfig -InstallPath $InstallRoot -DataPath $DataRoot
         $config = Repair-AtlasConfigForPatch -InstallPath $InstallRoot
         $effectivePort = [int]$config.AppPort
         "AppPort=$effectivePort" | Add-Content $report

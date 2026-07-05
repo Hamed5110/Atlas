@@ -16,7 +16,7 @@
   xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
   xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductVersion = "2.3.31" ?>
+  <?define ProductVersion = "2.3.32" ?>
   <?ifdef UpdateOnly ?>
     <?define BundleName = "ATLAS Airfare Allowance Update Patch" ?>
     <?define UpgradeCode = "0bf6ea0e-3729-497f-b612-f02829fc6058" ?>
@@ -80,6 +80,10 @@
     <Variable Name="SQLSAPASSWORD" Value="" bal:Overridable="yes" Hidden="yes" />
     <Variable Name="ATLASINSTALLROOT" Value="C:\Program Files\ATLAS Airfare Allowance" bal:Overridable="yes" />
     <Variable Name="ATLASDATAROOT" Value="C:\ProgramData\ATLAS Airfare Allowance" bal:Overridable="yes" />
+    <Variable Name="ATLASDBSERVER" Value="127.0.0.1" bal:Overridable="yes" />
+    <Variable Name="ATLASDBPORT" Value="1433" bal:Overridable="yes" />
+    <Variable Name="ATLASDBNAME" Value="Atlasairfare010" bal:Overridable="yes" />
+    <Variable Name="ATLASDBUSER" Value="sa" bal:Overridable="yes" />
 
     <util:RegistrySearch
       Id="DetectAtlasApp"
@@ -110,6 +114,38 @@
       Key="SOFTWARE\ATLAS Airfare Allowance"
       Value="ATLASPORT"
       Variable="ATLASPORT"
+      Result="value" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasDbServer"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="DB_SERVER"
+      Variable="ATLASDBSERVER"
+      Result="value" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasDbPort"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="DB_PORT"
+      Variable="ATLASDBPORT"
+      Result="value" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasDbName"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="DB_NAME"
+      Variable="ATLASDBNAME"
+      Result="value" />
+
+    <util:RegistrySearch
+      Id="DetectAtlasDbUser"
+      Root="HKLM"
+      Key="SOFTWARE\ATLAS Airfare Allowance"
+      Value="DB_USER"
+      Variable="ATLASDBUSER"
       Result="value" />
 
     <util:RegistrySearch
@@ -145,10 +181,10 @@
         Permanent="no">
         <MsiProperty Name="INSTALLFOLDER" Value="[ATLASINSTALLROOT]" />
         <MsiProperty Name="ATLASPORT" Value="[ATLASPORT]" />
-        <MsiProperty Name="DB_SERVER" Value="localhost" />
-        <MsiProperty Name="DB_PORT" Value="1433" />
-        <MsiProperty Name="DB_NAME" Value="Atlasairfare010" />
-        <MsiProperty Name="DB_USER" Value="sa" />
+        <MsiProperty Name="DB_SERVER" Value="[ATLASDBSERVER]" />
+        <MsiProperty Name="DB_PORT" Value="[ATLASDBPORT]" />
+        <MsiProperty Name="DB_NAME" Value="[ATLASDBNAME]" />
+        <MsiProperty Name="DB_USER" Value="[ATLASDBUSER]" />
         <MsiProperty Name="DB_PASSWORD" Value="[SQLSAPASSWORD]" />
         <MsiProperty Name="DB_ODBC_DRIVER" Value="ODBC Driver 18 for SQL Server" />
         <MsiProperty Name="DB_AUTO_SETUP" Value="1" />

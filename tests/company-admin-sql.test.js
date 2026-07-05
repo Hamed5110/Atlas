@@ -40,8 +40,11 @@ const deployText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'boot
 assert.match(deployText, /Invoke-AtlasDatabaseObjectRepair/i, 'Update patch should repair database procedures during finalize');
 assert.match(deployText, /Initialize-ATLAS-Database\.ps1/i, 'Database object repair should use the bundled initializer');
 assert.match(deployText, /Get-AtlasSqlTcpHost/i, 'Update patch should test the configured SQL host instead of hard-coded localhost');
-assert.doesNotMatch(deployText, /\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/, 'Update patch should not overwrite an existing configured SQL server/instance');
+assert.match(deployText, /-not \$settings\.Contains\("DB_SERVER"\).*?\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/s, 'Update patch should default DB_SERVER only when it is missing or blank');
 assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sanitize Burn-quoted install/data paths before use');
+assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should preserve existing .env and confirmed SQL port before MSI copy');
+assert.match(deployText, /Restore-UpdatePreservedConfig/i, 'Update patch should restore preserved MSSQL config before database repair');
+assert.match(deployText, /Set-AtlasRegistryValue/i, 'Update patch should repair registry DB port after MSI update');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
@@ -51,8 +54,13 @@ assert.match(fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapp
 const runnerText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'runner', 'AtlasBootstrapperRunner.cs'), 'utf8');
 assert.match(runnerText, /GetPathOption/i, 'Bootstrapper runner should sanitize path options before reading logs');
 assert.match(runnerText, /ATLAS completion message failed/i, 'Bootstrapper runner should never mask finalize errors with message-box path failures');
+assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload existing app and SQL ports during update');
+assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.31" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.32" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
+assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
+assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');
+assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"/, 'MSI should not hardcode DB_SERVER=localhost during update');
 
 console.log('company admin SQL/API checks passed');
