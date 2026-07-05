@@ -21,6 +21,9 @@ assert.match(serverText, /POST \/api\/opening-balances/i, 'Opening balance save 
 assert.match(serverText, /POST \/api\/opening-balances\/import/i, 'Opening balance import API should exist');
 assert.match(serverText, /POST \/api\/admin\/backup/i, 'Backup API should exist');
 assert.match(serverText, /POST \/api\/admin\/restore/i, 'Restore API should exist');
+assert.match(serverText, /app\.post\('\/api\/admin\/company-reset'/i, 'Company reset API should exist');
+assert.match(serverText, /sp_ATLAS_ResetCompanyState/i, 'Company reset API should execute SQL reset procedure');
+assert.match(serverText, /RESET_COMPANY_DATA/i, 'Company reset API should require explicit confirmation');
 assert.match(serverText, /confirm !== 'RESTORE'/, 'Restore API should require explicit confirmation');
 assert.match(serverText, /RESTORE VERIFYONLY FROM DISK/i, 'Restore API should verify backup media before restore');
 assert.match(serverText, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/i, 'Restore API should handle active sessions before restore');
@@ -42,6 +45,13 @@ assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should norma
 const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
+assert.match(hcmSqlText, /ATLAS_CompanyResetLog/i, 'Company reset should write reset history');
+assert.match(hcmSqlText, /sp_ATLAS_ResetCompanyState/i, 'Company reset stored procedure should exist');
+assert.match(hcmSqlText, /NOCHECK CONSTRAINT/i, 'Company reset should disable foreign key constraints during purge');
+assert.match(hcmSqlText, /WITH CHECK CHECK CONSTRAINT/i, 'Company reset should re-enable and validate foreign key constraints');
+assert.match(hcmSqlText, /DELETE FROM '\s*\+ QUOTENAME\(@schemaName\)/i, 'Company reset should dynamically clear tables');
+assert.match(hcmSqlText, /DBCC CHECKIDENT/i, 'Company reset should reseed identity tables after clearing data');
+assert.match(hcmSqlText, /INSERT INTO dbo\.AirfarePolicyRates/i, 'Company reset should seed baseline airfare policy matrix');
 assert.match(hcmSqlText, /sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy SQL should include the unconditional purge procedure');
 assert.match(hcmSqlText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy purge procedure should remove the target policy row');
 assert.match(hcmSqlText, /SET PolicyRateID = NULL/i, 'Airfare policy purge should clear allocation policy links before deleting');
@@ -80,7 +90,7 @@ assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa log
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.39" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.40" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
@@ -103,5 +113,10 @@ const syncUnlockText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atla
 assert.match(syncUnlockText, /deployment_sync_error\.log/i, 'Deployment sync unlocker should write deployment_sync_error.log');
 assert.match(syncUnlockText, /RESET_UI_LOCKS|Resetting interface preference locks/i, 'Deployment sync unlocker should clear UI lock state');
 assert.match(syncUnlockText, /DB_PORT|PORT/i, 'Deployment sync unlocker should synchronize app and SQL ports');
+const companyResetRunnerText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_company_reset_runner.py'), 'utf8');
+assert.match(companyResetRunnerText, /company_reset_debug\.log/i, 'Company reset runner should write company_reset_debug.log');
+assert.match(companyResetRunnerText, /RESET_COMPANY_DATA/i, 'Company reset runner should require explicit reset confirmation');
+assert.match(companyResetRunnerText, /Dropping Foreign Key Constraints|Wiping Company Financials|Initializing Fresh Airfare Rate Rules/i, 'Company reset runner should emit reset progress stages');
+assert.match(companyResetRunnerText, /sp_ATLAS_ResetCompanyState/i, 'Company reset runner should execute SQL reset procedure');
 
 console.log('company admin SQL/API checks passed');

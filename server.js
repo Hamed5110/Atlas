@@ -4707,6 +4707,40 @@ app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, require
 app.post('/api/airfare-policy-rates/:policyRateId/delete', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
 app.post('/api/airfare-policy-rates/:policyRateId', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
 
+app.post('/api/admin/company-reset', authenticateToken, requireRole('admin'), async (req, res) => {
+    const schema = Joi.object({
+        confirm: Joi.string().valid('RESET_COMPANY_DATA').required(),
+        companyCode: Joi.string().allow('', null).max(30).default('ATLAS'),
+        companyName: Joi.string().allow('', null).max(150).default('ATLAS Airfare HCM'),
+        databaseName: Joi.string().allow('', null).max(128).default(dbConfig.database || 'Atlasairfare010')
+    });
+    const { error, value } = schema.validate(req.body || {});
+    if (error) return res.status(400).json(toApiValidationError(error));
+
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db, { force: true });
+        const result = await withSqlRetry(() => db.request()
+            .input('Confirm', sql.NVarChar(40), value.confirm)
+            .input('CompanyCode', sql.NVarChar(30), value.companyCode || 'ATLAS')
+            .input('CompanyName', sql.NVarChar(150), value.companyName || 'ATLAS Airfare HCM')
+            .input('DatabaseName', sql.NVarChar(128), value.databaseName || dbConfig.database || 'Atlasairfare010')
+            .input('ResetBy', sql.Int, req.user.userId)
+            .execute('dbo.sp_ATLAS_ResetCompanyState'), 'reset company state');
+        const reset = result.recordset?.[0] || {};
+        await logAudit(req.user.userId, req.user.username, 'RESET', 'CompanyState', reset.ResetLogID || null, null, reset,
+            `Company state reset for ${reset.CompanyCode || value.companyCode || 'ATLAS'}`, req);
+        res.json({
+            status: 'success',
+            message: 'Company reset completed successfully.',
+            reset
+        });
+    } catch (err) {
+        logger.error('Company reset error:', err);
+        res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Company reset failed' });
+    }
+});
+
 // EMERGENCY TICKET ROUTES
 // =====================================================
 

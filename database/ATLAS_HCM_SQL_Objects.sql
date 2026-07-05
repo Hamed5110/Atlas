@@ -1583,6 +1583,275 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID('dbo.ATLAS_CompanyResetLog', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ATLAS_CompanyResetLog
+    (
+        ResetLogID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ATLAS_CompanyResetLog PRIMARY KEY,
+        CompanyCode NVARCHAR(30) NOT NULL,
+        CompanyName NVARCHAR(150) NOT NULL,
+        DatabaseName SYSNAME NOT NULL,
+        ResetBy INT NULL,
+        StartedAt DATETIME2(0) NOT NULL,
+        CompletedAt DATETIME2(0) NULL,
+        Status NVARCHAR(20) NOT NULL,
+        TablesCleared INT NOT NULL CONSTRAINT DF_ATLAS_CompanyResetLog_TablesCleared DEFAULT (0),
+        RowsCleared BIGINT NOT NULL CONSTRAINT DF_ATLAS_CompanyResetLog_RowsCleared DEFAULT (0),
+        DetailsJson NVARCHAR(MAX) NULL,
+        ErrorMessage NVARCHAR(2048) NULL
+    );
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_ResetCompanyState
+    @Confirm NVARCHAR(40),
+    @CompanyCode NVARCHAR(30) = N'ATLAS',
+    @CompanyName NVARCHAR(150) = N'ATLAS Airfare HCM',
+    @DatabaseName SYSNAME = N'Atlasairfare010',
+    @ResetBy INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET LOCK_TIMEOUT 30000;
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+
+    IF @Confirm <> N'RESET_COMPANY_DATA'
+        THROW 52101, 'Confirmation RESET_COMPANY_DATA is required.', 1;
+
+    DECLARE @startedAt DATETIME2(0) = SYSUTCDATETIME();
+    DECLARE @resetLogID BIGINT = NULL;
+    DECLARE @disableSql NVARCHAR(MAX) = N'';
+    DECLARE @enableSql NVARCHAR(MAX) = N'';
+    DECLARE @deleteSql NVARCHAR(MAX) = N'';
+    DECLARE @reseedSql NVARCHAR(MAX) = N'';
+    DECLARE @detailsJson NVARCHAR(MAX) = N'[]';
+    DECLARE @tablesCleared INT = 0;
+    DECLARE @rowsCleared BIGINT = 0;
+    DECLARE @companyId INT = NULL;
+    DECLARE @tableActions TABLE
+    (
+        RowID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        SchemaName SYSNAME NOT NULL,
+        TableName SYSNAME NOT NULL,
+        ObjectID INT NOT NULL,
+        HasIdentity BIT NOT NULL,
+        RowsCleared BIGINT NOT NULL DEFAULT (0),
+        ErrorMessage NVARCHAR(2048) NULL
+    );
+
+    INSERT INTO dbo.ATLAS_CompanyResetLog
+    (
+        CompanyCode, CompanyName, DatabaseName, ResetBy, StartedAt, Status
+    )
+    VALUES
+    (
+        COALESCE(NULLIF(@CompanyCode, N''), N'ATLAS'),
+        COALESCE(NULLIF(@CompanyName, N''), N'ATLAS Airfare HCM'),
+        COALESCE(NULLIF(@DatabaseName, N''), DB_NAME()),
+        @ResetBy,
+        @startedAt,
+        N'RUNNING'
+    );
+
+    SET @resetLogID = SCOPE_IDENTITY();
+
+    BEGIN TRY
+        INSERT INTO @tableActions (SchemaName, TableName, ObjectID, HasIdentity)
+        SELECT
+            s.name,
+            t.name,
+            t.object_id,
+            CASE WHEN EXISTS (SELECT 1 FROM sys.identity_columns ic WHERE ic.object_id = t.object_id) THEN 1 ELSE 0 END
+        FROM sys.tables t
+        INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+        WHERE t.is_ms_shipped = 0
+          AND t.temporal_type = 0
+          AND NOT (
+              s.name = N'dbo'
+              AND t.name IN (
+                  N'Users',
+                  N'Companies',
+                  N'CompanyBackups',
+                  N'PasswordResetTokens',
+                  N'ATLAS_CompanyResetLog'
+              )
+          )
+        ORDER BY
+            CASE WHEN t.name IN (N'Allocations', N'Loans', N'Employees', N'AirfarePolicyRates') THEN 0 ELSE 1 END,
+            t.name;
+
+        SELECT @disableSql = @disableSql + N'
+ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(fk.parent_object_id)) + N'.' + QUOTENAME(OBJECT_NAME(fk.parent_object_id)) +
+N' NOCHECK CONSTRAINT ' + QUOTENAME(fk.name) + N';'
+        FROM sys.foreign_keys fk
+        WHERE fk.is_ms_shipped = 0;
+
+        SELECT @enableSql = @enableSql + N'
+ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(fk.parent_object_id)) + N'.' + QUOTENAME(OBJECT_NAME(fk.parent_object_id)) +
+N' WITH CHECK CHECK CONSTRAINT ' + QUOTENAME(fk.name) + N';'
+        FROM sys.foreign_keys fk
+        WHERE fk.is_ms_shipped = 0;
+
+        BEGIN TRANSACTION;
+
+        EXEC sp_executesql @disableSql;
+
+        DECLARE @rowID INT = 1;
+        DECLARE @maxRowID INT = (SELECT ISNULL(MAX(RowID), 0) FROM @tableActions);
+        DECLARE @schemaName SYSNAME;
+        DECLARE @tableName SYSNAME;
+        DECLARE @hasIdentity BIT;
+        DECLARE @affected BIGINT;
+        DECLARE @sql NVARCHAR(MAX);
+
+        WHILE @rowID <= @maxRowID
+        BEGIN
+            SELECT
+                @schemaName = SchemaName,
+                @tableName = TableName,
+                @hasIdentity = HasIdentity
+            FROM @tableActions
+            WHERE RowID = @rowID;
+
+            IF @schemaName IS NOT NULL
+            BEGIN
+                SET @affected = 0;
+                SET @sql = N'DELETE FROM ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
+                           N'; SET @affected = @@ROWCOUNT;';
+                EXEC sp_executesql @sql, N'@affected BIGINT OUTPUT', @affected = @affected OUTPUT;
+
+                IF @hasIdentity = 1
+                BEGIN
+                    SET @sql = N'DBCC CHECKIDENT (N''' + REPLACE(@schemaName + N'.' + @tableName, N'''', N'''''') + N''', RESEED, 0) WITH NO_INFOMSGS;';
+                    EXEC sp_executesql @sql;
+                END;
+
+                UPDATE @tableActions
+                   SET RowsCleared = ISNULL(@affected, 0)
+                 WHERE RowID = @rowID;
+            END;
+
+            SET @rowID += 1;
+        END;
+
+        IF OBJECT_ID(N'dbo.Companies', N'U') IS NOT NULL
+        BEGIN
+            IF EXISTS (SELECT 1 FROM dbo.Companies WHERE CompanyCode = COALESCE(NULLIF(@CompanyCode, N''), N'ATLAS'))
+            BEGIN
+                UPDATE dbo.Companies
+                   SET CompanyName = COALESCE(NULLIF(@CompanyName, N''), CompanyName),
+                       DatabaseName = COALESCE(NULLIF(@DatabaseName, N''), DatabaseName),
+                       IsActive = 1,
+                       UpdatedAt = SYSUTCDATETIME(),
+                       UpdatedBy = @ResetBy
+                 WHERE CompanyCode = COALESCE(NULLIF(@CompanyCode, N''), N'ATLAS');
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.Companies (CompanyCode, CompanyName, DatabaseName, IsActive, CreatedBy)
+                VALUES
+                (
+                    COALESCE(NULLIF(@CompanyCode, N''), N'ATLAS'),
+                    COALESCE(NULLIF(@CompanyName, N''), N'ATLAS Airfare HCM'),
+                    COALESCE(NULLIF(@DatabaseName, N''), DB_NAME()),
+                    1,
+                    @ResetBy
+                );
+            END;
+
+            SELECT @companyId = CompanyID
+            FROM dbo.Companies
+            WHERE CompanyCode = COALESCE(NULLIF(@CompanyCode, N''), N'ATLAS');
+        END;
+
+        IF OBJECT_ID(N'dbo.AirfarePolicyRates', N'U') IS NOT NULL
+        BEGIN
+            INSERT INTO dbo.AirfarePolicyRates
+            (
+                CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom, EffectiveTo,
+                MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth,
+                IsActive, CreatedBy
+            )
+            VALUES
+            (
+                NULL, NULL, NULL, NULL, '19000101', NULL,
+                150.00, 60, 30, 2.5,
+                1, @ResetBy
+            );
+
+            INSERT INTO dbo.AirfarePolicyRates
+            (
+                CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom, EffectiveTo,
+                MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth,
+                IsActive, CreatedBy
+            )
+            VALUES
+            (
+                @companyId, NULL, NULL, NULL, CAST(SYSUTCDATETIME() AS DATE), NULL,
+                150.00, 60, 30, 2.5,
+                1, @ResetBy
+            );
+        END;
+
+        EXEC sp_executesql @enableSql;
+
+        SELECT
+            @tablesCleared = COUNT(*),
+            @rowsCleared = ISNULL(SUM(RowsCleared), 0)
+        FROM @tableActions;
+
+        SELECT @detailsJson = (
+            SELECT SchemaName, TableName, RowsCleared
+            FROM @tableActions
+            ORDER BY RowID
+            FOR JSON PATH
+        );
+
+        UPDATE dbo.ATLAS_CompanyResetLog
+           SET CompletedAt = SYSUTCDATETIME(),
+               Status = N'SUCCESS',
+               TablesCleared = @tablesCleared,
+               RowsCleared = @rowsCleared,
+               DetailsJson = @detailsJson
+         WHERE ResetLogID = @resetLogID;
+
+        COMMIT TRANSACTION;
+
+        SELECT
+            CAST(N'success' AS NVARCHAR(40)) AS Status,
+            @resetLogID AS ResetLogID,
+            COALESCE(NULLIF(@CompanyCode, N''), N'ATLAS') AS CompanyCode,
+            COALESCE(NULLIF(@CompanyName, N''), N'ATLAS Airfare HCM') AS CompanyName,
+            COALESCE(NULLIF(@DatabaseName, N''), DB_NAME()) AS DatabaseName,
+            @tablesCleared AS TablesCleared,
+            @rowsCleared AS RowsCleared,
+            @detailsJson AS DetailsJson;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+        BEGIN
+            ROLLBACK TRANSACTION;
+        END;
+
+        BEGIN TRY
+            EXEC sp_executesql @enableSql;
+        END TRY
+        BEGIN CATCH
+        END CATCH;
+
+        DECLARE @message NVARCHAR(2048) = ERROR_MESSAGE();
+        UPDATE dbo.ATLAS_CompanyResetLog
+           SET CompletedAt = SYSUTCDATETIME(),
+               Status = N'FAILED',
+               ErrorMessage = @message
+         WHERE ResetLogID = @resetLogID;
+
+        THROW 52102, @message, 1;
+    END CATCH
+END;
+GO
+
 CREATE OR ALTER FUNCTION dbo.fn_ATLAS_AirfareAmount
 (
     @ClosingDays DECIMAL(10,4),
