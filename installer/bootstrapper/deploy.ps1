@@ -15,10 +15,10 @@ param(
     [string]$DataRoot = "C:\ProgramData\ATLAS Airfare Allowance",
 
     [switch]$UpdateOnly,
-    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.33\ATLAS-Airfare-Allowance-2.3.33-x64.msi",
+    [string]$AppMsi = "C:\Airfare_Allowance\artifacts\fresh-2.3.34\ATLAS-Airfare-Allowance-2.3.34-x64.msi",
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
-    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.33\ATLAS-Airfare-Allowance-Setup-2.3.33-x64.exe",
-    [string]$ProductVersion = "2.3.33",
+    [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.34\ATLAS-Airfare-Allowance-Setup-2.3.34-x64.exe",
+    [string]$ProductVersion = "2.3.34",
     [string]$UpdateManifest = ""
 )
 
@@ -277,6 +277,15 @@ function Save-UpdatePreservedConfig {
     )
     $settings = Read-AtlasEnvConfig -InstallPath $InstallPath
     $saved = Read-BootstrapConfig -DataPath $DataPath
+    $registryDefaults = @{
+        DB_SERVER = Get-AtlasRegistryValue -Name "DB_SERVER"
+        DB_PORT = Get-AtlasRegistryValue -Name "DB_PORT"
+        DB_NAME = Get-AtlasRegistryValue -Name "DB_NAME"
+        DB_USER = Get-AtlasRegistryValue -Name "DB_USER"
+        DB_PASSWORD = Get-AtlasRegistryValue -Name "DB_PASSWORD"
+        DB_ODBC_DRIVER = Get-AtlasRegistryValue -Name "DB_ODBC_DRIVER"
+        DB_AUTO_SETUP = Get-AtlasRegistryValue -Name "DB_AUTO_SETUP"
+    }
     $changed = $false
 
     if ($saved) {
@@ -291,6 +300,13 @@ function Save-UpdatePreservedConfig {
         }
         if ($saved.SqlSaPassword) {
             $settings["DB_PASSWORD"] = [string]$saved.SqlSaPassword
+            $changed = $true
+        }
+    }
+
+    foreach ($entry in $registryDefaults.GetEnumerator()) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$entry.Value) -and (-not $settings.Contains($entry.Key) -or [string]::IsNullOrWhiteSpace([string]$settings[$entry.Key]))) {
+            $settings[$entry.Key] = [string]$entry.Value
             $changed = $true
         }
     }

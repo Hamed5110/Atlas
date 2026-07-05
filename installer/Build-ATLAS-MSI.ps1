@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "2.3.33",
+    [string]$Version = "2.3.34",
     [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts"),
     [switch]$SkipVerify
 )
@@ -207,13 +207,6 @@ $componentIds.Add($registryComponentId) | Out-Null
 [void]$builder.AppendLine('            <RegistryValue Name="ATLASPORT" Type="string" Value="[ATLASPORT]" KeyPath="yes" />')
 [void]$builder.AppendLine('            <RegistryValue Name="INSTALLROOT" Type="string" Value="[INSTALLFOLDER]" />')
 [void]$builder.AppendLine('            <RegistryValue Name="DATAROOT" Type="string" Value="[CommonAppDataFolder]ATLAS Airfare Allowance" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_SERVER" Type="string" Value="[DB_SERVER]" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_PORT" Type="string" Value="[DB_PORT]" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_NAME" Type="string" Value="[DB_NAME]" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_USER" Type="string" Value="[DB_USER]" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_PASSWORD" Type="string" Value="[DB_PASSWORD]" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_ODBC_DRIVER" Type="string" Value="[DB_ODBC_DRIVER]" />')
-[void]$builder.AppendLine('            <RegistryValue Name="DB_AUTO_SETUP" Type="string" Value="[DB_AUTO_SETUP]" />')
 [void]$builder.AppendLine('          </RegistryKey>')
 [void]$builder.AppendLine('        </Component>')
 

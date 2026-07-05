@@ -58,12 +58,14 @@ assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload 
 assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
-assert.match(bundleText, /<\?define ProductVersion = "2\.3\.33" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
+assert.match(bundleText, /<\?define ProductVersion = "2\.3\.34" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
 assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');
 assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"/, 'MSI should not hardcode DB_SERVER=localhost during update');
+const msiBuilderText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Build-ATLAS-MSI.ps1'), 'utf8');
+assert.doesNotMatch(msiBuilderText, /RegistryValue Name="DB_(SERVER|PORT|NAME|USER|PASSWORD)/, 'MSI should not own database/company registry values during update');
 
 const deployWizardText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_deploy_wizard.py'), 'utf8');
 assert.match(deployWizardText, /install_debug\.log/i, 'Python deployment wizard should write install_debug.log');
