@@ -133,6 +133,7 @@ type EmployeeAllowanceRequest = {
   PayableAtRequestBHD?: number;
   OverageToLoanBHD?: number;
   ApprovalStatus: string;
+  LinkedAllocationID?: number;
   CreatedAt?: string;
 };
 type DisplayedReport = {
@@ -1414,11 +1415,32 @@ export default function DashboardPage() {
     if (!session) return;
     setBusy(true);
     try {
-      await atlasMutation<EmployeeAllowanceRequest>(`/employee-self-service/requests/${requestId}/transition`, session.token, session.sessionId, "POST", { toStatus });
+      const updated = await atlasMutation<EmployeeAllowanceRequest>(`/employee-self-service/requests/${requestId}/transition`, session.token, session.sessionId, "POST", { toStatus });
       await reloadSelfService(session);
-      setMessage(`Request ${toStatus.toLowerCase()}.`);
+      const allocationNote = updated.LinkedAllocationID ? ` Allocation #${updated.LinkedAllocationID} is linked.` : "";
+      setMessage(`Request ${toStatus.toLowerCase()}.${allocationNote}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Request update failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openSelfServiceAllocation(allocationId: number | undefined) {
+    if (!session || !allocationId) return;
+    setBusy(true);
+    try {
+      let allocation = allocations.find((item) => Number(item.AllocationID) === Number(allocationId));
+      if (!allocation) {
+        allocation = await atlasFetch<Allocation>(`/allocations/${allocationId}`, session.token, session.sessionId);
+      }
+      if (!allocations.some((item) => Number(item.AllocationID) === Number(allocation.AllocationID))) {
+        setAllocations((current) => [allocation!, ...current]);
+      }
+      handleEditAllocation(allocation);
+      setMessage(`Opened airfare allocation #${allocation.AllocationID}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Unable to open linked airfare allocation.");
     } finally {
       setBusy(false);
     }
@@ -5480,11 +5502,23 @@ export default function DashboardPage() {
                         <td>{money.format(Number(request.OverageToLoanBHD || 0))}</td>
                         <td><span className="status-pill">{request.ApprovalStatus}</span></td>
                         <td>
-                          {request.ApprovalStatus === "Draft" ? (
-                            <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Submitted")}>Submit</button>
-                          ) : (
-                            <button className="mini-soft" type="button" disabled={busy || ["Cancelled", "Issued"].includes(request.ApprovalStatus)} onClick={() => transitionSelfServiceRequest(request.RequestID, "Cancelled")}>Cancel</button>
-                          )}
+                          <div className="button-row compact request-actions">
+                            {request.LinkedAllocationID ? (
+                              <button className="mini-soft" type="button" disabled={busy} onClick={() => openSelfServiceAllocation(request.LinkedAllocationID)}>Open allocation</button>
+                            ) : null}
+                            {request.ApprovalStatus === "Draft" ? (
+                              <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Submitted")}>Submit</button>
+                            ) : null}
+                            {request.ApprovalStatus === "Submitted" && ["admin", "manager", "hr"].includes(session.user.role) ? (
+                              <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "ManagerApproved")}>Approve</button>
+                            ) : null}
+                            {["Submitted", "ManagerApproved", "HRApproved"].includes(request.ApprovalStatus) && ["admin", "manager", "hr"].includes(session.user.role) ? (
+                              <button className="mini-danger" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Rejected")}>Reject</button>
+                            ) : null}
+                            {!["Cancelled", "Issued", "Rejected", "ManagerApproved", "HRApproved", "FinanceApproved"].includes(request.ApprovalStatus) ? (
+                              <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Cancelled")}>Cancel</button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     ))}

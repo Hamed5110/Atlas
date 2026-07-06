@@ -2608,7 +2608,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
 
 .self-service-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.6fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: start;
   min-width: 0;
@@ -2622,6 +2622,12 @@ h3 { font-size: 20px; letter-spacing: 0; }
   width: 100%;
   min-width: 0;
   overflow-x: auto;
+}
+
+.request-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .support-grid {

@@ -107,8 +107,22 @@ BEGIN
 END;
 GO
 
+IF COL_LENGTH(N'dbo.ext_employee_allowance_requests', N'LinkedAllocationID') IS NULL
+    ALTER TABLE dbo.ext_employee_allowance_requests ADD LinkedAllocationID BIGINT NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.foreign_keys
+    WHERE parent_object_id = OBJECT_ID(N'dbo.ext_employee_allowance_requests')
+      AND name = N'FK_ext_employee_allowance_requests_Allocation'
+)
+    ALTER TABLE dbo.ext_employee_allowance_requests
+        ADD CONSTRAINT FK_ext_employee_allowance_requests_Allocation FOREIGN KEY (LinkedAllocationID) REFERENCES dbo.Allocations(AllocationID);
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.ext_employee_allowance_requests') AND name = N'IX_ext_employee_allowance_requests_Employee_Status_Date')
-    CREATE INDEX IX_ext_employee_allowance_requests_Employee_Status_Date ON dbo.ext_employee_allowance_requests(EmployeeID, ApprovalStatus, TravelFromDate DESC) INCLUDE (Destination, EstimatedCostBHD, EntitlementAtRequestBHD, PayableAtRequestBHD, OverageToLoanBHD);
+    CREATE INDEX IX_ext_employee_allowance_requests_Employee_Status_Date ON dbo.ext_employee_allowance_requests(EmployeeID, ApprovalStatus, TravelFromDate DESC) INCLUDE (Destination, EstimatedCostBHD, EntitlementAtRequestBHD, PayableAtRequestBHD, OverageToLoanBHD, LinkedAllocationID);
 GO
 
 CREATE OR ALTER VIEW dbo.ext_v_my_requests
@@ -132,6 +146,7 @@ AS
         r.PreferredAirline,
         r.Purpose,
         r.ApprovalStatus,
+        r.LinkedAllocationID,
         r.SubmittedAt,
         r.CreatedAt,
         r.UpdatedAt

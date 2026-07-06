@@ -370,6 +370,195 @@ async function normalizeAllocationAmountsDb(db, {
     };
 }
 
+async function createAllocationFromSelfServiceRequest(db, requestId, user, requestMeta) {
+    const requestResult = await db.request()
+        .input('RequestID', sql.BigInt, requestId)
+        .query(`
+            SELECT TOP 1 r.*, e.EmployeeCode, e.FullName
+            FROM dbo.ext_employee_allowance_requests r
+            INNER JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
+            WHERE r.RequestID = @RequestID
+        `);
+    const requestRow = requestResult.recordset[0];
+    if (!requestRow) throw new Error('Employee self-service request was not found for allocation linking.');
+
+    if (requestRow.LinkedAllocationID) {
+        const linkedResult = await db.request()
+            .input('AllocationID', sql.BigInt, requestRow.LinkedAllocationID)
+            .query('SELECT TOP 1 * FROM dbo.Allocations WHERE AllocationID = @AllocationID');
+        return linkedResult.recordset[0] || { AllocationID: requestRow.LinkedAllocationID };
+    }
+
+    const allocationDate = requestRow.TravelFromDate || new Date();
+    const allocYear = parseAllocationYear(null, allocationDate);
+    const employeeResult = await db.request()
+        .input('EmployeeID', sql.Int, requestRow.EmployeeID)
+        .input('AllocYear', sql.Int, allocYear)
+        .query(`
+            SELECT
+                e.MaximumPayout,
+                e.EmployeeCode,
+                e.FullName,
+                e.JoinDate,
+                e.AirfarePaidDays,
+                COALESCE(ob.OpeningBHD, e.OpeningBHD) AS OpeningBHD,
+                COALESCE(ob.OpeningDays, e.OpeningDays) AS OpeningDays
+            FROM Employees e
+            LEFT JOIN OpeningBalances ob
+                ON ob.EmployeeID = e.EmployeeID
+               AND ob.BalanceYear = @AllocYear
+            WHERE e.EmployeeID = @EmployeeID
+              AND dbo.fn_ATLAS_IsAirfareEligibleEmployeeStatus(e.Status) = 1
+        `);
+    const employee = employeeResult.recordset[0];
+    if (!employee) throw new Error('Employee is not active for airfare allocation.');
+
+    const effectivePolicy = await getEffectiveAirfarePolicy(db, allocationDate, null, requestRow.EmployeeID);
+    const allocationContext = await getYearAllocationContext(db, requestRow.EmployeeID, allocYear, null, allocationDate);
+    const policyContext = await getPolicyEntitlementFromDb(db, {
+        maximumPayout: effectivePolicy.maxPayoutAmount,
+        allocationDate,
+        allocYear,
+        openingDays: employee.OpeningDays || 0,
+        openingBhd: employee.OpeningBHD || 0,
+        paidDays: employee.AirfarePaidDays || 0,
+        currentYearSpending: allocationContext.currentYearSpending,
+        joinDate: employee.JoinDate,
+        previousAllocationDate: allocationContext.previousAllocation?.AllocationDate || null
+    });
+    const ticketCost = roundMoney(Number(requestRow.EstimatedCostBHD || 0));
+    const requestPayable = Number(requestRow.PayableAtRequestBHD);
+    const approvedEntitlement = roundMoney(Math.min(
+        ticketCost,
+        clampAirfareMaximumPayout(effectivePolicy.maxPayoutAmount),
+        Number.isFinite(requestPayable) && requestPayable > 0 ? requestPayable : policyContext.policyEntitlement
+    ));
+    const requestedLoan = roundMoney(Math.max(0, ticketCost - approvedEntitlement));
+    const paymentMode = requestedLoan > 0 ? 'loan' : 'entitlement';
+    const tenure = requestedLoan > 0 ? 6 : 0;
+    const emi = requestedLoan > 0 ? roundMoney(requestedLoan / tenure) : 0;
+    const normalizedAllocation = await normalizeAllocationAmountsDb(db, {
+        ticketCost,
+        policyEntitlement: approvedEntitlement,
+        maximumPayout: effectivePolicy.maxPayoutAmount,
+        paymentMode,
+        employeePaid: 0,
+        loanAmount: requestedLoan,
+        companyExtra: 0
+    });
+    const remarks = [
+        `Self-Service Request: ${requestRow.RequestNo}`,
+        requestRow.Origin || requestRow.Destination ? `Route: ${[requestRow.Origin, requestRow.Destination].filter(Boolean).join(' to ')}` : '',
+        requestRow.Purpose ? `Purpose: ${requestRow.Purpose}` : '',
+        'Manager Approval: Employee self-service request approved'
+    ].filter(Boolean).join(' | ').slice(0, 255);
+
+    const tx = new sql.Transaction(db);
+    await tx.begin();
+    try {
+        const lockResult = await new sql.Request(tx)
+            .input('RequestID', sql.BigInt, requestId)
+            .query(`
+                SELECT TOP 1 LinkedAllocationID
+                FROM dbo.ext_employee_allowance_requests WITH (UPDLOCK, HOLDLOCK)
+                WHERE RequestID = @RequestID
+            `);
+        const lockedRow = lockResult.recordset[0];
+        if (!lockedRow) throw new Error('Employee self-service request was not found during allocation linking.');
+        if (lockedRow.LinkedAllocationID) {
+            await tx.commit();
+            const existingResult = await db.request()
+                .input('AllocationID', sql.BigInt, lockedRow.LinkedAllocationID)
+                .query('SELECT TOP 1 * FROM dbo.Allocations WHERE AllocationID = @AllocationID');
+            return existingResult.recordset[0] || { AllocationID: lockedRow.LinkedAllocationID };
+        }
+
+        const allocationResult = await new sql.Request(tx)
+            .input('EmployeeID', sql.Int, requestRow.EmployeeID)
+            .input('AllocationDate', sql.Date, allocationDate)
+            .input('AllocYear', sql.Int, allocYear)
+            .input('TicketCost', sql.Decimal(10, 2), normalizedAllocation.ticketCost)
+            .input('Entitlement', sql.Decimal(10, 2), normalizedAllocation.entitlement)
+            .input('CompanyPaid', sql.Decimal(10, 2), normalizedAllocation.companyPaid)
+            .input('ExcessAmount', sql.Decimal(10, 2), normalizedAllocation.excess)
+            .input('PaymentMode', sql.NVarChar(20), paymentMode)
+            .input('LoanAmount', sql.Decimal(10, 2), normalizedAllocation.loanAmount)
+            .input('EmployeePaid', sql.Decimal(10, 2), normalizedAllocation.employeePaid)
+            .input('CompanyExtra', sql.Decimal(10, 2), normalizedAllocation.companyExtra)
+            .input('EMI', sql.Decimal(10, 2), emi)
+            .input('Tenure', sql.Int, tenure)
+            .input('LeaveStart', sql.Date, requestRow.TravelFromDate || null)
+            .input('LeaveEnd', sql.Date, requestRow.TravelToDate || null)
+            .input('Remarks', sql.NVarChar(255), remarks || null)
+            .input('PolicyRateID', sql.BigInt, effectivePolicy.policyRateId)
+            .input('PolicyEffectiveFrom', sql.Date, effectivePolicy.effectiveFrom)
+            .input('PolicyMaxPayoutAmount', sql.Decimal(12, 2), effectivePolicy.maxPayoutAmount)
+            .input('PolicyCycleDays', sql.Decimal(10, 2), effectivePolicy.cycleDays)
+            .input('PolicyPerDayRate', sql.Decimal(12, 6), effectivePolicy.perDayRate)
+            .input('CreatedBy', sql.Int, user.userId)
+            .query(`
+                INSERT INTO Allocations (
+                    EmployeeID, AllocationDate, AllocYear, TicketCost, Entitlement, CompanyPaid,
+                    ExcessAmount, PaymentMode, LoanAmount, EmployeePaid, CompanyExtra, EMI, Tenure,
+                    LeaveStart, LeaveEnd, Remarks, PolicyRateID, PolicyEffectiveFrom,
+                    PolicyMaxPayoutAmount, PolicyCycleDays, PolicyPerDayRate, CreatedBy
+                )
+                OUTPUT INSERTED.*
+                VALUES (
+                    @EmployeeID, @AllocationDate, @AllocYear, @TicketCost, @Entitlement, @CompanyPaid,
+                    @ExcessAmount, @PaymentMode, @LoanAmount, @EmployeePaid, @CompanyExtra, @EMI, @Tenure,
+                    @LeaveStart, @LeaveEnd, @Remarks, @PolicyRateID, @PolicyEffectiveFrom,
+                    @PolicyMaxPayoutAmount, @PolicyCycleDays, @PolicyPerDayRate, @CreatedBy
+                )
+            `);
+        const allocation = allocationResult.recordset[0];
+
+        if (normalizedAllocation.loanAmount > 0) {
+            await new sql.Request(tx)
+                .input('EmployeeID', sql.Int, requestRow.EmployeeID)
+                .input('AllocationID', sql.BigInt, allocation.AllocationID)
+                .input('OriginalAmount', sql.Decimal(10, 2), normalizedAllocation.loanAmount)
+                .input('RemainingBalance', sql.Decimal(10, 2), normalizedAllocation.loanAmount)
+                .input('EMI', sql.Decimal(10, 2), emi)
+                .input('Tenure', sql.Int, tenure)
+                .input('CreatedDate', sql.Date, allocationDate)
+                .input('CreatedBy', sql.Int, user.userId)
+                .query(`
+                    INSERT INTO Loans (EmployeeID, AllocationID, OriginalAmount, RemainingBalance, EMI, Tenure, CreatedDate, CreatedBy)
+                    VALUES (@EmployeeID, @AllocationID, @OriginalAmount, @RemainingBalance, @EMI, @Tenure, @CreatedDate, @CreatedBy)
+                `);
+        }
+
+        await new sql.Request(tx)
+            .input('EmployeeID', sql.Int, requestRow.EmployeeID)
+            .input('LastYear', sql.Int, allocYear)
+            .query('UPDATE Employees SET LastAllocationYear = @LastYear WHERE EmployeeID = @EmployeeID');
+
+        await new sql.Request(tx)
+            .input('RequestID', sql.BigInt, requestId)
+            .input('AllocationID', sql.BigInt, allocation.AllocationID)
+            .query(`
+                UPDATE dbo.ext_employee_allowance_requests
+                SET LinkedAllocationID = @AllocationID,
+                    ApprovedAt = COALESCE(ApprovedAt, SYSUTCDATETIME()),
+                    UpdatedAt = SYSUTCDATETIME()
+                WHERE RequestID = @RequestID
+            `);
+
+        await tx.commit();
+        await logAudit(user.userId, user.username, 'CREATE', 'Allocation', allocation.AllocationID, null, allocation,
+            `Created allocation from employee self-service request ${requestRow.RequestNo}`, requestMeta);
+        return allocation;
+    } catch (err) {
+        try {
+            await tx.rollback();
+        } catch (rollbackErr) {
+            logger.warn('Self-service allocation rollback issue:', rollbackErr);
+        }
+        throw err;
+    }
+}
+
 async function getAllocationEmployeeContext(db, employeeId, allocYear) {
     const result = await db.request()
         .input('EmployeeID', sql.Int, employeeId)
@@ -2314,7 +2503,7 @@ app.get('/api/employee-self-service/requests', authenticateToken, async (req, re
                        r.TravelFromDate, r.TravelToDate, r.Origin, r.Destination, r.TripType,
                        r.CabinClass, r.EstimatedCostBHD, r.EntitlementAtRequestBHD, r.PayableAtRequestBHD,
                        r.OverageToLoanBHD, r.PreferredAirline, r.Purpose, r.ApprovalStatus,
-                       r.SubmittedAt, r.CreatedAt, r.UpdatedAt
+                       r.LinkedAllocationID, r.SubmittedAt, r.CreatedAt, r.UpdatedAt
                 FROM dbo.ext_employee_allowance_requests r
                 INNER JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
                 WHERE (@IsAdmin = 1 OR r.EmployeeID = @EmployeeID)
@@ -2418,7 +2607,16 @@ app.post('/api/employee-self-service/requests/:id/transition', authenticateToken
                 OUTPUT INSERTED.*
                 WHERE RequestID = @RequestID
             `);
-        res.json(result.recordset[0]);
+        const updatedRequest = result.recordset[0];
+        let linkedAllocation = null;
+        if (['ManagerApproved', 'HRApproved', 'FinanceApproved', 'Issued'].includes(value.toStatus)) {
+            linkedAllocation = await createAllocationFromSelfServiceRequest(db, Number(req.params.id), req.user, req);
+            const refreshedResult = await db.request()
+                .input('RequestID', sql.BigInt, Number(req.params.id))
+                .query('SELECT TOP 1 * FROM dbo.ext_employee_allowance_requests WHERE RequestID = @RequestID');
+            Object.assign(updatedRequest, refreshedResult.recordset[0] || {});
+        }
+        res.json({ ...updatedRequest, LinkedAllocationID: linkedAllocation?.AllocationID || updatedRequest.LinkedAllocationID || null });
     } catch (err) {
         logger.error('Employee self-service transition error:', err);
         res.status(500).json({ error: err.message || 'Employee self-service transition failed' });
