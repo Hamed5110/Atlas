@@ -5498,18 +5498,6 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="bilingual-print contract-preview">
-                <section className="contract-language english">
-                  <h3>Employment Offer</h3>
-                  <p>This document confirms the employee role, company policy obligations, and airfare eligibility under the approved ATLAS HCM allowance matrix.</p>
-                  <p>Ticket requests are reviewed against the current 60-day allowance cap and payroll loan overflow policy.</p>
-                </section>
-                <section className="contract-language arabic" dir="rtl" lang="ar">
-                  <h3>عرض العمل</h3>
-                  <p>تؤكد هذه الوثيقة وظيفة الموظف والتزامات سياسة الشركة واستحقاق تذاكر السفر وفق مصفوفة ATLAS HCM المعتمدة.</p>
-                  <p>تتم مراجعة طلبات التذاكر حسب حد الاستحقاق الحالي لمدة 60 يوما وسياسة تحويل الفائض إلى قرض الرواتب.</p>
-                </section>
-              </div>
             </div>
           </section>
         )}

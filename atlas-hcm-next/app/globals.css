@@ -2624,42 +2624,6 @@ h3 { font-size: 20px; letter-spacing: 0; }
   overflow-x: auto;
 }
 
-.contract-preview {
-  margin-top: 18px;
-}
-
-.bilingual-print {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  page-break-inside: avoid;
-}
-
-.contract-language {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.78);
-  padding: 18px;
-  min-height: 160px;
-  color: var(--ink);
-}
-
-.contract-language h3 {
-  margin: 0 0 10px;
-  font-size: 18px;
-}
-
-.contract-language p {
-  margin: 0 0 10px;
-  line-height: 1.7;
-}
-
-.contract-language.arabic {
-  direction: rtl;
-  text-align: right;
-  font-family: "Cairo", "Amiri", "Tahoma", sans-serif;
-}
-
 .support-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(340px, .8fr);
@@ -2978,8 +2942,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .loan-action-fields { grid-template-columns: 1fr; }
   .standard-note { grid-template-columns: 1fr; }
   .standard-note button { justify-self: stretch; }
-  .self-service-grid,
-  .bilingual-print {
+  .self-service-grid {
     grid-template-columns: 1fr;
   }
   .self-service-grid .form-grid {
@@ -2987,27 +2950,6 @@ h3 { font-size: 20px; letter-spacing: 0; }
   }
   .self-service-grid .span-2 {
     grid-column: auto;
-  }
-}
-
-@media print {
-  .bilingual-print {
-    grid-template-columns: 1fr 1fr;
-    gap: 10mm;
-  }
-  .contract-language {
-    box-shadow: none;
-    border-color: #d1d5db;
-    min-height: 90mm;
-  }
-  .topbar,
-  .sidebar,
-  .button-row,
-  .shine-button,
-  .secondary-button,
-  .mini-soft,
-  .mini-danger {
-    display: none !important;
   }
 }
 
