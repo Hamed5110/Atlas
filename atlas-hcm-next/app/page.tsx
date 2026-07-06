@@ -3875,7 +3875,7 @@ export default function DashboardPage() {
   function employeeUserFields(employee: Employee) {
     return {
       username: employee.EmployeeCode || "",
-      email: employee.Email || `${employee.EmployeeCode || "employee"}@atlas.local`,
+      email: employee.Email || "",
       fullName: employee.FullName || "",
       department: employee.Department || "",
       branch: employee.Branch || ""
