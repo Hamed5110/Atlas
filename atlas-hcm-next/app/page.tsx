@@ -82,7 +82,7 @@ import {
 } from "../lib/atlas-api";
 import { calculateAirfare } from "../lib/airfare-engine";
 
-type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Self Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support";
+type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
 
 type ReportRow = Record<string, unknown> & {
@@ -420,7 +420,7 @@ const nav: { label: ViewKey; icon: React.ElementType }[] = [
   { label: "Employees", icon: Users },
   { label: "Opening Balance", icon: ListPlus },
   { label: "Airfare", icon: Plane },
-  { label: "Self Service", icon: ClipboardCheck },
+  { label: "Employee Self-Service", icon: ClipboardCheck },
   { label: "Loans", icon: WalletCards },
   { label: "Year End", icon: CalendarClock },
   { label: "Reports", icon: FileDown },
@@ -4666,6 +4666,14 @@ export default function DashboardPage() {
             <button className="icon-button" onClick={printCurrentScreen} title="Print current screen"><Printer size={18} /></button>
             <button className="icon-button" disabled={busy} onClick={handleRefreshLiveData} title="Refresh live data"><RefreshCw size={18} /></button>
             <button
+              className={activeView === "Employee Self-Service" ? "icon-button active" : "icon-button"}
+              onClick={() => setActiveView("Employee Self-Service")}
+              title="Open Employee Self-Service"
+              aria-label="Open Employee Self-Service"
+            >
+              <ClipboardCheck size={18} />
+            </button>
+            <button
               className={rightPanelsCollapsed ? "icon-button active" : "icon-button"}
               onClick={() => setRightPanelsCollapsed((current) => !current)}
               title={rightPanelsCollapsed ? "Show right panels" : "Hide right panels"}
@@ -5399,7 +5407,7 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {activeView === "Self Service" && (
+        {activeView === "Employee Self-Service" && (
           <section className="self-service-grid">
             <div className="glass-panel form-card">
               <div className="card-title"><ClipboardCheck size={18} /> Employee Self-Service</div>
