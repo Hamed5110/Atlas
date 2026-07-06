@@ -1708,6 +1708,27 @@ function requireRole(...roles) {
     };
 }
 
+function requireNonEmployeePortal(req, res, next) {
+    if (req.user?.role !== 'employee') return next();
+    const requestPath = String(req.originalUrl || '').split('?')[0];
+    const allowed = [
+        '/api/auth/me',
+        '/api/auth/logout',
+        '/api/employee-self-service'
+    ];
+    if (allowed.some((pathPrefix) => requestPath === pathPrefix || requestPath.startsWith(`${pathPrefix}/`))) {
+        return next();
+    }
+    return res.status(403).json({ error: 'Employee Self-Service users can access request screens only.' });
+}
+
+app.use('/api', (req, res, next) => {
+    const publicApiPaths = ['/api/health', '/api/auth/login', '/api/auth/forgot-password'];
+    const requestPath = String(req.originalUrl || '').split('?')[0];
+    if (publicApiPaths.includes(requestPath)) return next();
+    authenticateToken(req, res, () => requireNonEmployeePortal(req, res, next));
+});
+
 // =====================================================
 // AUDIT LOG HELPER
 // =====================================================

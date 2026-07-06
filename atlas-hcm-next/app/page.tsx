@@ -443,6 +443,7 @@ const AIRFARE_STANDARD_YEAR_DAYS = 360;
 const AIRFARE_ENTITLEMENT_CYCLE_DAYS = 720;
 const AIRFARE_MAX_DAYS = 60;
 const AIRFARE_DEFAULT_PAYOUT = 150;
+const ESS_ONLY_VIEW: ViewKey = "Employee Self-Service";
 const paymentModeLabels: Record<string, string> = {
   entitlement: "Airfare entitlement amount",
   company: "Paid by company",
@@ -843,6 +844,8 @@ export default function DashboardPage() {
   const activeSelfServiceEmployeeId = selfServiceEmployeeId || (selfServiceSummary?.employee?.EmployeeID ? String(selfServiceSummary.employee.EmployeeID) : "");
   const userFormEmployeeOptions = employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
   const selectedUserFormEmployee = userFormEmployeeOptions.find((employee) => employee.EmployeeID === Number(userForm.employeeId));
+  const isEmployeePortalSession = session?.user.role === "employee";
+  const visibleNav = isEmployeePortalSession ? nav.filter((item) => item.label === ESS_ONLY_VIEW) : nav;
   const selectedPolicyDate = allocationForm.date ? new Date(`${allocationForm.date}T00:00:00`) : new Date();
   const currentAirfarePolicyRates = airfarePolicyRates.filter((rate) => rate.IsActive && !rate.EffectiveTo);
   const selectedEffectivePolicyRate = [...airfarePolicyRates]
@@ -1167,6 +1170,7 @@ export default function DashboardPage() {
     const saved = restoreSavedSession();
     if (!saved) return;
     setSession(saved.session);
+    if (saved.session.user.role === "employee") setActiveView(ESS_ONLY_VIEW);
     setSelectedCompanyId(saved.companyId || "");
     setStatus("Restoring saved session");
     saveSession(saved.session, saved.companyId || "");
@@ -1306,6 +1310,25 @@ export default function DashboardPage() {
 
   async function loadLiveData(activeSession = session) {
     if (!activeSession) return;
+    if (activeSession.user.role === "employee") {
+      const [selfServiceSummaryData, selfServiceRequestData] = await Promise.all([
+        atlasFetch<EmployeeSelfServiceSummary>("/employee-self-service/summary", activeSession.token, activeSession.sessionId),
+        atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests", activeSession.token, activeSession.sessionId)
+      ]);
+      setSelfServiceSummary(selfServiceSummaryData);
+      setSelfServiceRequests(selfServiceRequestData);
+      setSelfServiceEmployeeId(selfServiceSummaryData.employee?.EmployeeID ? String(selfServiceSummaryData.employee.EmployeeID) : "");
+      setEmployees([]);
+      setEmployeeMasterAll([]);
+      setLoans([]);
+      setAllocations([]);
+      setAirfarePolicyRates([]);
+      setCompanies([]);
+      setBackupFiles([]);
+      setActiveView(ESS_ONLY_VIEW);
+      setStatus("Employee Self-Service ready");
+      return;
+    }
     const reportYear = new Date().getFullYear();
     const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, intelligenceData, verificationData, integrityData, airfarePayableData] = await Promise.all([
       atlasFetch<Employee[]>("/employees?scope=active", activeSession.token, activeSession.sessionId),
@@ -1473,6 +1496,7 @@ export default function DashboardPage() {
     try {
       const loggedIn = await atlasLogin(loginForm.username.trim(), loginForm.password);
       setSession(loggedIn);
+      if (loggedIn.user.role === "employee") setActiveView(ESS_ONLY_VIEW);
       saveSession(loggedIn, selectedCompanyId);
       await loadLiveData(loggedIn);
       setMessage(`Signed in as ${loggedIn.user.fullName}`);
@@ -4676,14 +4700,16 @@ export default function DashboardPage() {
             <span>{activeCompany?.CompanyCode || "Airfare HCM"}</span>
           </div>
         </div>
-        <label className="company-switcher">
-          <span>Company</span>
-          <select value={selectedCompanyId} onChange={(event) => handleCompanySwitch(event.target.value)}>
-            {companies.map((company) => <option key={company.CompanyID} value={company.CompanyID}>{company.CompanyName}</option>)}
-          </select>
-        </label>
+        {!isEmployeePortalSession ? (
+          <label className="company-switcher">
+            <span>Company</span>
+            <select value={selectedCompanyId} onChange={(event) => handleCompanySwitch(event.target.value)}>
+              {companies.map((company) => <option key={company.CompanyID} value={company.CompanyID}>{company.CompanyName}</option>)}
+            </select>
+          </label>
+        ) : null}
         <nav>
-          {nav.map((item) => {
+          {visibleNav.map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -4701,11 +4727,11 @@ export default function DashboardPage() {
             );
           })}
         </nav>
-        <div className="sidebar-card">
+        {!isEmployeePortalSession ? <div className="sidebar-card">
           <Sparkles size={18} />
           <strong className="sidebar-text">Excel formula locked</strong>
           <span className="sidebar-text">Max payout / 60 x remaining days</span>
-        </div>
+        </div> : null}
       </aside>
 
       <section className="workspace">
@@ -4727,7 +4753,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="top-actions">
-            <label className="search-box">
+            {!isEmployeePortalSession ? <label className="search-box">
               <Search size={18} />
               <input
                 value={query}
@@ -4735,18 +4761,18 @@ export default function DashboardPage() {
                 onKeyDown={(event) => event.key === "Enter" && handleSearchSubmit()}
                 placeholder="Search employees, loans, companies"
               />
-            </label>
-            <button className="icon-button" onClick={handleSearchSubmit} title="Run search"><Search size={18} /></button>
-            <button className="icon-button" onClick={printCurrentScreen} title="Print current screen"><Printer size={18} /></button>
+            </label> : null}
+            {!isEmployeePortalSession ? <button className="icon-button" onClick={handleSearchSubmit} title="Run search"><Search size={18} /></button> : null}
+            {!isEmployeePortalSession ? <button className="icon-button" onClick={printCurrentScreen} title="Print current screen"><Printer size={18} /></button> : null}
             <button className="icon-button" disabled={busy} onClick={handleRefreshLiveData} title="Refresh live data"><RefreshCw size={18} /></button>
-            <button
+            {!isEmployeePortalSession ? <button
               className={activeView === "Employee Self-Service" ? "icon-button active" : "icon-button"}
               onClick={() => setActiveView("Employee Self-Service")}
               title="Open Employee Self-Service"
               aria-label="Open Employee Self-Service"
             >
               <ClipboardCheck size={18} />
-            </button>
+            </button> : null}
             <button
               className={rightPanelsCollapsed ? "icon-button active" : "icon-button"}
               onClick={() => setRightPanelsCollapsed((current) => !current)}

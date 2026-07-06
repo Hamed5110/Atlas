@@ -38,5 +38,8 @@ assert.match(serverText, /Username = @Username/, 'backend should bind ESS userna
 assert.match(serverText, /email:\s*Joi\.string\(\)\.email\(\{ tlds:\s*\{ allow:\s*false \} \}\)\.allow\('', null\)/, 'user email should be optional and allow internal fallback domains');
 assert.match(pageText, /Email \(optional\)/, 'Security user form should label email as optional');
 assert.doesNotMatch(pageText, /employee\.Email \|\| `\$\{employee\.EmployeeCode \|\| "employee"\}@atlas\.local`/, 'ESS user form should not prefill generated fallback email before backend validation');
+assert.match(pageText, /visibleNav\s*=\s*isEmployeePortalSession\s*\?\s*nav\.filter\(\(item\) => item\.label === ESS_ONLY_VIEW\)\s*:\s*nav/, 'ESS users should only see the Employee Self-Service menu item');
+assert.match(pageText, /activeSession\.user\.role === "employee"[\s\S]*\/employee-self-service\/summary[\s\S]*setActiveView\(ESS_ONLY_VIEW\)/, 'ESS users should load only self-service data and land on the request screen');
+assert.match(serverText, /function requireNonEmployeePortal[\s\S]*Employee Self-Service users can access request screens only/, 'backend should block employee-role access outside ESS APIs');
 
 console.log('Employee self-service allocation link source checks passed');
