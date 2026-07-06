@@ -594,6 +594,7 @@ async function ensureAtlasSqlObjects(db, options = {}) {
             await ensureAllocationPaymentSql(db);
             await ensureLoanOperationSql(db);
             await ensureYearEndOperationSql(db);
+            await ensureEmployeePortalExtensionSql(db);
             await cleanupQaTemporaryCompanies(db);
             sqlObjectsReady = true;
         })().catch((err) => {
@@ -603,6 +604,74 @@ async function ensureAtlasSqlObjects(db, options = {}) {
         });
     }
     await sqlObjectsPromise;
+}
+
+async function ensureEmployeePortalExtensionSql(db) {
+    const extensionPath = path.join(__dirname, 'extensions', 'employee-portal', 'sql', 'ATLAS_Employee_Portal_Extension.sql');
+    if (!fs.existsSync(extensionPath)) return;
+    const script = fs.readFileSync(extensionPath, 'utf8');
+    const batches = script.split(/^\s*GO\s*$/gim).map((batch) => batch.trim()).filter(Boolean);
+    for (const batch of batches) {
+        await db.request().batch(batch);
+    }
+}
+
+async function resolveEmployeePortalContext(db, userId) {
+    await ensureEmployeePortalExtensionSql(db);
+    const claimResult = await db.request()
+        .input('UserID', sql.Int, userId)
+        .query(`
+            SELECT TOP 1 c.EmployeeID, c.PortalRole, e.EmployeeCode, e.FullName, e.Department, e.Designation
+            FROM dbo.ext_employee_auth_claims c
+            INNER JOIN dbo.Employees e ON e.EmployeeID = c.EmployeeID
+            WHERE c.UserID = @UserID AND c.IsActive = 1
+            ORDER BY CASE WHEN c.PortalRole = N'Admin' THEN 0 ELSE 1 END, c.ClaimID
+        `);
+    if (claimResult.recordset[0]) return { ...claimResult.recordset[0], setupRequired: false };
+
+    const autoMapResult = await db.request()
+        .input('UserID', sql.Int, userId)
+        .query(`
+            SELECT TOP 1 u.UserID, u.Username, u.Email, u.Role, e.EmployeeID, e.EmployeeCode, e.FullName, e.Department, e.Designation
+            FROM dbo.Users u
+            INNER JOIN dbo.Employees e
+                ON LOWER(NULLIF(LTRIM(RTRIM(e.Email)), N'')) = LOWER(NULLIF(LTRIM(RTRIM(u.Email)), N''))
+                OR LOWER(NULLIF(LTRIM(RTRIM(e.EmployeeCode)), N'')) = LOWER(NULLIF(LTRIM(RTRIM(u.Username)), N''))
+            WHERE u.UserID = @UserID AND u.IsActive = 1
+            ORDER BY e.EmployeeID
+        `);
+    const autoMap = autoMapResult.recordset[0];
+    if (autoMap) {
+        const portalRole = autoMap.Role === 'admin' ? 'Admin' : 'Employee';
+        await db.request()
+            .input('UserID', sql.Int, userId)
+            .input('EmployeeID', sql.Int, autoMap.EmployeeID)
+            .input('ClaimValue', sql.NVarChar(200), autoMap.Email || autoMap.Username)
+            .input('PortalRole', sql.NVarChar(20), portalRole)
+            .query(`
+                IF NOT EXISTS (
+                    SELECT 1 FROM dbo.ext_employee_auth_claims
+                    WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal'
+                )
+                INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, CreatedBy)
+                VALUES (@UserID, @EmployeeID, N'employee_portal', @ClaimValue, @PortalRole, @UserID);
+            `);
+        return { ...autoMap, PortalRole: portalRole, setupRequired: false };
+    }
+
+    const userResult = await db.request()
+        .input('UserID', sql.Int, userId)
+        .query('SELECT TOP 1 UserID, Username, Email, Role FROM dbo.Users WHERE UserID = @UserID');
+    const user = userResult.recordset[0] || {};
+    return {
+        EmployeeID: null,
+        PortalRole: user.Role === 'admin' ? 'Admin' : 'Employee',
+        EmployeeCode: null,
+        FullName: user.Username || 'Employee portal user',
+        Department: null,
+        Designation: null,
+        setupRequired: true
+    };
 }
 
 async function fallbackDeactivateAirfarePolicyRate(db, policyRateId, deletedBy, deleteReason) {
@@ -2166,6 +2235,197 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     } catch (err) {
         logger.error('Get user error:', err);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+const employeeAllowanceRequestSchema = Joi.object({
+    employeeId: Joi.number().integer().allow(null),
+    travelFromDate: Joi.date().required(),
+    travelToDate: Joi.date().allow(null),
+    origin: Joi.string().max(80).allow('', null),
+    destination: Joi.string().max(120).required(),
+    tripType: Joi.string().valid('OneWay', 'RoundTrip', 'MultiCity').default('RoundTrip'),
+    cabinClass: Joi.string().valid('Economy', 'PremiumEconomy', 'Business', 'First').default('Economy'),
+    estimatedCostBHD: Joi.number().min(0).required(),
+    preferredAirline: Joi.string().max(80).allow('', null),
+    purpose: Joi.string().max(250).allow('', null)
+});
+
+app.get('/api/employee-self-service/summary', authenticateToken, async (req, res) => {
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const context = await resolveEmployeePortalContext(db, req.user.userId);
+        if (context.setupRequired || !context.EmployeeID) {
+            return res.json({
+                setupRequired: true,
+                message: 'Employee self-service is enabled. Ask admin to map this login to an employee profile.',
+                employee: null,
+                entitlement: null,
+                openRequests: 0
+            });
+        }
+
+        const reportResult = await db.request()
+            .input('ReportYear', sql.Int, new Date().getFullYear())
+            .input('AsOfDate', sql.Date, new Date())
+            .execute('dbo.sp_ATLAS_GetAirfareReport');
+        const entitlement = reportResult.recordset.find((row) => Number(row.EmployeeID) === Number(context.EmployeeID)) || null;
+        const countResult = await db.request()
+            .input('EmployeeID', sql.Int, context.EmployeeID)
+            .query(`
+                SELECT COUNT(*) AS OpenRequests
+                FROM dbo.ext_employee_allowance_requests
+                WHERE EmployeeID = @EmployeeID AND ApprovalStatus NOT IN (N'Rejected', N'Cancelled', N'Issued')
+            `);
+
+        res.json({
+            setupRequired: false,
+            employee: {
+                EmployeeID: context.EmployeeID,
+                EmployeeCode: context.EmployeeCode,
+                FullName: context.FullName,
+                Department: context.Department,
+                Designation: context.Designation,
+                PortalRole: context.PortalRole
+            },
+            entitlement: entitlement ? {
+                AirfareEntitlementAmount: Number(entitlement.AirfareEntitlementAmount || 0),
+                PayableBHD: Number(entitlement.PayableBHD || 0),
+                MaximumPayoutCap: Number(entitlement.MaximumPayoutCap || 150),
+                VerificationNote: entitlement.VerificationNote
+            } : null,
+            openRequests: Number(countResult.recordset[0]?.OpenRequests || 0)
+        });
+    } catch (err) {
+        logger.error('Employee self-service summary error:', err);
+        res.status(500).json({ error: err.message || 'Employee self-service summary failed' });
+    }
+});
+
+app.get('/api/employee-self-service/requests', authenticateToken, async (req, res) => {
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const context = await resolveEmployeePortalContext(db, req.user.userId);
+        if (context.setupRequired || !context.EmployeeID) return res.json([]);
+        const isAdmin = context.PortalRole === 'Admin' || req.user.role === 'admin';
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, context.EmployeeID)
+            .input('IsAdmin', sql.Bit, isAdmin ? 1 : 0)
+            .query(`
+                SELECT r.RequestID, r.RequestNo, r.EmployeeID, e.EmployeeCode, e.FullName,
+                       r.TravelFromDate, r.TravelToDate, r.Origin, r.Destination, r.TripType,
+                       r.CabinClass, r.EstimatedCostBHD, r.EntitlementAtRequestBHD, r.PayableAtRequestBHD,
+                       r.OverageToLoanBHD, r.PreferredAirline, r.Purpose, r.ApprovalStatus,
+                       r.SubmittedAt, r.CreatedAt, r.UpdatedAt
+                FROM dbo.ext_employee_allowance_requests r
+                INNER JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
+                WHERE (@IsAdmin = 1 OR r.EmployeeID = @EmployeeID)
+                ORDER BY r.CreatedAt DESC, r.RequestID DESC
+            `);
+        res.json(result.recordset);
+    } catch (err) {
+        logger.error('Employee self-service requests error:', err);
+        res.status(500).json({ error: err.message || 'Employee self-service requests failed' });
+    }
+});
+
+app.post('/api/employee-self-service/requests', authenticateToken, async (req, res) => {
+    const { error, value } = employeeAllowanceRequestSchema.validate(req.body || {});
+    if (error) return res.status(400).json({ error: error.details[0].message });
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const context = await resolveEmployeePortalContext(db, req.user.userId);
+        if (context.setupRequired || !context.EmployeeID) {
+            return res.status(403).json({ error: 'Employee self-service login is not mapped to an employee profile.' });
+        }
+        const employeeId = (context.PortalRole === 'Admin' || req.user.role === 'admin') && value.employeeId ? Number(value.employeeId) : Number(context.EmployeeID);
+        const reportResult = await db.request()
+            .input('ReportYear', sql.Int, new Date().getFullYear())
+            .input('AsOfDate', sql.Date, value.travelFromDate)
+            .execute('dbo.sp_ATLAS_GetAirfareReport');
+        const entitlement = reportResult.recordset.find((row) => Number(row.EmployeeID) === employeeId) || {};
+        const entitlementAmount = Math.min(Number(entitlement.AirfareEntitlementAmount || 0), Number(entitlement.MaximumPayoutCap || 150));
+        const payableAmount = Math.max(0, Number(entitlement.PayableBHD ?? entitlementAmount));
+        const overageToLoan = Math.max(0, Number(value.estimatedCostBHD || 0) - payableAmount);
+
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('CreatedByUserID', sql.Int, req.user.userId)
+            .input('TravelFromDate', sql.Date, value.travelFromDate)
+            .input('TravelToDate', sql.Date, value.travelToDate || null)
+            .input('Origin', sql.NVarChar(80), value.origin || null)
+            .input('Destination', sql.NVarChar(120), value.destination)
+            .input('TripType', sql.NVarChar(20), value.tripType)
+            .input('CabinClass', sql.NVarChar(20), value.cabinClass)
+            .input('EstimatedCostBHD', sql.Decimal(12, 2), value.estimatedCostBHD)
+            .input('EntitlementAtRequestBHD', sql.Decimal(12, 2), entitlementAmount)
+            .input('PayableAtRequestBHD', sql.Decimal(12, 2), payableAmount)
+            .input('OverageToLoanBHD', sql.Decimal(12, 2), overageToLoan)
+            .input('PreferredAirline', sql.NVarChar(80), value.preferredAirline || null)
+            .input('Purpose', sql.NVarChar(250), value.purpose || null)
+            .query(`
+                INSERT INTO dbo.ext_employee_allowance_requests (
+                    EmployeeID, CreatedByUserID, TravelFromDate, TravelToDate, Origin, Destination,
+                    TripType, CabinClass, EstimatedCostBHD, EntitlementAtRequestBHD, PayableAtRequestBHD,
+                    OverageToLoanBHD, PreferredAirline, Purpose
+                )
+                OUTPUT INSERTED.*
+                VALUES (
+                    @EmployeeID, @CreatedByUserID, @TravelFromDate, @TravelToDate, @Origin, @Destination,
+                    @TripType, @CabinClass, @EstimatedCostBHD, @EntitlementAtRequestBHD, @PayableAtRequestBHD,
+                    @OverageToLoanBHD, @PreferredAirline, @Purpose
+                )
+            `);
+        res.status(201).json(result.recordset[0]);
+    } catch (err) {
+        logger.error('Employee self-service create request error:', err);
+        res.status(500).json({ error: err.message || 'Employee self-service request failed' });
+    }
+});
+
+app.post('/api/employee-self-service/requests/:id/transition', authenticateToken, async (req, res) => {
+    const schema = Joi.object({
+        toStatus: Joi.string().valid('Submitted', 'Cancelled', 'ManagerApproved', 'HRApproved', 'FinanceApproved', 'Rejected', 'Issued').required(),
+        actionNote: Joi.string().max(500).allow('', null)
+    });
+    const { error, value } = schema.validate(req.body || {});
+    if (error) return res.status(400).json({ error: error.details[0].message });
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const context = await resolveEmployeePortalContext(db, req.user.userId);
+        const requestResult = await db.request()
+            .input('RequestID', sql.BigInt, Number(req.params.id))
+            .query('SELECT TOP 1 * FROM dbo.ext_employee_allowance_requests WHERE RequestID = @RequestID');
+        const row = requestResult.recordset[0];
+        if (!row) return res.status(404).json({ error: 'Request was not found.' });
+        const isAdmin = context.PortalRole === 'Admin' || req.user.role === 'admin';
+        if (!isAdmin && Number(row.EmployeeID) !== Number(context.EmployeeID)) return res.status(403).json({ error: 'Request access denied.' });
+        if (!isAdmin && !['Submitted', 'Cancelled'].includes(value.toStatus)) return res.status(403).json({ error: 'Employee users can only submit or cancel requests.' });
+
+        const result = await db.request()
+            .input('RequestID', sql.BigInt, Number(req.params.id))
+            .input('ToStatus', sql.NVarChar(30), value.toStatus)
+            .input('ActionNote', sql.NVarChar(500), value.actionNote || null)
+            .query(`
+                UPDATE dbo.ext_employee_allowance_requests
+                SET ApprovalStatus = @ToStatus,
+                    SubmittedAt = CASE WHEN @ToStatus = N'Submitted' AND SubmittedAt IS NULL THEN SYSUTCDATETIME() ELSE SubmittedAt END,
+                    ReviewedAt = CASE WHEN @ToStatus IN (N'ManagerApproved', N'HRApproved', N'FinanceApproved', N'Rejected') THEN SYSUTCDATETIME() ELSE ReviewedAt END,
+                    ApprovedAt = CASE WHEN @ToStatus IN (N'FinanceApproved', N'Issued') THEN SYSUTCDATETIME() ELSE ApprovedAt END,
+                    RejectedAt = CASE WHEN @ToStatus = N'Rejected' THEN SYSUTCDATETIME() ELSE RejectedAt END,
+                    RejectionReason = CASE WHEN @ToStatus = N'Rejected' THEN @ActionNote ELSE RejectionReason END,
+                    UpdatedAt = SYSUTCDATETIME()
+                OUTPUT INSERTED.*
+                WHERE RequestID = @RequestID
+            `);
+        res.json(result.recordset[0]);
+    } catch (err) {
+        logger.error('Employee self-service transition error:', err);
+        res.status(500).json({ error: err.message || 'Employee self-service transition failed' });
     }
 });
 

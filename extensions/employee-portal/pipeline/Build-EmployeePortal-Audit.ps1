@@ -28,8 +28,11 @@ $report = [pscustomobject]@{
 $jsonPath = Join-Path $OutputDir "employee-portal-extension-audit-$stamp.json"
 $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
 
+$appRoot = Split-Path -Parent (Split-Path -Parent $root)
 $scriptChecks = @(
-    @{ name = "backend syntax"; command = "node"; args = @("--check", (Join-Path $root "server\employee-portal-server.js")) },
+    @{ name = "main backend syntax"; command = "node"; args = @("--check", (Join-Path $appRoot "server.js")) },
+    @{ name = "same-port route registered"; command = "powershell"; args = @("-NoProfile", "-Command", "if (!(Select-String -LiteralPath '$appRoot\server.js' -Pattern '/api/employee-self-service/requests' -Quiet)) { exit 1 }") },
+    @{ name = "phase2 verifier syntax"; command = "python"; args = @("-m", "py_compile", (Join-Path $root "pipeline\phase2_unification.py")) },
     @{ name = "sql script present"; command = "powershell"; args = @("-NoProfile", "-Command", "if (!(Test-Path '$root\sql\ATLAS_Employee_Portal_Extension.sql')) { exit 1 }") }
 )
 

@@ -1,11 +1,11 @@
 # ATLAS Employee Portal Extension
 
-Phase-2 isolated add-on. It shares the existing database and authentication token model, but keeps all new tables under the `ext_emp_` prefix.
+Phase-2 isolated add-on. It runs inside the existing ATLAS application port and shares the existing database, service process, and authentication token model. New objects stay under extension prefixes only.
 
 Local run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\Airfare_Allowance\extensions\employee-portal\pipeline\Start-EmployeePortal-Local.ps1
+Start the normal ATLAS application and open the Self Service menu on the same application URL.
 ```
 
 Audit:

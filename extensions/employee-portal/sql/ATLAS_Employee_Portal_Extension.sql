@@ -34,6 +34,116 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.ext_e
     CREATE INDEX IX_ext_emp_auth_mapping_Employee_Active ON dbo.ext_emp_auth_mapping(EmployeeID, IsActive) INCLUDE (UserID, PortalRole);
 GO
 
+IF OBJECT_ID(N'dbo.ext_employee_auth_claims', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ext_employee_auth_claims (
+        ClaimID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ext_employee_auth_claims PRIMARY KEY,
+        UserID INT NOT NULL,
+        EmployeeID INT NOT NULL,
+        ClaimType NVARCHAR(40) NOT NULL CONSTRAINT DF_ext_employee_auth_claims_ClaimType DEFAULT N'employee_portal',
+        ClaimValue NVARCHAR(200) NOT NULL,
+        PortalRole NVARCHAR(20) NOT NULL CONSTRAINT DF_ext_employee_auth_claims_PortalRole DEFAULT N'Employee',
+        IsActive BIT NOT NULL CONSTRAINT DF_ext_employee_auth_claims_IsActive DEFAULT 1,
+        CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_ext_employee_auth_claims_CreatedAt DEFAULT SYSUTCDATETIME(),
+        CreatedBy INT NULL,
+        UpdatedAt DATETIME2(0) NULL,
+        UpdatedBy INT NULL,
+        RowVer ROWVERSION NOT NULL,
+        CONSTRAINT FK_ext_employee_auth_claims_Users FOREIGN KEY (UserID) REFERENCES dbo.Users(UserID),
+        CONSTRAINT FK_ext_employee_auth_claims_Employees FOREIGN KEY (EmployeeID) REFERENCES dbo.Employees(EmployeeID),
+        CONSTRAINT FK_ext_employee_auth_claims_CreatedBy FOREIGN KEY (CreatedBy) REFERENCES dbo.Users(UserID),
+        CONSTRAINT FK_ext_employee_auth_claims_UpdatedBy FOREIGN KEY (UpdatedBy) REFERENCES dbo.Users(UserID),
+        CONSTRAINT CK_ext_employee_auth_claims_Role CHECK (PortalRole IN (N'Employee', N'Admin')),
+        CONSTRAINT UQ_ext_employee_auth_claims_UserEmployeeType UNIQUE (UserID, EmployeeID, ClaimType)
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.ext_employee_auth_claims') AND name = N'IX_ext_employee_auth_claims_User_Active')
+    CREATE INDEX IX_ext_employee_auth_claims_User_Active ON dbo.ext_employee_auth_claims(UserID, IsActive) INCLUDE (EmployeeID, PortalRole, ClaimType, ClaimValue);
+GO
+
+IF OBJECT_ID(N'dbo.ext_employee_allowance_requests', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ext_employee_allowance_requests (
+        RequestID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ext_employee_allowance_requests PRIMARY KEY,
+        RequestNo AS (CONVERT(NVARCHAR(30), N'EAR-' + RIGHT(REPLICATE(N'0', 10) + CONVERT(NVARCHAR(20), RequestID), 10))) PERSISTED,
+        EmployeeID INT NOT NULL,
+        CreatedByUserID INT NOT NULL,
+        TravelFromDate DATE NOT NULL,
+        TravelToDate DATE NULL,
+        Origin NVARCHAR(80) NULL,
+        Destination NVARCHAR(120) NOT NULL,
+        TripType NVARCHAR(20) NOT NULL CONSTRAINT DF_ext_employee_allowance_requests_TripType DEFAULT N'RoundTrip',
+        CabinClass NVARCHAR(20) NOT NULL CONSTRAINT DF_ext_employee_allowance_requests_CabinClass DEFAULT N'Economy',
+        EstimatedCostBHD DECIMAL(12,2) NOT NULL,
+        EntitlementAtRequestBHD DECIMAL(12,2) NULL,
+        PayableAtRequestBHD DECIMAL(12,2) NULL,
+        OverageToLoanBHD DECIMAL(12,2) NULL,
+        PreferredAirline NVARCHAR(80) NULL,
+        Purpose NVARCHAR(250) NULL,
+        ApprovalStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_ext_employee_allowance_requests_Status DEFAULT N'Draft',
+        CurrentApproverUserID INT NULL,
+        SubmittedAt DATETIME2(0) NULL,
+        ReviewedAt DATETIME2(0) NULL,
+        ApprovedAt DATETIME2(0) NULL,
+        RejectedAt DATETIME2(0) NULL,
+        RejectionReason NVARCHAR(500) NULL,
+        LinkedAllocationID BIGINT NULL,
+        CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_ext_employee_allowance_requests_CreatedAt DEFAULT SYSUTCDATETIME(),
+        UpdatedAt DATETIME2(0) NULL,
+        RowVer ROWVERSION NOT NULL,
+        CONSTRAINT UQ_ext_employee_allowance_requests_RequestNo UNIQUE (RequestNo),
+        CONSTRAINT FK_ext_employee_allowance_requests_Employees FOREIGN KEY (EmployeeID) REFERENCES dbo.Employees(EmployeeID),
+        CONSTRAINT FK_ext_employee_allowance_requests_CreatedBy FOREIGN KEY (CreatedByUserID) REFERENCES dbo.Users(UserID),
+        CONSTRAINT FK_ext_employee_allowance_requests_Approver FOREIGN KEY (CurrentApproverUserID) REFERENCES dbo.Users(UserID),
+        CONSTRAINT FK_ext_employee_allowance_requests_Allocation FOREIGN KEY (LinkedAllocationID) REFERENCES dbo.Allocations(AllocationID),
+        CONSTRAINT CK_ext_employee_allowance_requests_TripType CHECK (TripType IN (N'OneWay', N'RoundTrip', N'MultiCity')),
+        CONSTRAINT CK_ext_employee_allowance_requests_CabinClass CHECK (CabinClass IN (N'Economy', N'PremiumEconomy', N'Business', N'First')),
+        CONSTRAINT CK_ext_employee_allowance_requests_Status CHECK (ApprovalStatus IN (N'Draft', N'Submitted', N'ManagerApproved', N'HRApproved', N'FinanceApproved', N'Rejected', N'Cancelled', N'Issued')),
+        CONSTRAINT CK_ext_employee_allowance_requests_Dates CHECK (TravelToDate IS NULL OR TravelToDate >= TravelFromDate),
+        CONSTRAINT CK_ext_employee_allowance_requests_Cost CHECK (EstimatedCostBHD >= 0)
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.ext_employee_allowance_requests') AND name = N'IX_ext_employee_allowance_requests_Employee_Status_Date')
+    CREATE INDEX IX_ext_employee_allowance_requests_Employee_Status_Date ON dbo.ext_employee_allowance_requests(EmployeeID, ApprovalStatus, TravelFromDate DESC) INCLUDE (Destination, EstimatedCostBHD, EntitlementAtRequestBHD, PayableAtRequestBHD, OverageToLoanBHD);
+GO
+
+CREATE OR ALTER VIEW dbo.ext_v_my_requests
+AS
+    SELECT
+        r.RequestID,
+        r.RequestNo,
+        r.EmployeeID,
+        e.EmployeeCode,
+        e.FullName,
+        r.TravelFromDate,
+        r.TravelToDate,
+        r.Origin,
+        r.Destination,
+        r.TripType,
+        r.CabinClass,
+        r.EstimatedCostBHD,
+        r.EntitlementAtRequestBHD,
+        r.PayableAtRequestBHD,
+        r.OverageToLoanBHD,
+        r.PreferredAirline,
+        r.Purpose,
+        r.ApprovalStatus,
+        r.SubmittedAt,
+        r.CreatedAt,
+        r.UpdatedAt
+    FROM dbo.ext_employee_allowance_requests r
+    INNER JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
+    INNER JOIN dbo.Users u ON u.Username IN (CURRENT_USER, SUSER_SNAME())
+    INNER JOIN dbo.ext_employee_auth_claims c
+        ON c.UserID = u.UserID
+       AND c.IsActive = 1
+       AND (c.PortalRole = N'Admin' OR c.EmployeeID = r.EmployeeID);
+GO
+
 IF OBJECT_ID(N'dbo.ext_emp_ticket_requests', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.ext_emp_ticket_requests (

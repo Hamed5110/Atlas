@@ -25,6 +25,7 @@ import {
   CalendarClock,
   CheckCircle,
   CheckCircle2,
+  ClipboardCheck,
   CreditCard,
   Database,
   Download,
@@ -81,7 +82,7 @@ import {
 } from "../lib/atlas-api";
 import { calculateAirfare } from "../lib/airfare-engine";
 
-type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support";
+type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Self Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
 
 type ReportRow = Record<string, unknown> & {
@@ -95,6 +96,44 @@ type AirfarePolicyDeleteResult = {
   policyRate: AirfarePolicyRate | null;
   alreadyRemoved?: boolean;
   alreadyHistorical?: boolean;
+};
+type EmployeeSelfServiceSummary = {
+  setupRequired: boolean;
+  message?: string;
+  employee: null | {
+    EmployeeID: number;
+    EmployeeCode: string;
+    FullName: string;
+    Department?: string;
+    Designation?: string;
+    PortalRole?: string;
+  };
+  entitlement: null | {
+    AirfareEntitlementAmount: number;
+    PayableBHD: number;
+    MaximumPayoutCap: number;
+    VerificationNote?: string;
+  };
+  openRequests: number;
+};
+type EmployeeAllowanceRequest = {
+  RequestID: number;
+  RequestNo: string;
+  EmployeeID: number;
+  EmployeeCode?: string;
+  FullName?: string;
+  TravelFromDate?: string;
+  TravelToDate?: string;
+  Origin?: string;
+  Destination: string;
+  TripType: string;
+  CabinClass: string;
+  EstimatedCostBHD: number;
+  EntitlementAtRequestBHD?: number;
+  PayableAtRequestBHD?: number;
+  OverageToLoanBHD?: number;
+  ApprovalStatus: string;
+  CreatedAt?: string;
 };
 type DisplayedReport = {
   title: string;
@@ -381,6 +420,7 @@ const nav: { label: ViewKey; icon: React.ElementType }[] = [
   { label: "Employees", icon: Users },
   { label: "Opening Balance", icon: ListPlus },
   { label: "Airfare", icon: Plane },
+  { label: "Self Service", icon: ClipboardCheck },
   { label: "Loans", icon: WalletCards },
   { label: "Year End", icon: CalendarClock },
   { label: "Reports", icon: FileDown },
@@ -631,6 +671,8 @@ export default function DashboardPage() {
   const [loanSummary, setLoanSummary] = useState<LoanSummary | null>(null);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [airfarePolicyRates, setAirfarePolicyRates] = useState<AirfarePolicyRate[]>([]);
+  const [selfServiceSummary, setSelfServiceSummary] = useState<EmployeeSelfServiceSummary | null>(null);
+  const [selfServiceRequests, setSelfServiceRequests] = useState<EmployeeAllowanceRequest[]>([]);
   const [allocationAttachments, setAllocationAttachments] = useState<Record<number, AllocationAttachment[]>>({});
   const [users, setUsers] = useState<AtlasUser[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -719,6 +761,17 @@ export default function DashboardPage() {
   const [selectedPolicyRateIds, setSelectedPolicyRateIds] = useState<Set<number>>(new Set());
   const [allocationFile, setAllocationFile] = useState<File | null>(null);
   const [allocationEligibilityReview, setAllocationEligibilityReview] = useState<AllocationEligibilityReview | null>(null);
+  const [selfServiceForm, setSelfServiceForm] = useState({
+    travelFromDate: today,
+    travelToDate: "",
+    origin: "Bahrain",
+    destination: "",
+    tripType: "RoundTrip",
+    cabinClass: "Economy",
+    estimatedCostBHD: "",
+    preferredAirline: "",
+    purpose: ""
+  });
   const [loanForm, setLoanForm] = useState({
     employeeId: "",
     amount: "0",
@@ -1242,7 +1295,7 @@ export default function DashboardPage() {
   async function loadLiveData(activeSession = session) {
     if (!activeSession) return;
     const reportYear = new Date().getFullYear();
-    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, intelligenceData, verificationData, integrityData, airfarePayableData] = await Promise.all([
+    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, intelligenceData, verificationData, integrityData, airfarePayableData] = await Promise.all([
       atlasFetch<Employee[]>("/employees?scope=active", activeSession.token, activeSession.sessionId),
       atlasFetch<Employee[]>("/employees?scope=all", activeSession.token, activeSession.sessionId),
       atlasFetch<Loan[]>("/loans/register", activeSession.token, activeSession.sessionId),
@@ -1252,6 +1305,8 @@ export default function DashboardPage() {
       activeSession.user.role === "admin" ? atlasFetch<Company[]>("/companies", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
       activeSession.user.role === "admin" ? atlasFetch<BackupFileInfo[]>("/admin/backups", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
       ["admin", "manager", "hr"].includes(activeSession.user.role) ? atlasFetch<AirfarePolicyRate[]>("/airfare-policy-rates", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
+      atlasFetch<EmployeeSelfServiceSummary>("/employee-self-service/summary", activeSession.token, activeSession.sessionId),
+      atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests", activeSession.token, activeSession.sessionId),
       atlasFetch<IntelligenceControlCenter>("/intelligence/control-center", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemVerification>("/intelligence/verification", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemIntegrityModel>(`/intelligence/system-integrity?year=${reportYear}`, activeSession.token, activeSession.sessionId),
@@ -1263,6 +1318,8 @@ export default function DashboardPage() {
     setLoanSummary(loanSummaryData);
     setAllocations(allocationData);
     setAirfarePolicyRates(policyData);
+    setSelfServiceSummary(selfServiceSummaryData);
+    setSelfServiceRequests(selfServiceRequestData);
     setCompanies(companyData);
     setBackupFiles(backupFileData);
     setIntelligence(intelligenceData);
@@ -1315,6 +1372,56 @@ export default function DashboardPage() {
       setEmployeeMasterAll(employeeMasterData);
     } finally {
       setPolicyEmployeesLoading(false);
+    }
+  }
+
+  async function reloadSelfService(activeSession = session) {
+    if (!activeSession) return;
+    const [summaryData, requestData] = await Promise.all([
+      atlasFetch<EmployeeSelfServiceSummary>("/employee-self-service/summary", activeSession.token, activeSession.sessionId),
+      atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests", activeSession.token, activeSession.sessionId)
+    ]);
+    setSelfServiceSummary(summaryData);
+    setSelfServiceRequests(requestData);
+  }
+
+  async function submitSelfServiceRequest(event: React.FormEvent) {
+    event.preventDefault();
+    if (!session) return;
+    setBusy(true);
+    try {
+      await atlasMutation<EmployeeAllowanceRequest>("/employee-self-service/requests", session.token, session.sessionId, "POST", {
+        ...selfServiceForm,
+        travelToDate: selfServiceForm.travelToDate || null,
+        estimatedCostBHD: Number(selfServiceForm.estimatedCostBHD || 0)
+      });
+      setSelfServiceForm((current) => ({
+        ...current,
+        destination: "",
+        estimatedCostBHD: "",
+        preferredAirline: "",
+        purpose: ""
+      }));
+      await reloadSelfService(session);
+      setMessage("Employee airfare request saved.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Employee airfare request failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function transitionSelfServiceRequest(requestId: number, toStatus: string) {
+    if (!session) return;
+    setBusy(true);
+    try {
+      await atlasMutation<EmployeeAllowanceRequest>(`/employee-self-service/requests/${requestId}/transition`, session.token, session.sessionId, "POST", { toStatus });
+      await reloadSelfService(session);
+      setMessage(`Request ${toStatus.toLowerCase()}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Request update failed.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -5289,6 +5396,113 @@ export default function DashboardPage() {
               </div>
             </div>
             )}
+          </section>
+        )}
+
+        {activeView === "Self Service" && (
+          <section className="self-service-grid">
+            <div className="glass-panel form-card">
+              <div className="card-title"><ClipboardCheck size={18} /> Employee Self-Service</div>
+              {selfServiceSummary?.setupRequired ? (
+                <div className="notice notice-warning">
+                  <span />
+                  <div>
+                    <strong>Employee mapping required</strong>
+                    <p>{selfServiceSummary.message || "Ask admin to map this login to an employee profile."}</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="summary-focus-row compact">
+                    <span><small>Employee</small><strong>{selfServiceSummary?.employee?.FullName || session.user.fullName || session.user.username}</strong></span>
+                    <span><small>Entitlement</small><strong>{money.format(Number(selfServiceSummary?.entitlement?.AirfareEntitlementAmount || 0))}</strong></span>
+                    <span><small>Payable</small><strong>{money.format(Number(selfServiceSummary?.entitlement?.PayableBHD || 0))}</strong></span>
+                    <span><small>Open requests</small><strong>{selfServiceSummary?.openRequests ?? selfServiceRequests.length}</strong></span>
+                  </div>
+                  <form className="form-grid" onSubmit={submitSelfServiceRequest}>
+                    <label>Travel date <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value })} required /></label>
+                    <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
+                    <label>From <input value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} /></label>
+                    <label>Destination <input value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} required /></label>
+                    <label>Trip type
+                      <select value={selfServiceForm.tripType} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, tripType: event.target.value })}>
+                        <option value="RoundTrip">Round trip</option>
+                        <option value="OneWay">One way</option>
+                        <option value="MultiCity">Multi city</option>
+                      </select>
+                    </label>
+                    <label>Class
+                      <select value={selfServiceForm.cabinClass} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, cabinClass: event.target.value })}>
+                        <option value="Economy">Economy</option>
+                        <option value="PremiumEconomy">Premium economy</option>
+                        <option value="Business">Business</option>
+                        <option value="First">First</option>
+                      </select>
+                    </label>
+                    <label>Estimated cost BHD <input type="number" min="0" step="0.01" value={selfServiceForm.estimatedCostBHD} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, estimatedCostBHD: event.target.value })} required /></label>
+                    <label>Preferred airline <input value={selfServiceForm.preferredAirline} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, preferredAirline: event.target.value })} /></label>
+                    <label className="span-2">Purpose <textarea value={selfServiceForm.purpose} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, purpose: event.target.value })} /></label>
+                    <button className="shine-button" type="submit" disabled={busy}>Submit request</button>
+                    <button className="secondary-button" type="button" disabled={busy} onClick={() => reloadSelfService()}>Refresh</button>
+                  </form>
+                </>
+              )}
+            </div>
+
+            <div className="glass-panel table-card">
+              <div className="card-title"><Plane size={18} /> My Airfare Requests</div>
+              <div className="responsive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Request</th>
+                      <th>Travel</th>
+                      <th>Destination</th>
+                      <th>Cost</th>
+                      <th>Payable</th>
+                      <th>Loan overflow</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selfServiceRequests.map((request) => (
+                      <tr key={request.RequestID}>
+                        <td>{request.RequestNo}</td>
+                        <td>{String(request.TravelFromDate || "").slice(0, 10)}</td>
+                        <td>{request.Destination}</td>
+                        <td>{money.format(Number(request.EstimatedCostBHD || 0))}</td>
+                        <td>{money.format(Number(request.PayableAtRequestBHD || 0))}</td>
+                        <td>{money.format(Number(request.OverageToLoanBHD || 0))}</td>
+                        <td><span className="status-pill">{request.ApprovalStatus}</span></td>
+                        <td>
+                          {request.ApprovalStatus === "Draft" ? (
+                            <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Submitted")}>Submit</button>
+                          ) : (
+                            <button className="mini-soft" type="button" disabled={busy || ["Cancelled", "Issued"].includes(request.ApprovalStatus)} onClick={() => transitionSelfServiceRequest(request.RequestID, "Cancelled")}>Cancel</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {selfServiceRequests.length === 0 && (
+                      <tr><td colSpan={8}>No self-service airfare requests found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="bilingual-print contract-preview">
+                <section className="contract-language english">
+                  <h3>Employment Offer</h3>
+                  <p>This document confirms the employee role, company policy obligations, and airfare eligibility under the approved ATLAS HCM allowance matrix.</p>
+                  <p>Ticket requests are reviewed against the current 60-day allowance cap and payroll loan overflow policy.</p>
+                </section>
+                <section className="contract-language arabic" dir="rtl" lang="ar">
+                  <h3>عرض العمل</h3>
+                  <p>تؤكد هذه الوثيقة وظيفة الموظف والتزامات سياسة الشركة واستحقاق تذاكر السفر وفق مصفوفة ATLAS HCM المعتمدة.</p>
+                  <p>تتم مراجعة طلبات التذاكر حسب حد الاستحقاق الحالي لمدة 60 يوما وسياسة تحويل الفائض إلى قرض الرواتب.</p>
+                </section>
+              </div>
+            </div>
           </section>
         )}
 
