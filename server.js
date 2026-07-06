@@ -6274,6 +6274,7 @@ app.get('/api/health', async (req, res) => {
             status: 'healthy',
             database: 'connected',
             payableReportSource: 'mssql-procedure-payable-bhd',
+            selfServiceWorkflowSource: 'phase2-same-port-allocation-link',
             timestamp: new Date().toISOString()
         });
     } catch (err) {

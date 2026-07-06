@@ -104,6 +104,9 @@ assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finaliz
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
 assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');
 assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"/, 'MSI should not hardcode DB_SERVER=localhost during update');
+assert.match(deployText, /RequireSelfServicePatch/i, 'Update finalizer should verify the Employee Self-Service workflow patch is active');
+assert.match(deployText, /Assert-SelfServicePatchInstalled/i, 'Update finalizer should inspect installed self-service frontend and backend files');
+assert.match(deployText, /phase2-same-port-allocation-link/i, 'Update finalizer should check the same-port self-service allocation-link marker');
 const msiBuilderText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Build-ATLAS-MSI.ps1'), 'utf8');
 assert.doesNotMatch(msiBuilderText, /RegistryValue Name="DB_(SERVER|PORT|NAME|USER|PASSWORD)/, 'MSI should not own database/company registry values during update');
 

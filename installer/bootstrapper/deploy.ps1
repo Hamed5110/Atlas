@@ -1325,12 +1325,14 @@ function Start-Atlas {
 function Test-AtlasHealth {
     param(
         [int]$PortNumber,
-        [switch]$RequirePayableReportPatch
+        [switch]$RequirePayableReportPatch,
+        [switch]$RequireSelfServicePatch
     )
     try {
         $response = Invoke-RestMethod -Uri "http://127.0.0.1:$PortNumber/api/health" -TimeoutSec 10
         if ($response.status -ne "healthy" -or $response.database -ne "connected") { return $false }
         if ($RequirePayableReportPatch -and $response.payableReportSource -ne "mssql-procedure-payable-bhd") { return $false }
+        if ($RequireSelfServicePatch -and $response.selfServiceWorkflowSource -ne "phase2-same-port-allocation-link") { return $false }
         return $true
     } catch {
         return $false
@@ -1350,8 +1352,34 @@ function Assert-PayableReportPatchInstalled {
     if ($serverText -notmatch "payableFromProcedure" -or $serverText -notmatch "mssql-procedure-payable-bhd") {
         throw "Patched backend verification failed: installed server.js does not contain the Payable Amount MSSQL procedure fix."
     }
-    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch)) {
+    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch -RequireSelfServicePatch)) {
         throw "Patched runtime verification failed: ATLAS is healthy but the running backend is not the Payable Amount patched build. Restart ATLAS or close old node.exe processes and retry the patch."
+    }
+}
+
+function Assert-SelfServicePatchInstalled {
+    param(
+        [string]$InstallPath,
+        [int]$PortNumber
+    )
+    $serverPath = Join-Path $InstallPath "server.js"
+    $pagePath = Join-Path $InstallPath "atlas-hcm-next\out\index.html"
+    if (-not (Test-Path -LiteralPath $serverPath)) {
+        throw "Self-service patch verification failed: server.js is missing from $InstallPath."
+    }
+    $serverText = Get-Content -LiteralPath $serverPath -Raw
+    if ($serverText -notmatch "phase2-same-port-allocation-link" -or $serverText -notmatch "createAllocationFromSelfServiceRequest") {
+        throw "Self-service patch verification failed: installed backend does not contain the same-port request-to-allocation workflow."
+    }
+    if (-not (Test-Path -LiteralPath $pagePath)) {
+        throw "Self-service patch verification failed: frontend export is missing from $pagePath."
+    }
+    $pageText = Get-Content -LiteralPath $pagePath -Raw
+    if ($pageText -notmatch "My Airfare Requests" -or $pageText -notmatch "New Ticket Request") {
+        throw "Self-service patch verification failed: installed frontend does not contain the updated self-service screen."
+    }
+    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch -RequireSelfServicePatch)) {
+        throw "Self-service runtime verification failed: ATLAS is healthy but the running backend is not the self-service allocation-link build. Stop old node.exe processes and rerun the patch as Administrator."
     }
 }
 
@@ -1364,7 +1392,7 @@ function Restart-AtlasForPatch {
     Start-Sleep -Seconds 2
     Start-Atlas -InstallPath $InstallPath
     Start-Sleep -Seconds 8
-    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch)) {
+    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch -RequireSelfServicePatch)) {
         Stop-AtlasPortOwner -PortNumber $PortNumber -InstallPath $InstallPath
         Start-Sleep -Seconds 2
         Start-Atlas -InstallPath $InstallPath
@@ -1661,17 +1689,19 @@ function Invoke-UpdateOnlyFinalize {
 
         "Step=Verify ATLAS health endpoint" | Add-Content $report
         Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "STARTED" -Message "Checking http://127.0.0.1:$effectivePort/api/health." -DataPath $DataRoot
-        if (-not (Test-AtlasHealth -PortNumber $effectivePort -RequirePayableReportPatch)) {
+        if (-not (Test-AtlasHealth -PortNumber $effectivePort -RequirePayableReportPatch -RequireSelfServicePatch)) {
             "Health=NotReady" | Add-Content $report
-            $warning = "HealthWarning=ATLAS did not become healthy with the Payable Amount patched backend on http://127.0.0.1:$effectivePort/api/health."
+            $warning = "HealthWarning=ATLAS did not become healthy with the Payable Amount and Employee Self-Service patched backend on http://127.0.0.1:$effectivePort/api/health."
             $warnings.Add($warning) | Out-Null
             $warning | Add-Content $report
-            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "WARNING" -Message "ATLAS did not become healthy with the Payable Amount patched backend on http://127.0.0.1:$effectivePort/api/health." -ErrorCode "ATLAS_PATCH_NOT_ACTIVE" -RemediationSuggestion "Open Task Manager, stop old node.exe ATLAS processes, then run the update patch again as Administrator." -DataPath $DataRoot
+            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "WARNING" -Message "ATLAS did not become healthy with the Payable Amount and Employee Self-Service patched backend on http://127.0.0.1:$effectivePort/api/health." -ErrorCode "ATLAS_PATCH_NOT_ACTIVE" -RemediationSuggestion "Open Task Manager, stop old node.exe ATLAS processes, then run the update patch again as Administrator." -DataPath $DataRoot
         } else {
             "Health=Healthy" | Add-Content $report
             "PayableReportPatch=Active" | Add-Content $report
-            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "OK" -Message "ATLAS health endpoint is healthy and running the Payable Amount patched backend." -DataPath $DataRoot
+            "SelfServicePatch=Active" | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "OK" -Message "ATLAS health endpoint is healthy and running the Payable Amount plus Employee Self-Service patched backend." -DataPath $DataRoot
             Assert-PayableReportPatchInstalled -InstallPath $InstallRoot -PortNumber $effectivePort
+            Assert-SelfServicePatchInstalled -InstallPath $InstallRoot -PortNumber $effectivePort
         }
         if ($warnings.Count -gt 0) {
             "PatchStatus=FAILED" | Add-Content $report

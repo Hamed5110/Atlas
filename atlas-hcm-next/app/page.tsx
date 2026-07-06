@@ -5427,7 +5427,7 @@ export default function DashboardPage() {
 
         {activeView === "Employee Self-Service" && (
           <section className="self-service-grid">
-            <div className="glass-panel form-card">
+            <div className="glass-panel self-service-summary-panel">
               <div className="card-title"><ClipboardCheck size={18} /> Employee Self-Service</div>
               {selfServiceSummary?.setupRequired ? (
                 <div className="notice notice-warning">
@@ -5438,40 +5438,12 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ) : (
-                <>
-                  <div className="summary-focus-row compact">
-                    <span><small>Employee</small><strong>{selfServiceSummary?.employee?.FullName || session.user.fullName || session.user.username}</strong></span>
-                    <span><small>Entitlement</small><strong>{money.format(Number(selfServiceSummary?.entitlement?.AirfareEntitlementAmount || 0))}</strong></span>
-                    <span><small>Payable</small><strong>{money.format(Number(selfServiceSummary?.entitlement?.PayableBHD || 0))}</strong></span>
-                    <span><small>Open requests</small><strong>{selfServiceSummary?.openRequests ?? selfServiceRequests.length}</strong></span>
-                  </div>
-                  <form className="form-grid" onSubmit={submitSelfServiceRequest}>
-                    <label>Travel date <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value })} required /></label>
-                    <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
-                    <label>From <input value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} /></label>
-                    <label>Destination <input value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} required /></label>
-                    <label>Trip type
-                      <select value={selfServiceForm.tripType} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, tripType: event.target.value })}>
-                        <option value="RoundTrip">Round trip</option>
-                        <option value="OneWay">One way</option>
-                        <option value="MultiCity">Multi city</option>
-                      </select>
-                    </label>
-                    <label>Class
-                      <select value={selfServiceForm.cabinClass} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, cabinClass: event.target.value })}>
-                        <option value="Economy">Economy</option>
-                        <option value="PremiumEconomy">Premium economy</option>
-                        <option value="Business">Business</option>
-                        <option value="First">First</option>
-                      </select>
-                    </label>
-                    <label>Estimated cost BHD <input type="number" min="0" step="0.01" value={selfServiceForm.estimatedCostBHD} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, estimatedCostBHD: event.target.value })} required /></label>
-                    <label>Preferred airline <input value={selfServiceForm.preferredAirline} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, preferredAirline: event.target.value })} /></label>
-                    <label className="span-2">Purpose <textarea value={selfServiceForm.purpose} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, purpose: event.target.value })} /></label>
-                    <button className="shine-button" type="submit" disabled={busy}>Submit request</button>
-                    <button className="secondary-button" type="button" disabled={busy} onClick={() => reloadSelfService()}>Refresh</button>
-                  </form>
-                </>
+                <div className="summary-focus-row compact">
+                  <span><small>Employee</small><strong>{selfServiceSummary?.employee?.FullName || session.user.fullName || session.user.username}</strong></span>
+                  <span><small>Entitlement</small><strong>{money.format(Number(selfServiceSummary?.entitlement?.AirfareEntitlementAmount || 0))}</strong></span>
+                  <span><small>Payable</small><strong>{money.format(Number(selfServiceSummary?.entitlement?.PayableBHD || 0))}</strong></span>
+                  <span><small>Open requests</small><strong>{selfServiceSummary?.openRequests ?? selfServiceRequests.length}</strong></span>
+                </div>
               )}
             </div>
 
@@ -5528,6 +5500,42 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            <div className="glass-panel form-card">
+              <div className="card-title"><ClipboardCheck size={18} /> New Ticket Request</div>
+              {selfServiceSummary?.setupRequired ? (
+                <p className="muted">Request entry is available after this login is mapped to an employee profile.</p>
+              ) : (
+                <>
+                  <form className="form-grid" onSubmit={submitSelfServiceRequest}>
+                    <label>Travel date <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value })} required /></label>
+                    <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
+                    <label>From <input value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} /></label>
+                    <label>Destination <input value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} required /></label>
+                    <label>Trip type
+                      <select value={selfServiceForm.tripType} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, tripType: event.target.value })}>
+                        <option value="RoundTrip">Round trip</option>
+                        <option value="OneWay">One way</option>
+                        <option value="MultiCity">Multi city</option>
+                      </select>
+                    </label>
+                    <label>Class
+                      <select value={selfServiceForm.cabinClass} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, cabinClass: event.target.value })}>
+                        <option value="Economy">Economy</option>
+                        <option value="PremiumEconomy">Premium economy</option>
+                        <option value="Business">Business</option>
+                        <option value="First">First</option>
+                      </select>
+                    </label>
+                    <label>Estimated cost BHD <input type="number" min="0" step="0.01" value={selfServiceForm.estimatedCostBHD} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, estimatedCostBHD: event.target.value })} required /></label>
+                    <label>Preferred airline <input value={selfServiceForm.preferredAirline} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, preferredAirline: event.target.value })} /></label>
+                    <label className="span-2">Purpose <textarea value={selfServiceForm.purpose} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, purpose: event.target.value })} /></label>
+                    <button className="shine-button" type="submit" disabled={busy}>Submit request</button>
+                    <button className="secondary-button" type="button" disabled={busy} onClick={() => reloadSelfService()}>Refresh</button>
+                  </form>
+                </>
+              )}
             </div>
           </section>
         )}
