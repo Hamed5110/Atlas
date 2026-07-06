@@ -798,6 +798,7 @@ export default function DashboardPage() {
     email: "",
     fullName: "",
     role: "viewer",
+    employeeId: "",
     department: "",
     branch: "",
     isActive: true
@@ -840,6 +841,8 @@ export default function DashboardPage() {
   const canSelectSelfServiceEmployee = Boolean(selfServiceSummary?.canSelectEmployee || ["admin", "manager", "hr"].includes(session?.user.role || ""));
   const selfServiceEmployees = employees.length ? employees : employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
   const activeSelfServiceEmployeeId = selfServiceEmployeeId || (selfServiceSummary?.employee?.EmployeeID ? String(selfServiceSummary.employee.EmployeeID) : "");
+  const userFormEmployeeOptions = employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
+  const selectedUserFormEmployee = userFormEmployeeOptions.find((employee) => employee.EmployeeID === Number(userForm.employeeId));
   const selectedPolicyDate = allocationForm.date ? new Date(`${allocationForm.date}T00:00:00`) : new Date();
   const currentAirfarePolicyRates = airfarePolicyRates.filter((rate) => rate.IsActive && !rate.EffectiveTo);
   const selectedEffectivePolicyRate = [...airfarePolicyRates]
@@ -3841,6 +3844,7 @@ export default function DashboardPage() {
         email: userForm.email,
         fullName: userForm.fullName,
         role: userForm.role,
+        employeeId: userForm.employeeId ? Number(userForm.employeeId) : null,
         department: userForm.department,
         branch: userForm.branch,
         isActive: userForm.isActive
@@ -3850,6 +3854,7 @@ export default function DashboardPage() {
         email: userForm.email,
         fullName: userForm.fullName,
         role: userForm.role,
+        employeeId: userForm.employeeId ? Number(userForm.employeeId) : null,
         department: userForm.department,
         branch: userForm.branch,
         isActive: userForm.isActive
@@ -3857,7 +3862,7 @@ export default function DashboardPage() {
       await atlasMutation(editingUserId ? `/users/${editingUserId}` : "/users", session.token, session.sessionId, editingUserId ? "PUT" : "POST", userPayload);
       const wasEditing = Boolean(editingUserId);
       setEditingUserId(null);
-      setUserForm({ username: "", password: "", email: "", fullName: "", role: "viewer", department: "", branch: "", isActive: true });
+      setUserForm({ username: "", password: "", email: "", fullName: "", role: "viewer", employeeId: "", department: "", branch: "", isActive: true });
       await loadLiveData();
       setMessage(wasEditing ? "User and rights updated." : "User created. Rights are controlled by role.");
     } catch (error) {
@@ -3865,6 +3870,39 @@ export default function DashboardPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function employeeUserFields(employee: Employee) {
+    return {
+      username: employee.EmployeeCode || "",
+      email: employee.Email || `${employee.EmployeeCode || "employee"}@atlas.local`,
+      fullName: employee.FullName || "",
+      department: employee.Department || "",
+      branch: employee.Branch || ""
+    };
+  }
+
+  function handleUserRoleChange(role: string) {
+    if (role === "employee") {
+      const employee = selectedUserFormEmployee || userFormEmployeeOptions[0];
+      setUserForm((current) => ({
+        ...current,
+        role,
+        employeeId: employee?.EmployeeID ? String(employee.EmployeeID) : current.employeeId,
+        ...(employee ? employeeUserFields(employee) : {})
+      }));
+      return;
+    }
+    setUserForm((current) => ({ ...current, role, employeeId: "" }));
+  }
+
+  function handleUserEmployeeChange(employeeId: string) {
+    const employee = userFormEmployeeOptions.find((item) => String(item.EmployeeID) === employeeId);
+    setUserForm((current) => ({
+      ...current,
+      employeeId,
+      ...(employee ? employeeUserFields(employee) : {})
+    }));
   }
 
   function handleEditUser(user: AtlasUser) {
@@ -3875,6 +3913,7 @@ export default function DashboardPage() {
       email: user.Email || "",
       fullName: user.FullName || "",
       role: user.Role || "viewer",
+      employeeId: user.EmployeeID ? String(user.EmployeeID) : "",
       department: user.Department || "",
       branch: user.Branch || "",
       isActive: user.IsActive
@@ -3885,7 +3924,7 @@ export default function DashboardPage() {
 
   function cancelUserEdit() {
     setEditingUserId(null);
-    setUserForm({ username: "", password: "", email: "", fullName: "", role: "viewer", department: "", branch: "", isActive: true });
+    setUserForm({ username: "", password: "", email: "", fullName: "", role: "viewer", employeeId: "", department: "", branch: "", isActive: true });
     setMessage("User edit cancelled.");
   }
 
@@ -6522,11 +6561,11 @@ export default function DashboardPage() {
             <div className="glass-panel form-card">
               <div className="card-title"><Plus size={18} /> {editingUserId ? "Edit user rights" : "Add user"}</div>
               <div className="form-grid one">
-                <input placeholder="Username" disabled={Boolean(editingUserId)} value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} />
+                <input placeholder="Username" disabled={Boolean(editingUserId) || userForm.role === "employee"} value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} />
                 <input placeholder={editingUserId ? "New password (optional)" : "Temporary password"} type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
-                <input placeholder="Email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
-                <input placeholder="Full name" value={userForm.fullName} onChange={(e) => setUserForm({ ...userForm, fullName: e.target.value })} />
-                <select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+                <input placeholder="Email" disabled={userForm.role === "employee"} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
+                <input placeholder="Full name" disabled={userForm.role === "employee"} value={userForm.fullName} onChange={(e) => setUserForm({ ...userForm, fullName: e.target.value })} />
+                <select value={userForm.role} onChange={(e) => handleUserRoleChange(e.target.value)}>
                   <option value="admin">Admin</option>
                   <option value="manager">Manager</option>
                   <option value="hr">HR</option>
@@ -6534,8 +6573,18 @@ export default function DashboardPage() {
                   <option value="user">User</option>
                   <option value="viewer">Viewer</option>
                 </select>
-                <input placeholder="Department" value={userForm.department} onChange={(e) => setUserForm({ ...userForm, department: e.target.value })} />
-                <input placeholder="Branch" value={userForm.branch} onChange={(e) => setUserForm({ ...userForm, branch: e.target.value })} />
+                {userForm.role === "employee" ? (
+                  <select value={userForm.employeeId} onChange={(event) => handleUserEmployeeChange(event.target.value)} required>
+                    <option value="">Select employee from master</option>
+                    {userFormEmployeeOptions.map((employee) => (
+                      <option key={employee.EmployeeID} value={employee.EmployeeID}>
+                        {employee.EmployeeCode} - {employee.FullName}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <input placeholder="Department" disabled={userForm.role === "employee"} value={userForm.department} onChange={(e) => setUserForm({ ...userForm, department: e.target.value })} />
+                <input placeholder="Branch" disabled={userForm.role === "employee"} value={userForm.branch} onChange={(e) => setUserForm({ ...userForm, branch: e.target.value })} />
                 <label className="switch-row"><input type="checkbox" checked={userForm.isActive} onChange={(event) => setUserForm({ ...userForm, isActive: event.target.checked })} /> Active user</label>
                 <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleCreateUser}>{editingUserId ? "Update user rights" : "Create user"}</button>
                 {editingUserId && <button className="soft-button" disabled={busy} onClick={cancelUserEdit}>Cancel edit</button>}

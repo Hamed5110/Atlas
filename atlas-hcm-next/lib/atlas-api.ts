@@ -209,6 +209,7 @@ export type Company = {
 
 export type AtlasUser = {
   UserID: number;
+  EmployeeID?: number;
   Username: string;
   Email: string;
   FullName: string;

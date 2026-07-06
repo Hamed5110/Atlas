@@ -924,6 +924,68 @@ async function resolveSelfServiceEmployeeId(db, context, user, requestedEmployee
     return Number(context.EmployeeID || 0);
 }
 
+async function getEmployeeForSelfServiceUser(db, employeeId) {
+    const result = await db.request()
+        .input('EmployeeID', sql.Int, Number(employeeId || 0))
+        .query(`
+            SELECT TOP 1 EmployeeID, EmployeeCode, FullName, Email, Department, Branch
+            FROM dbo.Employees
+            WHERE EmployeeID = @EmployeeID
+              AND dbo.fn_ATLAS_IsAirfareEligibleEmployeeStatus(Status) = 1
+        `);
+    const employee = result.recordset[0];
+    if (!employee) {
+        const err = new Error('Select an active employee from Employee Master for Employee Self-Service access.');
+        err.statusCode = 400;
+        throw err;
+    }
+    return employee;
+}
+
+async function syncEmployeeSelfServiceClaim(db, userId, role, employeeId, actorUserId) {
+    await ensureEmployeePortalExtensionSql(db);
+    if (role !== 'employee') {
+        await db.request()
+            .input('UserID', sql.Int, userId)
+            .query(`
+                UPDATE dbo.ext_employee_auth_claims
+                SET IsActive = 0
+                WHERE UserID = @UserID AND ClaimType = N'employee_portal' AND PortalRole = N'Employee';
+            `);
+        return null;
+    }
+
+    const employee = await getEmployeeForSelfServiceUser(db, employeeId);
+    await db.request()
+        .input('UserID', sql.Int, userId)
+        .input('EmployeeID', sql.Int, employee.EmployeeID)
+        .input('ClaimValue', sql.NVarChar(200), employee.EmployeeCode)
+        .input('CreatedBy', sql.Int, actorUserId || userId)
+        .query(`
+            UPDATE dbo.ext_employee_auth_claims
+            SET IsActive = 0
+            WHERE UserID = @UserID AND ClaimType = N'employee_portal' AND EmployeeID <> @EmployeeID;
+
+            IF EXISTS (
+                SELECT 1 FROM dbo.ext_employee_auth_claims
+                WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal'
+            )
+            BEGIN
+                UPDATE dbo.ext_employee_auth_claims
+                SET ClaimValue = @ClaimValue,
+                    PortalRole = N'Employee',
+                    IsActive = 1
+                WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal';
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, CreatedBy)
+                VALUES (@UserID, @EmployeeID, N'employee_portal', @ClaimValue, N'Employee', @CreatedBy);
+            END
+        `);
+    return employee;
+}
+
 async function fallbackDeactivateAirfarePolicyRate(db, policyRateId, deletedBy, deleteReason) {
     const result = await db.request()
         .input('PolicyRateID', sql.BigInt, policyRateId)
@@ -2703,9 +2765,16 @@ app.get('/api/users', authenticateToken, requireRole('admin'), async (req, res) 
     try {
         const db = await getConnection();
         const result = await db.request().query(`
-            SELECT UserID, Username, Email, FullName, Role, Department, Branch, IsActive, LastLogin, CreatedAt
-            FROM Users
-            ORDER BY IsActive DESC, Username
+            SELECT u.UserID, u.Username, u.Email, u.FullName, u.Role, u.Department, u.Branch,
+                   u.IsActive, u.LastLogin, u.CreatedAt, c.EmployeeID
+            FROM Users u
+            OUTER APPLY (
+                SELECT TOP 1 EmployeeID
+                FROM dbo.ext_employee_auth_claims
+                WHERE UserID = u.UserID AND ClaimType = N'employee_portal' AND IsActive = 1
+                ORDER BY CASE WHEN PortalRole = N'Employee' THEN 0 ELSE 1 END, ClaimID
+            ) c
+            ORDER BY u.IsActive DESC, u.Username
         `);
         res.json(result.recordset);
     } catch (err) {
@@ -2722,6 +2791,7 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
         email: Joi.string().email().required(),
         fullName: Joi.string().max(100).required(),
         role: Joi.string().valid('admin', 'manager', 'hr', 'employee', 'user', 'viewer').required(),
+        employeeId: Joi.number().integer().allow(null),
         department: Joi.string().allow('', null).max(50),
         branch: Joi.string().allow('', null).max(50),
         isActive: Joi.boolean().default(true)
@@ -2732,15 +2802,23 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
 
     try {
         const db = await getConnection();
+        const employee = value.role === 'employee' ? await getEmployeeForSelfServiceUser(db, value.employeeId) : null;
+        const userValues = employee ? {
+            username: employee.EmployeeCode,
+            email: employee.Email || `${employee.EmployeeCode}@atlas.local`,
+            fullName: employee.FullName,
+            department: employee.Department || value.department || null,
+            branch: employee.Branch || value.branch || null
+        } : value;
         const passwordHash = await bcrypt.hash(value.password, 12);
         const result = await db.request()
-            .input('Username', sql.NVarChar(50), value.username)
+            .input('Username', sql.NVarChar(50), userValues.username)
             .input('PasswordHash', sql.NVarChar(255), passwordHash)
-            .input('Email', sql.NVarChar(100), value.email)
-            .input('FullName', sql.NVarChar(100), value.fullName)
+            .input('Email', sql.NVarChar(100), userValues.email)
+            .input('FullName', sql.NVarChar(100), userValues.fullName)
             .input('Role', sql.NVarChar(20), value.role)
-            .input('Department', sql.NVarChar(50), value.department || null)
-            .input('Branch', sql.NVarChar(50), value.branch || null)
+            .input('Department', sql.NVarChar(50), userValues.department || null)
+            .input('Branch', sql.NVarChar(50), userValues.branch || null)
             .input('IsActive', sql.Bit, value.isActive ? 1 : 0)
             .input('CreatedBy', sql.Int, req.user.userId)
             .query(`INSERT INTO Users (Username, PasswordHash, Email, FullName, Role, Department, Branch, IsActive, CreatedBy)
@@ -2748,7 +2826,8 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
                     VALUES (@Username, @PasswordHash, @Email, @FullName, @Role, @Department, @Branch, @IsActive, @CreatedBy)`);
 
         const newUser = result.recordset[0];
-        await logAudit(req.user.userId, req.user.username, 'CREATE', 'User', newUser.UserID, null, newUser, `Created user ${value.username}`, req);
+        await syncEmployeeSelfServiceClaim(db, newUser.UserID, value.role, employee?.EmployeeID || value.employeeId, req.user.userId);
+        await logAudit(req.user.userId, req.user.username, 'CREATE', 'User', newUser.UserID, null, newUser, `Created user ${newUser.Username}`, req);
         res.status(201).json(newUser);
     } catch (err) {
         logger.error('Create user error:', err);
@@ -2766,6 +2845,7 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
         email: Joi.string().email().required(),
         fullName: Joi.string().max(100).required(),
         role: Joi.string().valid('admin', 'manager', 'hr', 'employee', 'user', 'viewer').required(),
+        employeeId: Joi.number().integer().allow(null),
         department: Joi.string().allow('', null).max(50),
         branch: Joi.string().allow('', null).max(50),
         isActive: Joi.boolean().required()
@@ -2782,13 +2862,22 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
         const oldUser = oldResult.recordset[0];
         if (!oldUser) return res.status(404).json({ error: 'User not found' });
 
+        const employee = value.role === 'employee' ? await getEmployeeForSelfServiceUser(db, value.employeeId) : null;
+        const userValues = employee ? {
+            username: employee.EmployeeCode,
+            email: employee.Email || `${employee.EmployeeCode}@atlas.local`,
+            fullName: employee.FullName,
+            department: employee.Department || value.department || null,
+            branch: employee.Branch || value.branch || null
+        } : value;
         const request = db.request()
             .input('UserID', sql.Int, req.params.id)
-            .input('Email', sql.NVarChar(100), value.email)
-            .input('FullName', sql.NVarChar(100), value.fullName)
+            .input('Username', sql.NVarChar(50), employee ? userValues.username : oldUser.Username)
+            .input('Email', sql.NVarChar(100), userValues.email)
+            .input('FullName', sql.NVarChar(100), userValues.fullName)
             .input('Role', sql.NVarChar(20), value.role)
-            .input('Department', sql.NVarChar(50), value.department || null)
-            .input('Branch', sql.NVarChar(50), value.branch || null)
+            .input('Department', sql.NVarChar(50), userValues.department || null)
+            .input('Branch', sql.NVarChar(50), userValues.branch || null)
             .input('IsActive', sql.Bit, value.isActive ? 1 : 0)
             .input('UpdatedBy', sql.Int, req.user.userId);
 
@@ -2799,18 +2888,19 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
         }
 
         const updatedResult = await request.query(`UPDATE Users
-            SET Email = @Email, FullName = @FullName, Role = @Role, Department = @Department, Branch = @Branch,
+            SET Username = @Username, Email = @Email, FullName = @FullName, Role = @Role, Department = @Department, Branch = @Branch,
                 IsActive = @IsActive, UpdatedAt = GETDATE(), UpdatedBy = @UpdatedBy ${passwordSql}
             OUTPUT INSERTED.UserID, INSERTED.Username, INSERTED.Email, INSERTED.FullName, INSERTED.Role,
                 INSERTED.Department, INSERTED.Branch, INSERTED.IsActive, INSERTED.UpdatedAt
             WHERE UserID = @UserID`);
 
         const updatedUser = updatedResult.recordset[0];
+        await syncEmployeeSelfServiceClaim(db, updatedUser.UserID, value.role, employee?.EmployeeID || value.employeeId, req.user.userId);
         await logAudit(req.user.userId, req.user.username, 'UPDATE', 'User', req.params.id, oldUser, updatedUser, `Updated user ${oldUser.Username}`, req);
         res.json(updatedUser);
     } catch (err) {
         logger.error('Update user error:', err);
-        res.status(500).json({ error: 'Server error' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Server error' });
     }
 });
 
@@ -3616,7 +3706,7 @@ app.post('/api/employees/import', authenticateToken, requireRole('admin', 'manag
         });
     } catch (err) {
         logger.error('Employee import error:', err);
-        res.status(500).json({ error: 'Server error' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Server error' });
     }
 });
 

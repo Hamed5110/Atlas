@@ -29,5 +29,11 @@ assert.match(pageText, /changeSelfServiceEmployee/, 'self-service employee selec
 assert.match(pageText, /employeeId:\s*activeSelfServiceEmployeeId/, 'self-service submit should send the selected employee id for privileged users');
 assert.match(pageText, /<option value="employee">Employee Self-Service<\/option>/, 'Security screen should expose an Employee Self-Service user role');
 assert.match(serverText, /valid\('admin', 'manager', 'hr', 'employee', 'user', 'viewer'\)/, 'backend should accept the Employee Self-Service user role');
+assert.match(pageText, /handleUserEmployeeChange/, 'Security ESS user form should select an employee from Employee Master');
+assert.match(pageText, /employeeUserFields/, 'Security ESS user form should copy details from Employee Master');
+assert.match(pageText, /Select employee from master/, 'Security ESS user form should show an employee selector');
+assert.match(serverText, /syncEmployeeSelfServiceClaim/, 'backend should create the ESS user-to-employee mapping claim');
+assert.match(serverText, /getEmployeeForSelfServiceUser/, 'backend should validate the selected Employee Master row');
+assert.match(serverText, /Username = @Username/, 'backend should bind ESS usernames to the selected employee code');
 
 console.log('Employee self-service allocation link source checks passed');
