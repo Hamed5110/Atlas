@@ -453,7 +453,10 @@ function Ensure-DataDirectories {
 }
 
 function Stop-PreviousAtlasRuntime {
-    param([string]$InstallPath)
+    param(
+        [string]$InstallPath,
+        [int]$PortNumber = 0
+    )
     Write-Step "Checking previous ATLAS runtime and startup task."
     $taskName = "ATLAS Airfare Allowance"
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -471,6 +474,31 @@ function Stop-PreviousAtlasRuntime {
             Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
             Write-Step "Stopped previous ATLAS node process $($process.ProcessId)."
         } catch {}
+    }
+    if ($PortNumber -gt 0) {
+        Stop-AtlasPortOwner -PortNumber $PortNumber -InstallPath $InstallPath
+    }
+}
+
+function Stop-AtlasPortOwner {
+    param(
+        [int]$PortNumber,
+        [string]$InstallPath
+    )
+    $normalizedInstall = ([string]$InstallPath).TrimEnd("\")
+    $listeners = @(Get-NetTCPConnection -LocalPort $PortNumber -State Listen -ErrorAction SilentlyContinue)
+    foreach ($listener in $listeners) {
+        $pid = [int]$listener.OwningProcess
+        if ($pid -le 0 -or $pid -eq $PID) { continue }
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+        $commandLine = [string]$process.CommandLine
+        $processName = [string]$process.Name
+        $looksLikeAtlas = $commandLine -like "*$normalizedInstall*" -or $commandLine -match "(^|\\s)server\.js(\\s|$)" -or $processName -ieq "node.exe"
+        if (-not $looksLikeAtlas) {
+            throw "Port $PortNumber is already in use by process $pid ($processName), but it does not look like ATLAS. Stop that process or choose another ATLAS port."
+        }
+        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        Write-Step "Stopped ATLAS process $pid holding port $PortNumber."
     }
 }
 
@@ -1327,6 +1355,23 @@ function Assert-PayableReportPatchInstalled {
     }
 }
 
+function Restart-AtlasForPatch {
+    param(
+        [string]$InstallPath,
+        [int]$PortNumber
+    )
+    Stop-PreviousAtlasRuntime -InstallPath $InstallPath -PortNumber $PortNumber
+    Start-Sleep -Seconds 2
+    Start-Atlas -InstallPath $InstallPath
+    Start-Sleep -Seconds 8
+    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch)) {
+        Stop-AtlasPortOwner -PortNumber $PortNumber -InstallPath $InstallPath
+        Start-Sleep -Seconds 2
+        Start-Atlas -InstallPath $InstallPath
+        Start-Sleep -Seconds 8
+    }
+}
+
 function Invoke-AtlasDatabaseObjectRepair {
     param(
         [string]$InstallPath,
@@ -1567,8 +1612,7 @@ function Invoke-UpdateOnlyFinalize {
         try {
             "Step=Restart ATLAS service task" | Add-Content $report
             Write-InstallDebugEvent -CurrentStep "Restart ATLAS service task" -Status "STARTED" -Message "Refreshing scheduled task and starting ATLAS." -DataPath $DataRoot
-            Start-Atlas -InstallPath $InstallRoot
-            Start-Sleep -Seconds 8
+            Restart-AtlasForPatch -InstallPath $InstallRoot -PortNumber $effectivePort
             Write-InstallDebugEvent -CurrentStep "Restart ATLAS service task" -Status "OK" -Message "ATLAS startup task completed." -DataPath $DataRoot
         } catch {
             $warning = "StartWarning=$($_.Exception.Message)"
