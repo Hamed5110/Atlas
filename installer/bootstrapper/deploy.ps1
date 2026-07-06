@@ -1363,7 +1363,7 @@ function Assert-SelfServicePatchInstalled {
         [int]$PortNumber
     )
     $serverPath = Join-Path $InstallPath "server.js"
-    $pagePath = Join-Path $InstallPath "atlas-hcm-next\out\index.html"
+    $frontendPath = Join-Path $InstallPath "atlas-hcm-next\out"
     if (-not (Test-Path -LiteralPath $serverPath)) {
         throw "Self-service patch verification failed: server.js is missing from $InstallPath."
     }
@@ -1371,11 +1371,23 @@ function Assert-SelfServicePatchInstalled {
     if ($serverText -notmatch "phase2-same-port-allocation-link" -or $serverText -notmatch "createAllocationFromSelfServiceRequest") {
         throw "Self-service patch verification failed: installed backend does not contain the same-port request-to-allocation workflow."
     }
-    if (-not (Test-Path -LiteralPath $pagePath)) {
-        throw "Self-service patch verification failed: frontend export is missing from $pagePath."
+    if (-not (Test-Path -LiteralPath $frontendPath)) {
+        throw "Self-service patch verification failed: frontend export is missing from $frontendPath."
     }
-    $pageText = Get-Content -LiteralPath $pagePath -Raw
-    if ($pageText -notmatch "My Airfare Requests" -or $pageText -notmatch "New Ticket Request") {
+    $frontendFiles = Get-ChildItem -LiteralPath $frontendPath -Recurse -File -ErrorAction Stop |
+        Where-Object { $_.Extension -in @(".html", ".js", ".txt") }
+    $hasRequestWorkflow = $false
+    $hasRequestEntry = $false
+    foreach ($file in $frontendFiles) {
+        if (-not $hasRequestWorkflow -and (Select-String -LiteralPath $file.FullName -Pattern "My Airfare Requests" -SimpleMatch -Quiet -ErrorAction SilentlyContinue)) {
+            $hasRequestWorkflow = $true
+        }
+        if (-not $hasRequestEntry -and (Select-String -LiteralPath $file.FullName -Pattern "New Ticket" -SimpleMatch -Quiet -ErrorAction SilentlyContinue)) {
+            $hasRequestEntry = $true
+        }
+        if ($hasRequestWorkflow -and $hasRequestEntry) { break }
+    }
+    if (-not $hasRequestWorkflow -or -not $hasRequestEntry) {
         throw "Self-service patch verification failed: installed frontend does not contain the updated self-service screen."
     }
     if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch -RequireSelfServicePatch)) {

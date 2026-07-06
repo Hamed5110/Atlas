@@ -107,6 +107,8 @@ assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"
 assert.match(deployText, /RequireSelfServicePatch/i, 'Update finalizer should verify the Employee Self-Service workflow patch is active');
 assert.match(deployText, /Assert-SelfServicePatchInstalled/i, 'Update finalizer should inspect installed self-service frontend and backend files');
 assert.match(deployText, /phase2-same-port-allocation-link/i, 'Update finalizer should check the same-port self-service allocation-link marker');
+assert.match(deployText, /Get-ChildItem -LiteralPath \$frontendPath -Recurse -File/i, 'Self-service verifier should scan the exported frontend chunks, not only index.html');
+assert.doesNotMatch(deployText, /atlas-hcm-next\\out\\index\.html/i, 'Self-service verifier must not rely only on Next.js index.html');
 const msiBuilderText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Build-ATLAS-MSI.ps1'), 'utf8');
 assert.doesNotMatch(msiBuilderText, /RegistryValue Name="DB_(SERVER|PORT|NAME|USER|PASSWORD)/, 'MSI should not own database/company registry values during update');
 
