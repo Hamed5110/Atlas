@@ -18,5 +18,8 @@ assert.match(pageText, /self-service-summary-panel[^]*My Airfare Requests[^]*New
 assert.match(extensionSql, /LinkedAllocationID/, 'employee portal extension SQL does not expose LinkedAllocationID');
 assert.match(extensionSql, /FK_ext_employee_allowance_requests_Allocation/, 'employee portal extension SQL does not protect the allocation link');
 assert.match(serverText, /selfServiceWorkflowSource:\s*'phase2-same-port-allocation-link'/, 'health endpoint should expose the self-service workflow patch marker');
+assert.match(serverText, /admin-default:\$\{adminFallback\.Username \|\| adminFallback\.UserID\}/, 'admin self-service fallback claim is missing');
+assert.match(serverText, /LOWER\(u\.Role\) IN \(N'admin', N'manager', N'hr'\)/, 'admin self-service fallback should only apply to privileged users');
+assert.match(serverText, /fn_ATLAS_IsAirfareEligibleEmployeeStatus\(Status\)/, 'admin self-service fallback should choose an active airfare-eligible employee');
 
 console.log('Employee self-service allocation link source checks passed');

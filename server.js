@@ -848,6 +848,41 @@ async function resolveEmployeePortalContext(db, userId) {
         return { ...autoMap, PortalRole: portalRole, setupRequired: false };
     }
 
+    const adminFallbackResult = await db.request()
+        .input('UserID', sql.Int, userId)
+        .query(`
+            SELECT TOP 1 u.UserID, u.Username, u.Email, u.Role, e.EmployeeID, e.EmployeeCode, e.FullName, e.Department, e.Designation
+            FROM dbo.Users u
+            CROSS APPLY (
+                SELECT TOP 1 EmployeeID, EmployeeCode, FullName, Department, Designation
+                FROM dbo.Employees
+                WHERE dbo.fn_ATLAS_IsAirfareEligibleEmployeeStatus(Status) = 1
+                ORDER BY
+                    CASE WHEN TRY_CONVERT(INT, EmployeeCode) IS NULL THEN 1 ELSE 0 END,
+                    TRY_CONVERT(INT, EmployeeCode),
+                    EmployeeID
+            ) e
+            WHERE u.UserID = @UserID
+              AND u.IsActive = 1
+              AND LOWER(u.Role) IN (N'admin', N'manager', N'hr')
+        `);
+    const adminFallback = adminFallbackResult.recordset[0];
+    if (adminFallback) {
+        await db.request()
+            .input('UserID', sql.Int, userId)
+            .input('EmployeeID', sql.Int, adminFallback.EmployeeID)
+            .input('ClaimValue', sql.NVarChar(200), `admin-default:${adminFallback.Username || adminFallback.UserID}`)
+            .query(`
+                IF NOT EXISTS (
+                    SELECT 1 FROM dbo.ext_employee_auth_claims
+                    WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal'
+                )
+                INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, CreatedBy)
+                VALUES (@UserID, @EmployeeID, N'employee_portal', @ClaimValue, N'Admin', @UserID);
+            `);
+        return { ...adminFallback, PortalRole: 'Admin', setupRequired: false };
+    }
+
     const userResult = await db.request()
         .input('UserID', sql.Int, userId)
         .query('SELECT TOP 1 UserID, Username, Email, Role FROM dbo.Users WHERE UserID = @UserID');
