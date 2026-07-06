@@ -22,6 +22,8 @@ assert.match(css, /\.payment-card:not\(\.read-only\):not\(:disabled\):hover/, "o
 assert.match(css, /\.payment-card\.read-only\s*{[\s\S]*cursor:\s*default/, "read-only amount cards should not look clickable");
 assert.match(css, /\.top-actions\s*{[\s\S]*flex-wrap:\s*wrap/, "topbar actions should wrap instead of overflowing");
 assert.match(css, /\.nav-item\s+svg\s*{[\s\S]*width:\s*22px[\s\S]*stroke-width:\s*2\.4/, "sidebar icons should remain visible and consistent");
+assert.match(css, /\.sidebar\s+nav\s*{[\s\S]*overflow-y:\s*auto/, "sidebar navigation should scroll independently when the menu is taller than the viewport");
+assert.match(css, /@media \(max-width:\s*1120px\)[\s\S]*\.sidebar\s+nav\s*{[\s\S]*overflow:\s*visible/, "responsive sidebar should return to normal page scrolling on smaller screens");
 assert.match(css, /\.preview-table,\s*\.preview-grid\s*{[\s\S]*overflow-x:\s*auto/, "import preview grids should stay aligned when columns are wide");
 assert.match(css, /\.table-row\s*>\s*span\s*{[\s\S]*overflow-wrap:\s*anywhere/, "table cells should wrap long values safely");
 assert.match(css, /\.auth-split\s*{[\s\S]*grid-template-columns/, "login page should use split layout");

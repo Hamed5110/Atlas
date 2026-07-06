@@ -321,10 +321,12 @@ input, select, button { max-width: 100%; }
   position: sticky;
   top: 14px;
   height: calc(100vh - 28px);
+  min-height: 0;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow: hidden;
   transition: width .2s ease, padding .2s ease;
 }
 .sidebar-toggle {
@@ -398,7 +400,27 @@ input, select, button { max-width: 100%; }
   background: #111827;
   border-color: var(--line);
 }
-nav { display: grid; gap: 8px; }
+nav {
+  display: grid;
+  gap: 8px;
+}
+.sidebar nav {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+.sidebar nav::-webkit-scrollbar {
+  width: 8px;
+}
+.sidebar nav::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, .36);
+  border-radius: 999px;
+}
+.sidebar nav::-webkit-scrollbar-track {
+  background: transparent;
+}
 .nav-item {
   width: 100%;
   border: 1px solid transparent;
@@ -433,7 +455,7 @@ nav { display: grid; gap: 8px; }
   color: var(--blue);
 }
 .sidebar-card {
-  margin-top: auto;
+  flex: 0 0 auto;
   display: grid;
   gap: 8px;
   padding: 16px;
@@ -453,6 +475,10 @@ nav { display: grid; gap: 8px; }
 .sidebar-collapsed .sidebar {
   padding: 12px 10px;
   align-items: center;
+}
+.sidebar-collapsed .sidebar nav {
+  width: 100%;
+  padding-right: 0;
 }
 .sidebar-collapsed .brand-mark {
   justify-content: center;
@@ -2865,7 +2891,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .sidebar-collapsed { grid-template-columns: 1fr; }
   .auth-split { grid-template-columns: 1fr; }
   .auth-brand-panel { min-height: 420px; }
-  .sidebar { position: static; height: auto; align-items: stretch; }
+  .sidebar { position: static; height: auto; max-height: none; align-items: stretch; overflow: visible; }
+  .sidebar nav { max-height: none; overflow: visible; padding-right: 0; }
   .sidebar-toggle { display: none; }
   .sidebar-collapsed .sidebar-text,
   .sidebar-collapsed .company-switcher,
