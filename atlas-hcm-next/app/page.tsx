@@ -99,6 +99,7 @@ type AirfarePolicyDeleteResult = {
 };
 type EmployeeSelfServiceSummary = {
   setupRequired: boolean;
+  canSelectEmployee?: boolean;
   message?: string;
   employee: null | {
     EmployeeID: number;
@@ -673,6 +674,7 @@ export default function DashboardPage() {
   const [airfarePolicyRates, setAirfarePolicyRates] = useState<AirfarePolicyRate[]>([]);
   const [selfServiceSummary, setSelfServiceSummary] = useState<EmployeeSelfServiceSummary | null>(null);
   const [selfServiceRequests, setSelfServiceRequests] = useState<EmployeeAllowanceRequest[]>([]);
+  const [selfServiceEmployeeId, setSelfServiceEmployeeId] = useState("");
   const [allocationAttachments, setAllocationAttachments] = useState<Record<number, AllocationAttachment[]>>({});
   const [users, setUsers] = useState<AtlasUser[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -835,6 +837,9 @@ export default function DashboardPage() {
 
   const calcResult = calculateAirfare(calcInput);
   const selectedEmployee = employees.find((item) => item.EmployeeID === Number(allocationForm.employeeId));
+  const canSelectSelfServiceEmployee = Boolean(selfServiceSummary?.canSelectEmployee || ["admin", "manager", "hr"].includes(session?.user.role || ""));
+  const selfServiceEmployees = employees.length ? employees : employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
+  const activeSelfServiceEmployeeId = selfServiceEmployeeId || (selfServiceSummary?.employee?.EmployeeID ? String(selfServiceSummary.employee.EmployeeID) : "");
   const selectedPolicyDate = allocationForm.date ? new Date(`${allocationForm.date}T00:00:00`) : new Date();
   const currentAirfarePolicyRates = airfarePolicyRates.filter((rate) => rate.IsActive && !rate.EffectiveTo);
   const selectedEffectivePolicyRate = [...airfarePolicyRates]
@@ -1292,6 +1297,10 @@ export default function DashboardPage() {
     };
   }, [session, selectedEmployee?.EmployeeID, allocationForm.date, selectedAllocationYear, editingAllocationId, allocations.length, selectedCompanyId]);
 
+  function selfServiceEmployeeQuery(employeeId = activeSelfServiceEmployeeId) {
+    return canSelectSelfServiceEmployee && employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : "";
+  }
+
   async function loadLiveData(activeSession = session) {
     if (!activeSession) return;
     const reportYear = new Date().getFullYear();
@@ -1305,8 +1314,8 @@ export default function DashboardPage() {
       activeSession.user.role === "admin" ? atlasFetch<Company[]>("/companies", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
       activeSession.user.role === "admin" ? atlasFetch<BackupFileInfo[]>("/admin/backups", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
       ["admin", "manager", "hr"].includes(activeSession.user.role) ? atlasFetch<AirfarePolicyRate[]>("/airfare-policy-rates", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
-      atlasFetch<EmployeeSelfServiceSummary>("/employee-self-service/summary", activeSession.token, activeSession.sessionId),
-      atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests", activeSession.token, activeSession.sessionId),
+      atlasFetch<EmployeeSelfServiceSummary>(`/employee-self-service/summary${selfServiceEmployeeQuery()}`, activeSession.token, activeSession.sessionId),
+      atlasFetch<EmployeeAllowanceRequest[]>(`/employee-self-service/requests${selfServiceEmployeeQuery()}`, activeSession.token, activeSession.sessionId),
       atlasFetch<IntelligenceControlCenter>("/intelligence/control-center", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemVerification>("/intelligence/verification", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemIntegrityModel>(`/intelligence/system-integrity?year=${reportYear}`, activeSession.token, activeSession.sessionId),
@@ -1320,6 +1329,7 @@ export default function DashboardPage() {
     setAirfarePolicyRates(policyData);
     setSelfServiceSummary(selfServiceSummaryData);
     setSelfServiceRequests(selfServiceRequestData);
+    setSelfServiceEmployeeId((current) => current || (selfServiceSummaryData.employee?.EmployeeID ? String(selfServiceSummaryData.employee.EmployeeID) : ""));
     setCompanies(companyData);
     setBackupFiles(backupFileData);
     setIntelligence(intelligenceData);
@@ -1375,14 +1385,20 @@ export default function DashboardPage() {
     }
   }
 
-  async function reloadSelfService(activeSession = session) {
+  async function reloadSelfService(activeSession = session, employeeId = activeSelfServiceEmployeeId) {
     if (!activeSession) return;
     const [summaryData, requestData] = await Promise.all([
-      atlasFetch<EmployeeSelfServiceSummary>("/employee-self-service/summary", activeSession.token, activeSession.sessionId),
-      atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests", activeSession.token, activeSession.sessionId)
+      atlasFetch<EmployeeSelfServiceSummary>(`/employee-self-service/summary${selfServiceEmployeeQuery(employeeId)}`, activeSession.token, activeSession.sessionId),
+      atlasFetch<EmployeeAllowanceRequest[]>(`/employee-self-service/requests${selfServiceEmployeeQuery(employeeId)}`, activeSession.token, activeSession.sessionId)
     ]);
     setSelfServiceSummary(summaryData);
     setSelfServiceRequests(requestData);
+    setSelfServiceEmployeeId(employeeId || (summaryData.employee?.EmployeeID ? String(summaryData.employee.EmployeeID) : ""));
+  }
+
+  async function changeSelfServiceEmployee(employeeId: string) {
+    setSelfServiceEmployeeId(employeeId);
+    if (session) await reloadSelfService(session, employeeId);
   }
 
   async function submitSelfServiceRequest(event: React.FormEvent) {
@@ -1392,6 +1408,7 @@ export default function DashboardPage() {
     try {
       await atlasMutation<EmployeeAllowanceRequest>("/employee-self-service/requests", session.token, session.sessionId, "POST", {
         ...selfServiceForm,
+        employeeId: activeSelfServiceEmployeeId ? Number(activeSelfServiceEmployeeId) : undefined,
         travelToDate: selfServiceForm.travelToDate || null,
         estimatedCostBHD: Number(selfServiceForm.estimatedCostBHD || 0)
       });
@@ -1402,7 +1419,7 @@ export default function DashboardPage() {
         preferredAirline: "",
         purpose: ""
       }));
-      await reloadSelfService(session);
+      await reloadSelfService(session, activeSelfServiceEmployeeId);
       setMessage("Employee airfare request saved.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Employee airfare request failed.");
@@ -1416,7 +1433,7 @@ export default function DashboardPage() {
     setBusy(true);
     try {
       const updated = await atlasMutation<EmployeeAllowanceRequest>(`/employee-self-service/requests/${requestId}/transition`, session.token, session.sessionId, "POST", { toStatus });
-      await reloadSelfService(session);
+      await reloadSelfService(session, activeSelfServiceEmployeeId);
       const allocationNote = updated.LinkedAllocationID ? ` Allocation #${updated.LinkedAllocationID} is linked.` : "";
       setMessage(`Request ${toStatus.toLowerCase()}.${allocationNote}`);
     } catch (err) {
@@ -5429,6 +5446,21 @@ export default function DashboardPage() {
           <section className="self-service-grid">
             <div className="glass-panel self-service-summary-panel">
               <div className="card-title"><ClipboardCheck size={18} /> Employee Self-Service</div>
+              {canSelectSelfServiceEmployee && !selfServiceSummary?.setupRequired ? (
+                <div className="self-service-employee-picker">
+                  <label>
+                    Request for employee
+                    <select value={activeSelfServiceEmployeeId} onChange={(event) => changeSelfServiceEmployee(event.target.value)}>
+                      {selfServiceEmployees.map((employee) => (
+                        <option key={employee.EmployeeID} value={employee.EmployeeID}>
+                          {employee.EmployeeCode} - {employee.FullName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <small>Admin, manager, and HR users can prepare or review requests for selected employees.</small>
+                </div>
+              ) : null}
               {selfServiceSummary?.setupRequired ? (
                 <div className="notice notice-warning">
                   <span />
@@ -5510,6 +5542,17 @@ export default function DashboardPage() {
                 <>
                   <form className="form-grid" onSubmit={submitSelfServiceRequest}>
                     <label>Travel date <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value })} required /></label>
+                    {canSelectSelfServiceEmployee ? (
+                      <label>Employee
+                        <select value={activeSelfServiceEmployeeId} onChange={(event) => changeSelfServiceEmployee(event.target.value)} required>
+                          {selfServiceEmployees.map((employee) => (
+                            <option key={employee.EmployeeID} value={employee.EmployeeID}>
+                              {employee.EmployeeCode} - {employee.FullName}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
                     <label>From <input value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} /></label>
                     <label>Destination <input value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} required /></label>
@@ -6487,6 +6530,7 @@ export default function DashboardPage() {
                   <option value="admin">Admin</option>
                   <option value="manager">Manager</option>
                   <option value="hr">HR</option>
+                  <option value="employee">Employee Self-Service</option>
                   <option value="user">User</option>
                   <option value="viewer">Viewer</option>
                 </select>

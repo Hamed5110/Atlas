@@ -2636,6 +2636,42 @@ h3 { font-size: 20px; letter-spacing: 0; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.self-service-employee-picker {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.self-service-employee-picker label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.self-service-employee-picker select {
+  min-height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.self-service-employee-picker small {
+  color: var(--muted);
+  line-height: 1.5;
+  padding-bottom: 10px;
+}
+
 .summary-focus-row.compact {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -2968,6 +3004,9 @@ h3 { font-size: 20px; letter-spacing: 0; }
     grid-template-columns: 1fr;
   }
   .self-service-grid .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .self-service-employee-picker {
     grid-template-columns: 1fr;
   }
   .self-service-grid .span-2 {

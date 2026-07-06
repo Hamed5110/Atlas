@@ -21,5 +21,13 @@ assert.match(serverText, /selfServiceWorkflowSource:\s*'phase2-same-port-allocat
 assert.match(serverText, /admin-default:\$\{adminFallback\.Username \|\| adminFallback\.UserID\}/, 'admin self-service fallback claim is missing');
 assert.match(serverText, /LOWER\(u\.Role\) IN \(N'admin', N'manager', N'hr'\)/, 'admin self-service fallback should only apply to privileged users');
 assert.match(serverText, /fn_ATLAS_IsAirfareEligibleEmployeeStatus\(Status\)/, 'admin self-service fallback should choose an active airfare-eligible employee');
+assert.match(serverText, /function isPrivilegedSelfServiceUser/, 'self-service role guard helper is missing');
+assert.match(serverText, /async function resolveSelfServiceEmployeeId/, 'self-service employee selector resolver is missing');
+assert.match(serverText, /req\.query\.employeeId/, 'self-service summary and request APIs should accept a selected employee id');
+assert.match(pageText, /Request for employee/, 'self-service admin employee selector is missing');
+assert.match(pageText, /changeSelfServiceEmployee/, 'self-service employee selector should refresh the active employee context');
+assert.match(pageText, /employeeId:\s*activeSelfServiceEmployeeId/, 'self-service submit should send the selected employee id for privileged users');
+assert.match(pageText, /<option value="employee">Employee Self-Service<\/option>/, 'Security screen should expose an Employee Self-Service user role');
+assert.match(serverText, /valid\('admin', 'manager', 'hr', 'employee', 'user', 'viewer'\)/, 'backend should accept the Employee Self-Service user role');
 
 console.log('Employee self-service allocation link source checks passed');

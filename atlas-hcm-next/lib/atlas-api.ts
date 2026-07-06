@@ -212,7 +212,7 @@ export type AtlasUser = {
   Username: string;
   Email: string;
   FullName: string;
-  Role: "admin" | "manager" | "hr" | "user" | "viewer";
+  Role: "admin" | "manager" | "hr" | "employee" | "user" | "viewer";
   Department?: string;
   Branch?: string;
   IsActive: boolean;

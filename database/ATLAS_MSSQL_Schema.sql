@@ -22,7 +22,7 @@ CREATE TABLE Users (
     Email NVARCHAR(100) NOT NULL UNIQUE,
     FullName NVARCHAR(100) NOT NULL,
     Role NVARCHAR(20) NOT NULL DEFAULT 'user'   -- admin, manager, hr, user, viewer
-        CHECK (Role IN ('admin', 'manager', 'hr', 'user', 'viewer')),
+        CHECK (Role IN ('admin', 'manager', 'hr', 'employee', 'user', 'viewer')),
     Department NVARCHAR(50) NULL,
     Branch NVARCHAR(50) NULL,
     IsActive BIT NOT NULL DEFAULT 1,

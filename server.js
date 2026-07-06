@@ -898,6 +898,32 @@ async function resolveEmployeePortalContext(db, userId) {
     };
 }
 
+function isPrivilegedSelfServiceUser(context, user) {
+    const role = String(user?.role || '').toLowerCase();
+    return context?.PortalRole === 'Admin' || ['admin', 'manager', 'hr'].includes(role);
+}
+
+async function resolveSelfServiceEmployeeId(db, context, user, requestedEmployeeId) {
+    const requested = Number(requestedEmployeeId || 0);
+    if (requested > 0 && isPrivilegedSelfServiceUser(context, user)) {
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, requested)
+            .query(`
+                SELECT TOP 1 EmployeeID
+                FROM dbo.Employees
+                WHERE EmployeeID = @EmployeeID
+                  AND dbo.fn_ATLAS_IsAirfareEligibleEmployeeStatus(Status) = 1
+            `);
+        if (!result.recordset[0]) {
+            const err = new Error('Selected employee is not active or airfare eligible.');
+            err.statusCode = 400;
+            throw err;
+        }
+        return requested;
+    }
+    return Number(context.EmployeeID || 0);
+}
+
 async function fallbackDeactivateAirfarePolicyRate(db, policyRateId, deletedBy, deleteReason) {
     const result = await db.request()
         .input('PolicyRateID', sql.BigInt, policyRateId)
@@ -2485,14 +2511,23 @@ app.get('/api/employee-self-service/summary', authenticateToken, async (req, res
                 openRequests: 0
             });
         }
+        const employeeId = await resolveSelfServiceEmployeeId(db, context, req.user, req.query.employeeId);
 
         const reportResult = await db.request()
             .input('ReportYear', sql.Int, new Date().getFullYear())
             .input('AsOfDate', sql.Date, new Date())
             .execute('dbo.sp_ATLAS_GetAirfareReport');
-        const entitlement = reportResult.recordset.find((row) => Number(row.EmployeeID) === Number(context.EmployeeID)) || null;
+        const entitlement = reportResult.recordset.find((row) => Number(row.EmployeeID) === employeeId) || null;
+        const employeeResult = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .query(`
+                SELECT TOP 1 EmployeeID, EmployeeCode, FullName, Department, Designation
+                FROM dbo.Employees
+                WHERE EmployeeID = @EmployeeID
+            `);
+        const selectedEmployee = employeeResult.recordset[0] || context;
         const countResult = await db.request()
-            .input('EmployeeID', sql.Int, context.EmployeeID)
+            .input('EmployeeID', sql.Int, employeeId)
             .query(`
                 SELECT COUNT(*) AS OpenRequests
                 FROM dbo.ext_employee_allowance_requests
@@ -2501,12 +2536,13 @@ app.get('/api/employee-self-service/summary', authenticateToken, async (req, res
 
         res.json({
             setupRequired: false,
+            canSelectEmployee: isPrivilegedSelfServiceUser(context, req.user),
             employee: {
-                EmployeeID: context.EmployeeID,
-                EmployeeCode: context.EmployeeCode,
-                FullName: context.FullName,
-                Department: context.Department,
-                Designation: context.Designation,
+                EmployeeID: selectedEmployee.EmployeeID,
+                EmployeeCode: selectedEmployee.EmployeeCode,
+                FullName: selectedEmployee.FullName,
+                Department: selectedEmployee.Department,
+                Designation: selectedEmployee.Designation,
                 PortalRole: context.PortalRole
             },
             entitlement: entitlement ? {
@@ -2519,7 +2555,7 @@ app.get('/api/employee-self-service/summary', authenticateToken, async (req, res
         });
     } catch (err) {
         logger.error('Employee self-service summary error:', err);
-        res.status(500).json({ error: err.message || 'Employee self-service summary failed' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Employee self-service summary failed' });
     }
 });
 
@@ -2529,10 +2565,10 @@ app.get('/api/employee-self-service/requests', authenticateToken, async (req, re
         await ensureAtlasSqlObjects(db);
         const context = await resolveEmployeePortalContext(db, req.user.userId);
         if (context.setupRequired || !context.EmployeeID) return res.json([]);
-        const isAdmin = context.PortalRole === 'Admin' || req.user.role === 'admin';
+        const isAdmin = isPrivilegedSelfServiceUser(context, req.user);
+        const employeeId = await resolveSelfServiceEmployeeId(db, context, req.user, req.query.employeeId);
         const result = await db.request()
-            .input('EmployeeID', sql.Int, context.EmployeeID)
-            .input('IsAdmin', sql.Bit, isAdmin ? 1 : 0)
+            .input('EmployeeID', sql.Int, employeeId)
             .query(`
                 SELECT r.RequestID, r.RequestNo, r.EmployeeID, e.EmployeeCode, e.FullName,
                        r.TravelFromDate, r.TravelToDate, r.Origin, r.Destination, r.TripType,
@@ -2541,13 +2577,13 @@ app.get('/api/employee-self-service/requests', authenticateToken, async (req, re
                        r.LinkedAllocationID, r.SubmittedAt, r.CreatedAt, r.UpdatedAt
                 FROM dbo.ext_employee_allowance_requests r
                 INNER JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
-                WHERE (@IsAdmin = 1 OR r.EmployeeID = @EmployeeID)
+                WHERE r.EmployeeID = @EmployeeID
                 ORDER BY r.CreatedAt DESC, r.RequestID DESC
             `);
         res.json(result.recordset);
     } catch (err) {
         logger.error('Employee self-service requests error:', err);
-        res.status(500).json({ error: err.message || 'Employee self-service requests failed' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Employee self-service requests failed' });
     }
 });
 
@@ -2561,7 +2597,7 @@ app.post('/api/employee-self-service/requests', authenticateToken, async (req, r
         if (context.setupRequired || !context.EmployeeID) {
             return res.status(403).json({ error: 'Employee self-service login is not mapped to an employee profile.' });
         }
-        const employeeId = (context.PortalRole === 'Admin' || req.user.role === 'admin') && value.employeeId ? Number(value.employeeId) : Number(context.EmployeeID);
+        const employeeId = await resolveSelfServiceEmployeeId(db, context, req.user, value.employeeId);
         const reportResult = await db.request()
             .input('ReportYear', sql.Int, new Date().getFullYear())
             .input('AsOfDate', sql.Date, value.travelFromDate)
@@ -2602,7 +2638,7 @@ app.post('/api/employee-self-service/requests', authenticateToken, async (req, r
         res.status(201).json(result.recordset[0]);
     } catch (err) {
         logger.error('Employee self-service create request error:', err);
-        res.status(500).json({ error: err.message || 'Employee self-service request failed' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Employee self-service request failed' });
     }
 });
 
@@ -2685,7 +2721,7 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
         password: Joi.string().min(8).required(),
         email: Joi.string().email().required(),
         fullName: Joi.string().max(100).required(),
-        role: Joi.string().valid('admin', 'manager', 'hr', 'user', 'viewer').required(),
+        role: Joi.string().valid('admin', 'manager', 'hr', 'employee', 'user', 'viewer').required(),
         department: Joi.string().allow('', null).max(50),
         branch: Joi.string().allow('', null).max(50),
         isActive: Joi.boolean().default(true)
@@ -2729,7 +2765,7 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
         password: Joi.string().min(8).allow('', null),
         email: Joi.string().email().required(),
         fullName: Joi.string().max(100).required(),
-        role: Joi.string().valid('admin', 'manager', 'hr', 'user', 'viewer').required(),
+        role: Joi.string().valid('admin', 'manager', 'hr', 'employee', 'user', 'viewer').required(),
         department: Joi.string().allow('', null).max(50),
         branch: Joi.string().allow('', null).max(50),
         isActive: Joi.boolean().required()

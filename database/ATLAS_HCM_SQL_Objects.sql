@@ -25,6 +25,26 @@ IF COL_LENGTH('Employees', 'WhatsAppNumber') IS NULL ALTER TABLE Employees ADD W
 IF COL_LENGTH('Employees', 'EmpGroup') IS NOT NULL ALTER TABLE Employees ALTER COLUMN EmpGroup NVARCHAR(80) NULL;
 GO
 
+DECLARE @atlasUserRoleConstraintSql NVARCHAR(MAX) = N'';
+SELECT @atlasUserRoleConstraintSql = @atlasUserRoleConstraintSql + N'ALTER TABLE dbo.Users DROP CONSTRAINT ' + QUOTENAME(cc.name) + N';' + CHAR(13)
+FROM sys.check_constraints cc
+WHERE cc.parent_object_id = OBJECT_ID(N'dbo.Users')
+  AND cc.definition LIKE N'%Role%'
+  AND cc.definition NOT LIKE N'%employee%';
+IF @atlasUserRoleConstraintSql <> N'' EXEC sp_executesql @atlasUserRoleConstraintSql;
+IF OBJECT_ID(N'dbo.Users', N'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1
+       FROM sys.check_constraints
+       WHERE parent_object_id = OBJECT_ID(N'dbo.Users')
+         AND name = N'CK_Users_Role'
+   )
+BEGIN
+    ALTER TABLE dbo.Users WITH CHECK ADD CONSTRAINT CK_Users_Role
+        CHECK (Role IN (N'admin', N'manager', N'hr', N'employee', N'user', N'viewer'));
+END;
+GO
+
 IF OBJECT_ID('dbo.EmployeeImportBatches', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.EmployeeImportBatches (
