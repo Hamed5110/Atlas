@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATLAS Employee Portal</title>
+  <link rel="stylesheet" href="./portal.css">
+</head>
+<body>
+  <main class="portal-shell">
+    <header class="portal-header">
+      <div>
+        <p class="eyebrow">Employee self-service</p>
+        <h1>Airfare Requests</h1>
+      </div>
+      <div class="portal-actions">
+        <button id="refreshTickets" type="button">Refresh</button>
+        <button id="printContract" type="button">Print Contract</button>
+      </div>
+    </header>
+
+    <section class="portal-grid">
+      <form id="ticketForm" class="panel" autocomplete="off">
+        <h2>New Ticket Request</h2>
+        <label>Travel date <input name="travelFromDate" type="date" required></label>
+        <label>Return date <input name="travelToDate" type="date"></label>
+        <label>From <input name="origin" maxlength="80" placeholder="Bahrain"></label>
+        <label>Destination <input name="destination" maxlength="120" required></label>
+        <label>Trip type
+          <select name="tripType">
+            <option>RoundTrip</option>
+            <option>OneWay</option>
+            <option>MultiCity</option>
+          </select>
+        </label>
+        <label>Class
+          <select name="cabinClass">
+            <option>Economy</option>
+            <option>PremiumEconomy</option>
+            <option>Business</option>
+            <option>First</option>
+          </select>
+        </label>
+        <label>Estimated cost BHD <input name="estimatedCostBHD" type="number" min="0" step="0.01" required></label>
+        <label>Preferred airline <input name="preferredAirline" maxlength="80"></label>
+        <label>Purpose <textarea name="purpose" maxlength="250"></textarea></label>
+        <button type="submit">Save request</button>
+      </form>
+
+      <section class="panel">
+        <h2>My Requests</h2>
+        <div id="ticketList" class="ticket-list" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <section id="contractPreview" class="document-preview">
+      <article class="contract-page">
+        <div class="contract-column english">
+          <h2>Employment Offer</h2>
+          <p>This offer confirms the employee role, compensation, airfare eligibility, and company policy obligations.</p>
+          <p>The employee is entitled to airfare benefits according to the approved ATLAS HCM policy matrix.</p>
+        </div>
+        <div class="contract-column arabic" dir="rtl" lang="ar">
+          <h2>عرض العمل</h2>
+          <p>يوضح هذا العرض وظيفة الموظف والتعويضات واستحقاق تذاكر السفر والالتزامات حسب سياسة الشركة.</p>
+          <p>يحق للموظف الحصول على مزايا تذاكر السفر وفق مصفوفة سياسة ATLAS HCM المعتمدة.</p>
+        </div>
+      </article>
+    </section>
+  </main>
+  <script src="./portal.js"></script>
+</body>
+</html>

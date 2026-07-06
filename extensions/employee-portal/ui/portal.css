@@ -1,0 +1,99 @@
+:root {
+  --page: #f5f7fb;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #52617a;
+  --line: #d9e2ef;
+  --accent: #1167e8;
+  --accent-2: #0796a8;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font-family: Inter, Segoe UI, Arial, sans-serif;
+}
+
+.portal-shell { width: min(1180px, calc(100vw - 32px)); margin: 24px auto; }
+.portal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.portal-header h1 { margin: 0; font-size: 34px; line-height: 1.1; }
+.eyebrow { margin: 0 0 6px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.portal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+button {
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.portal-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: 0 10px 26px rgba(15, 23, 42, .06); }
+.panel h2 { margin: 0 0 16px; font-size: 18px; }
+label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 700; margin-bottom: 12px; }
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 9px 11px;
+  font: inherit;
+  color: var(--text);
+  background: #fff;
+}
+textarea { min-height: 84px; resize: vertical; }
+
+.ticket-list { display: grid; gap: 10px; }
+.ticket-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+.ticket-card strong { display: block; margin-bottom: 4px; }
+.status { border-radius: 999px; background: #e9f3ff; color: #124d9a; padding: 5px 10px; font-weight: 800; font-size: 12px; align-self: start; }
+
+.document-preview { margin-top: 18px; }
+.contract-page {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+.contract-column { min-height: 240px; border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+.arabic {
+  direction: rtl;
+  text-align: right;
+  font-family: Cairo, Amiri, Tahoma, sans-serif;
+  line-height: 1.9;
+}
+
+@media (max-width: 820px) {
+  .portal-header { align-items: flex-start; flex-direction: column; }
+  .portal-grid { grid-template-columns: 1fr; }
+  .contract-page { grid-template-columns: 1fr; }
+}
+
+@page { size: A4; margin: 14mm; }
+@media print {
+  body { background: #fff; }
+  .portal-header, .portal-grid { display: none !important; }
+  .portal-shell { width: auto; margin: 0; }
+  .document-preview { margin: 0; }
+  .contract-page {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    width: 100%;
+    min-height: 260mm;
+    page-break-after: always;
+  }
+  .contract-column {
+    border-color: #999;
+    break-inside: avoid;
+  }
+}
