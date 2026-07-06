@@ -43,6 +43,7 @@ assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should r
 assert.match(serverText, /Airfare policy rule purged from preferences/i, 'Airfare policy delete should report purge success');
 assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should normalize named SQL instances to explicit TCP port connections');
 const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
+const phase1PolicyRepairText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_Phase1_PolicyRate_Repair.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
 assert.match(hcmSqlText, /ATLAS_CompanyResetLog/i, 'Company reset should write reset history');
@@ -58,12 +59,19 @@ assert.match(hcmSqlText, /SET PolicyRateID = NULL/i, 'Airfare policy purge shoul
 assert.match(hcmSqlText, /PolicyStatus[^]*GO[^]*UPDATE dbo\.AirfarePolicyRates[^]*IsDeleted/i, 'Airfare policy compatibility columns should be committed in their own batch before status backfill');
 assert.match(hcmSqlText, /sys\.indexes[^]*PK_AirfarePolicyRates/i, 'Airfare policy migration should repair the PK/index metadata when missing');
 assert.doesNotMatch(hcmSqlText, /INDEX\s*\(\s*PK_AirfarePolicyRates\s*\)/i, 'Airfare policy delete should not force a brittle named index hint');
+assert.match(phase1PolicyRepairText, /sys\.indexes[^]*PK_AirfarePolicyRates/i, 'Phase-1 repair should restore the missing PK_AirfarePolicyRates metadata');
+assert.match(phase1PolicyRepairText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_PurgeAirfarePolicyRate/i, 'Phase-1 repair should replace the airfare purge procedure');
+assert.match(phase1PolicyRepairText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Phase-1 repair should replace the legacy deactivate procedure');
+assert.match(phase1PolicyRepairText, /soft_delete/i, 'Phase-1 repair should soft-delete when dependency protection blocks hard purge');
+assert.doesNotMatch(phase1PolicyRepairText, /INDEX\s*\(\s*PK_AirfarePolicyRates\s*\)/i, 'Phase-1 repair procedure must not use brittle named index hints');
 assert.match(fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_AirfarePolicy_Delete_Report.sql'), 'utf8'), /ForeignKeyName/i, 'Airfare policy report should expose foreign key linkage');
 assert.doesNotMatch(serverText, /USE\s+\$\{safeDatabase\}/, 'Company setup should not leave the SQL pool inside company database');
 
 const deployText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'deploy.ps1'), 'utf8');
 assert.match(deployText, /Invoke-AtlasDatabaseObjectRepair/i, 'Update patch should repair database procedures during finalize');
 assert.match(deployText, /Initialize-ATLAS-Database\.ps1/i, 'Database object repair should use the bundled initializer');
+assert.match(deployText, /atlas_phase1_patch_repair\.py/i, 'Update patch should run the Phase-1 policy-rate Python repair runner');
+assert.match(deployText, /phase1-policy-rate-repair/i, 'Update patch should log Phase-1 policy-rate repair output');
 assert.match(deployText, /Get-AtlasSqlTcpHost/i, 'Update patch should test the configured SQL host instead of hard-coded localhost');
 assert.match(deployText, /-not \$settings\.Contains\("DB_SERVER"\).*?\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/s, 'Update patch should default DB_SERVER only when it is missing or blank');
 assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sanitize Burn-quoted install/data paths before use');
@@ -71,7 +79,7 @@ assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should pre
 assert.match(deployText, /Restore-UpdatePreservedConfig/i, 'Update patch should restore preserved MSSQL config before database repair');
 assert.match(deployText, /Set-AtlasRegistryValue/i, 'Update patch should repair registry DB port after MSI update');
 assert.match(deployText, /install_debug\.log/i, 'Update patch finalizer should write structured install_debug.log events');
-assert.match(deployText, /PatchStatus=WARNING/i, 'Update patch should keep copied files and report review warnings instead of rolling back on health warnings');
+assert.match(deployText, /PatchStatus=FAILED/i, 'Update patch must not report success when health or database verification fails');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
@@ -113,6 +121,11 @@ const syncUnlockText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atla
 assert.match(syncUnlockText, /deployment_sync_error\.log/i, 'Deployment sync unlocker should write deployment_sync_error.log');
 assert.match(syncUnlockText, /RESET_UI_LOCKS|Resetting interface preference locks/i, 'Deployment sync unlocker should clear UI lock state');
 assert.match(syncUnlockText, /DB_PORT|PORT/i, 'Deployment sync unlocker should synchronize app and SQL ports');
+const phase1RepairRunnerText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_phase1_patch_repair.py'), 'utf8');
+assert.match(phase1RepairRunnerText, /phase1_patch_debug\.log/i, 'Phase-1 repair runner should write phase1_patch_debug.log');
+assert.match(phase1RepairRunnerText, /Establishing Database Socket Handshake/i, 'Phase-1 repair runner should verify the database socket');
+assert.match(phase1RepairRunnerText, /Synchronizing indexes and procedures/i, 'Phase-1 repair runner should report SQL synchronization progress');
+assert.match(phase1RepairRunnerText, /Phase-1 Patch Fully Applied/i, 'Phase-1 repair runner should emit a success completion message');
 const companyResetRunnerText = fs.readFileSync(path.join(__dirname, '..', 'tools', 'atlas_company_reset_runner.py'), 'utf8');
 assert.match(companyResetRunnerText, /company_reset_debug\.log/i, 'Company reset runner should write company_reset_debug.log');
 assert.match(companyResetRunnerText, /RESET_COMPANY_DATA/i, 'Company reset runner should require explicit reset confirmation');

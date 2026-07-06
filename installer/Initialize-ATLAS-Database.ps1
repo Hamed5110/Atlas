@@ -155,6 +155,7 @@ $baseSchemaExists = Test-AtlasBaseSchemaExists -ServerPart $serverPart -Database
 $scripts = @(
     "ATLAS_MSSQL_Schema.sql",
     "ATLAS_HCM_SQL_Objects.sql",
+    "ATLAS_Phase1_PolicyRate_Repair.sql",
     "ATLAS_Company_Admin.sql",
     "ATLAS_Allocation_Attachments.sql",
     "ATLAS_Loan_SQL_Objects.sql"

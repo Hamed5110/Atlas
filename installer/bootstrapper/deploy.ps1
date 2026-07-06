@@ -1419,7 +1419,44 @@ function Invoke-AtlasDatabaseObjectRepair {
         throw "ATLAS database object repair failed: $errorText"
     }
 
-    Write-Step "ATLAS database objects verified and repaired."
+    $phase1Runner = Join-Path $InstallPath "tools\atlas_phase1_patch_repair.py"
+    if (Test-Path -LiteralPath $phase1Runner) {
+        $python = (Get-Command "python.exe" -ErrorAction SilentlyContinue)
+        if ($python) {
+            $phase1OutLog = Join-Path $logDir "phase1-policy-rate-repair-$stamp.out.log"
+            $phase1ErrLog = Join-Path $logDir "phase1-policy-rate-repair-$stamp.err.log"
+            if ($ReportPath) {
+                "Phase1PolicyRateRepairOut=$phase1OutLog" | Add-Content $ReportPath
+                "Phase1PolicyRateRepairErr=$phase1ErrLog" | Add-Content $ReportPath
+            }
+            $phase1Args = "`"$phase1Runner`" --install-root `"$InstallPath`" --data-root `"$DataPath`""
+            $phase1Process = Start-Process -FilePath $python.Source `
+                -ArgumentList $phase1Args `
+                -WorkingDirectory $InstallPath `
+                -Wait `
+                -PassThru `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $phase1OutLog `
+                -RedirectStandardError $phase1ErrLog
+            if ($phase1Process.ExitCode -ne 0) {
+                $errorText = ""
+                if (Test-Path $phase1ErrLog) {
+                    $errorText = (Get-Content -LiteralPath $phase1ErrLog -Raw -ErrorAction SilentlyContinue).Trim()
+                }
+                if ([string]::IsNullOrWhiteSpace($errorText) -and (Test-Path $phase1OutLog)) {
+                    $errorText = (Get-Content -LiteralPath $phase1OutLog -Raw -ErrorAction SilentlyContinue).Trim()
+                }
+                if ([string]::IsNullOrWhiteSpace($errorText)) {
+                    $errorText = "exit code $($phase1Process.ExitCode)"
+                }
+                throw "ATLAS Phase-1 policy-rate repair failed: $errorText"
+            }
+        } else {
+            Write-Step "Python runtime was not found; Phase-1 repair SQL already applied through Initialize-ATLAS-Database.ps1."
+        }
+    }
+
+    Write-Step "ATLAS database objects and Phase-1 policy-rate repair verified."
 }
 
 function Get-AtlasConfiguredPort {
