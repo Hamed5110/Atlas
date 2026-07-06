@@ -5816,7 +5816,12 @@ app.get('/api/health', async (req, res) => {
     try {
         const db = await getConnection();
         await db.request().query('SELECT 1');
-        res.json({ status: 'healthy', database: 'connected', timestamp: new Date().toISOString() });
+        res.json({
+            status: 'healthy',
+            database: 'connected',
+            payableReportSource: 'mssql-procedure-payable-bhd',
+            timestamp: new Date().toISOString()
+        });
     } catch (err) {
         res.status(503).json({ status: 'unhealthy', database: 'disconnected', error: err.message });
     }

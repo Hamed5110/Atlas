@@ -1295,12 +1295,35 @@ function Start-Atlas {
 }
 
 function Test-AtlasHealth {
-    param([int]$PortNumber)
+    param(
+        [int]$PortNumber,
+        [switch]$RequirePayableReportPatch
+    )
     try {
         $response = Invoke-RestMethod -Uri "http://127.0.0.1:$PortNumber/api/health" -TimeoutSec 10
-        return ($response.status -eq "healthy" -and $response.database -eq "connected")
+        if ($response.status -ne "healthy" -or $response.database -ne "connected") { return $false }
+        if ($RequirePayableReportPatch -and $response.payableReportSource -ne "mssql-procedure-payable-bhd") { return $false }
+        return $true
     } catch {
         return $false
+    }
+}
+
+function Assert-PayableReportPatchInstalled {
+    param(
+        [string]$InstallPath,
+        [int]$PortNumber
+    )
+    $serverPath = Join-Path $InstallPath "server.js"
+    if (-not (Test-Path -LiteralPath $serverPath)) {
+        throw "Patched backend verification failed: server.js is missing from $InstallPath."
+    }
+    $serverText = Get-Content -LiteralPath $serverPath -Raw
+    if ($serverText -notmatch "payableFromProcedure" -or $serverText -notmatch "mssql-procedure-payable-bhd") {
+        throw "Patched backend verification failed: installed server.js does not contain the Payable Amount MSSQL procedure fix."
+    }
+    if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch)) {
+        throw "Patched runtime verification failed: ATLAS is healthy but the running backend is not the Payable Amount patched build. Restart ATLAS or close old node.exe processes and retry the patch."
     }
 }
 
@@ -1557,21 +1580,24 @@ function Invoke-UpdateOnlyFinalize {
 
         "Step=Verify ATLAS health endpoint" | Add-Content $report
         Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "STARTED" -Message "Checking http://127.0.0.1:$effectivePort/api/health." -DataPath $DataRoot
-        if (-not (Test-AtlasHealth -PortNumber $effectivePort)) {
+        if (-not (Test-AtlasHealth -PortNumber $effectivePort -RequirePayableReportPatch)) {
             "Health=NotReady" | Add-Content $report
-            $warning = "HealthWarning=ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health."
+            $warning = "HealthWarning=ATLAS did not become healthy with the Payable Amount patched backend on http://127.0.0.1:$effectivePort/api/health."
             $warnings.Add($warning) | Out-Null
             $warning | Add-Content $report
-            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "WARNING" -Message "ATLAS did not become healthy on http://127.0.0.1:$effectivePort/api/health." -ErrorCode "ATLAS_HEALTH_NOT_READY" -RemediationSuggestion "Open the latest server logs and confirm application port $effectivePort is allowed by Windows Firewall." -DataPath $DataRoot
+            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "WARNING" -Message "ATLAS did not become healthy with the Payable Amount patched backend on http://127.0.0.1:$effectivePort/api/health." -ErrorCode "ATLAS_PATCH_NOT_ACTIVE" -RemediationSuggestion "Open Task Manager, stop old node.exe ATLAS processes, then run the update patch again as Administrator." -DataPath $DataRoot
         } else {
             "Health=Healthy" | Add-Content $report
-            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "OK" -Message "ATLAS health endpoint is healthy." -DataPath $DataRoot
+            "PayableReportPatch=Active" | Add-Content $report
+            Write-InstallDebugEvent -CurrentStep "Verify ATLAS health endpoint" -Status "OK" -Message "ATLAS health endpoint is healthy and running the Payable Amount patched backend." -DataPath $DataRoot
+            Assert-PayableReportPatchInstalled -InstallPath $InstallRoot -PortNumber $effectivePort
         }
         if ($warnings.Count -gt 0) {
-            "PatchStatus=WARNING" | Add-Content $report
+            "PatchStatus=FAILED" | Add-Content $report
             "WarningCount=$($warnings.Count)" | Add-Content $report
-            Write-Step "Update-only patch copied files and preserved configuration, but requires review. Report: $report"
-            return
+            $message = "Update-only patch did not activate the patched backend. Report: $report"
+            Write-InstallDebugEvent -CurrentStep "Finalize ATLAS update patch" -Status "FAILED" -Message $message -ErrorCode "PATCH_NOT_ACTIVE" -RemediationSuggestion "Stop old ATLAS node.exe processes, confirm port $effectivePort, then rerun the update patch as Administrator." -DataPath $DataRoot
+            throw $message
         }
         "PatchStatus=SUCCESS" | Add-Content $report
         Write-InstallDebugEvent -CurrentStep "Finalize ATLAS update patch" -Status "OK" -Message "Patch finished successfully." -DataPath $DataRoot
