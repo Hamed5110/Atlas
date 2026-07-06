@@ -35,5 +35,7 @@ assert.match(pageText, /Select employee from master/, 'Security ESS user form sh
 assert.match(serverText, /syncEmployeeSelfServiceClaim/, 'backend should create the ESS user-to-employee mapping claim');
 assert.match(serverText, /getEmployeeForSelfServiceUser/, 'backend should validate the selected Employee Master row');
 assert.match(serverText, /Username = @Username/, 'backend should bind ESS usernames to the selected employee code');
+assert.match(serverText, /email:\s*Joi\.string\(\)\.email\(\)\.allow\('', null\)/, 'user email should be optional in backend validation');
+assert.match(pageText, /Email \(optional\)/, 'Security user form should label email as optional');
 
 console.log('Employee self-service allocation link source checks passed');

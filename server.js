@@ -2788,7 +2788,7 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
     const schema = Joi.object({
         username: Joi.string().min(3).max(50).required(),
         password: Joi.string().min(8).required(),
-        email: Joi.string().email().required(),
+        email: Joi.string().email().allow('', null),
         fullName: Joi.string().max(100).required(),
         role: Joi.string().valid('admin', 'manager', 'hr', 'employee', 'user', 'viewer').required(),
         employeeId: Joi.number().integer().allow(null),
@@ -2809,7 +2809,10 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
             fullName: employee.FullName,
             department: employee.Department || value.department || null,
             branch: employee.Branch || value.branch || null
-        } : value;
+        } : {
+            ...value,
+            email: value.email || `${value.username}@atlas.local`
+        };
         const passwordHash = await bcrypt.hash(value.password, 12);
         const result = await db.request()
             .input('Username', sql.NVarChar(50), userValues.username)
@@ -2842,7 +2845,7 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
 app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, res) => {
     const schema = Joi.object({
         password: Joi.string().min(8).allow('', null),
-        email: Joi.string().email().required(),
+        email: Joi.string().email().allow('', null),
         fullName: Joi.string().max(100).required(),
         role: Joi.string().valid('admin', 'manager', 'hr', 'employee', 'user', 'viewer').required(),
         employeeId: Joi.number().integer().allow(null),
@@ -2869,7 +2872,10 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
             fullName: employee.FullName,
             department: employee.Department || value.department || null,
             branch: employee.Branch || value.branch || null
-        } : value;
+        } : {
+            ...value,
+            email: value.email || oldUser.Email || `${oldUser.Username}@atlas.local`
+        };
         const request = db.request()
             .input('UserID', sql.Int, req.params.id)
             .input('Username', sql.NVarChar(50), employee ? userValues.username : oldUser.Username)

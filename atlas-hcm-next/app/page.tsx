@@ -6563,7 +6563,7 @@ export default function DashboardPage() {
               <div className="form-grid one">
                 <input placeholder="Username" disabled={Boolean(editingUserId) || userForm.role === "employee"} value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} />
                 <input placeholder={editingUserId ? "New password (optional)" : "Temporary password"} type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
-                <input placeholder="Email" disabled={userForm.role === "employee"} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
+                <input placeholder="Email (optional)" disabled={userForm.role === "employee"} value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
                 <input placeholder="Full name" disabled={userForm.role === "employee"} value={userForm.fullName} onChange={(e) => setUserForm({ ...userForm, fullName: e.target.value })} />
                 <select value={userForm.role} onChange={(e) => handleUserRoleChange(e.target.value)}>
                   <option value="admin">Admin</option>
