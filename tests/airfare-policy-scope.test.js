@@ -106,7 +106,7 @@ async function main() {
 
     await pool.request()
       .input('EffectiveFrom', sql.Date, '2026-06-18')
-      .input('MaxPayoutAmount', sql.Decimal(12, 2), 150)
+      .input('MaxPayoutAmount', sql.Decimal(12, 2), 200)
       .input('CompanyID', sql.Int, null)
       .input('EmployeeID', sql.Int, employeeId)
       .input('Department', sql.NVarChar(100), null)
@@ -129,14 +129,14 @@ async function main() {
       .input('CompanyID', sql.Int, companyId)
       .input('EmployeeID', sql.Int, employeeId)
       .execute('dbo.sp_ATLAS_GetEffectiveAirfarePolicy');
-    assert.equal(Number(employeePolicy.recordset[0].MaxPayoutAmount), 150, 'pure employee exception should win over later legacy company+employee policy');
+    assert.equal(Number(employeePolicy.recordset[0].MaxPayoutAmount), 200, 'pure employee exception should win over later legacy company+employee policy');
 
     const sameDayRows = await pool.request()
       .input('EmployeeID', sql.Int, employeeId)
       .input('EffectiveFrom', sql.Date, '2026-06-18')
       .query('SELECT IsActive, MaxPayoutAmount FROM dbo.AirfarePolicyRates WHERE EmployeeID = @EmployeeID AND CompanyID IS NULL AND Department IS NULL AND EmpGroup IS NULL AND EffectiveFrom = @EffectiveFrom');
     assert.equal(sameDayRows.recordset.filter((row) => row.IsActive).length, 1, 'same-date employee exception save should leave one current active row');
-    assert.equal(Number(sameDayRows.recordset.find((row) => row.IsActive).MaxPayoutAmount), 150, 'same-date employee exception save should keep latest amount current');
+    assert.equal(Number(sameDayRows.recordset.find((row) => row.IsActive).MaxPayoutAmount), 200, 'same-date employee exception save should keep latest amount current');
 
     const payGroupPolicy = await pool.request()
       .input('AllocationDate', sql.Date, '2026-06-21')
@@ -166,7 +166,7 @@ async function main() {
       .input('ExcludeAllocationID', sql.BigInt, null)
       .input('CompanyID', sql.Int, companyId)
       .execute('dbo.sp_ATLAS_GetAllocationEligibilityReview');
-    assert.equal(Number(review.recordset[0].MaximumPayout), 150, 'eligibility review should use employee override max payout');
+    assert.equal(Number(review.recordset[0].MaximumPayout), 200, 'eligibility review should use employee override max payout');
 
     const report = await pool.request()
       .input('ReportYear', sql.Int, 2026)
@@ -176,11 +176,11 @@ async function main() {
     const payGroupReportRow = report.recordset.find((row) => row.EmployeeCode === payGroupEmployeeCode);
     const departmentReportRow = report.recordset.find((row) => row.EmployeeCode === deptEmployeeCode);
     assert.ok(reportRow, 'Airfare Payable report should include the temporary active employee');
-    assert.equal(Number(reportRow.MaximumPayoutCap), 150, 'Airfare Payable report should use employee override max payout');
+    assert.equal(Number(reportRow.MaximumPayoutCap), 200, 'Airfare Payable report should use employee override max payout');
     assert.equal(Number(payGroupReportRow.MaximumPayoutCap), 130, 'Airfare Payable report should use pay group matrix max payout');
     assert.equal(Number(departmentReportRow.MaximumPayoutCap), 120, 'Airfare Payable report should use department matrix max payout');
 
-    console.log(JSON.stringify({ status: 'airfare-policy-scope-passed', companyAmount: 110, departmentAmount: 120, payGroupAmount: 130, employeeAmount: 150, reportCap: Number(reportRow.MaximumPayoutCap) }));
+    console.log(JSON.stringify({ status: 'airfare-policy-scope-passed', companyAmount: 110, departmentAmount: 120, payGroupAmount: 130, employeeAmount: 200, reportCap: Number(reportRow.MaximumPayoutCap) }));
   } finally {
     if (employeeId) await pool.request().input('EmployeeID', sql.Int, employeeId).query('DELETE FROM dbo.AirfarePolicyRates WHERE EmployeeID = @EmployeeID; DELETE FROM dbo.Employees WHERE EmployeeID = @EmployeeID;');
     if (payGroupEmployeeId) await pool.request().input('EmployeeID', sql.Int, payGroupEmployeeId).query('DELETE FROM dbo.Employees WHERE EmployeeID = @EmployeeID;');

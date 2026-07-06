@@ -9,7 +9,7 @@ function closingBalanceDays(employee) {
 }
 
 function calculateExcelTotal(employee) {
-  return Math.round((Math.min(150, employee.MaximumPayout || 150) / 60) * Math.min(60, Math.max(0, closingBalanceDays(employee))) * 100) / 100;
+  return Math.round(((employee.MaximumPayout || 150) / 60) * Math.min(60, Math.max(0, closingBalanceDays(employee))) * 100) / 100;
 }
 
 const excelCase = calculateAirfare({
@@ -59,15 +59,15 @@ const cappedCycleCase = calculateAirfare({
 assert.equal(cappedCycleCase.remainingDays, 60);
 assert.equal(cappedCycleCase.payableBhd, 150);
 
-const cappedPayoutCase = calculateAirfare({
+const dynamicPayoutCase = calculateAirfare({
   openingDays: 60,
   currentWorkingDays: 360,
   paidDays: 0,
   maximumPayout: 500
 });
-assert.equal(cappedPayoutCase.currentAirfareDays, 30);
-assert.equal(cappedPayoutCase.remainingDays, 60);
-assert.equal(cappedPayoutCase.payableBhd, 150);
+assert.equal(dynamicPayoutCase.currentAirfareDays, 30);
+assert.equal(dynamicPayoutCase.remainingDays, 60);
+assert.equal(dynamicPayoutCase.payableBhd, 500);
 
 const partialOneWayCase = calculateAirfare({
   openingDays: 12,

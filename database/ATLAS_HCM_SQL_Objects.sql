@@ -1044,7 +1044,6 @@ BEGIN
 
     IF @EffectiveFrom IS NULL THROW 52001, 'Effective date is required.', 1;
     IF ISNULL(@MaxPayoutAmount, 0) <= 0 THROW 52002, 'Airfare amount must be more than zero.', 1;
-    IF @MaxPayoutAmount > 150 THROW 52003, 'Airfare amount cannot exceed BHD 150.00.', 1;
 
     SET @Department = NULLIF(LTRIM(RTRIM(@Department)), N'');
     SET @EmpGroup = NULLIF(LTRIM(RTRIM(@EmpGroup)), N'');
@@ -1861,7 +1860,7 @@ RETURNS DECIMAL(10,2)
 AS
 BEGIN
     RETURN CAST(ROUND(
-        (CASE WHEN ISNULL(@MaximumPayout, 150) > 150 THEN 150 WHEN ISNULL(@MaximumPayout, 0) <= 0 THEN 150 ELSE @MaximumPayout END / 60.0)
+        (CASE WHEN ISNULL(@MaximumPayout, 0) <= 0 THEN 150 ELSE @MaximumPayout END / 60.0)
         * CASE WHEN ISNULL(@ClosingDays, 0) < 0 THEN 0 WHEN @ClosingDays > 60 THEN 60 ELSE ISNULL(@ClosingDays, 0) END,
         2
     ) AS DECIMAL(10,2));
@@ -2152,10 +2151,7 @@ BEGIN
     ) policy
     OUTER APPLY (
         SELECT
-            CAST(CASE
-                WHEN COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) > 150 THEN 150
-                ELSE COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150)
-            END AS DECIMAL(10,2)) AS EffectiveMaxPayout,
+            CAST(COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) AS DECIMAL(10,2)) AS EffectiveMaxPayout,
             CAST(COALESCE(NULLIF(policy.CycleDays, 0), 60) AS DECIMAL(10,2)) AS EffectiveCycleDays,
             CASE
                 WHEN prev.AllocationDate IS NOT NULL THEN 0
@@ -2637,7 +2633,6 @@ BEGIN
 
     DECLARE @maxPayout DECIMAL(10,4) = CASE
         WHEN ISNULL(@MaximumPayout, 0) <= 0 THEN 150
-        WHEN @MaximumPayout > 150 THEN 150
         ELSE @MaximumPayout
     END;
     DECLARE @perDayRate DECIMAL(10,6) = CASE WHEN @maxPayout > 0 THEN @maxPayout / 60.0 ELSE 0 END;
@@ -2752,10 +2747,7 @@ BEGIN
       EffectiveFrom DESC,
       PolicyRateID DESC;
 
-    SET @MaximumPayout = CASE
-        WHEN COALESCE(NULLIF(@MaximumPayout, 0), 150) > 150 THEN 150
-        ELSE COALESCE(NULLIF(@MaximumPayout, 0), 150)
-    END;
+    SET @MaximumPayout = COALESCE(NULLIF(@MaximumPayout, 0), 150);
     SET @PolicyCycleDays = COALESCE(NULLIF(@PolicyCycleDays, 0), 60);
     SET @PolicyPerDayRate = COALESCE(NULLIF(@PolicyPerDayRate, 0), CAST(@MaximumPayout / @PolicyCycleDays AS DECIMAL(12,6)));
 
@@ -2843,10 +2835,7 @@ BEGIN
             e.FullName,
             e.Department,
             e.JoinDate,
-            CASE
-                WHEN COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) > 150 THEN 150
-                ELSE COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150)
-            END AS MaximumPayout,
+            COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) AS MaximumPayout,
             COALESCE(NULLIF(policy.CycleDays, 0), 60) AS CycleDays,
             COALESCE(ob.OpeningDays, e.OpeningDays, 0) AS OpeningDays,
             COALESCE(ob.OpeningBHD, e.OpeningBHD, dbo.fn_ATLAS_AirfareAmount(COALESCE(ob.OpeningDays, e.OpeningDays, 0), COALESCE(NULLIF(e.MaximumPayout, 0), 150)), 0) AS OpeningBHD,
@@ -2973,7 +2962,6 @@ BEGIN
 
     DECLARE @maxPayout DECIMAL(10,4) = CASE
         WHEN ISNULL(@MaximumPayout,0) <= 0 THEN 150
-        WHEN @MaximumPayout > 150 THEN 150
         ELSE @MaximumPayout
     END;
     DECLARE @ticket DECIMAL(10,2) = ROUND(ISNULL(@TicketCost,0),2);

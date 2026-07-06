@@ -117,7 +117,7 @@ assert.match(source, /date\.getMonth\(\) \* 30 \+ date\.getDate\(\)/, "current-y
 assert.match(source, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "airfare UI should document the fixed 360-day standard year");
 assert.match(source, /AIRFARE_ENTITLEMENT_CYCLE_DAYS\s*=\s*720/, "airfare UI should document the fixed 720-day two-year entitlement cycle");
 assert.match(source, /AIRFARE_MAX_DAYS\s*=\s*60/, "airfare UI should cap entitlement days at 60");
-assert.match(source, /AIRFARE_MAX_PAYOUT\s*=\s*150/, "airfare UI should cap payout at BHD 150");
+assert.doesNotMatch(source, /AIRFARE_MAX_PAYOUT\s*=\s*150/, "airfare UI should not hard-code a BHD 150 payout ceiling");
 assert.match(source, /localTotalEntitlement\s*=\s*roundMoney\(Math\.min\(selectedMaximumPayout,[\s\S]*selectedOpeningAmount \+ selectedCurrentAmount/, "airfare entitlement should first calculate capped total entitlement from opening plus current-year earned amount");
 assert.match(source, /localSelectedEntitlement\s*=\s*roundMoney\(Math\.max\(0,\s*localTotalEntitlement - selectedPaidAmount\)\)/, "airfare entitlement should use remaining entitlement after consumed amount is subtracted");
 assert.match(source, /workingDaysFromYearStart\([\s\S]*allocationForm\.date[\s\S]*selectedEmployee\?\.JoinDate/, "new employee current-year earning should start from join date");
@@ -343,10 +343,10 @@ assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeDepartme
 assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeGroup NVARCHAR\(100\)/, "SQL policy lookup should support pay group matrix airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@Department NVARCHAR\(100\) = NULL/, "SQL policy save should support department matrix airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@EmpGroup NVARCHAR\(100\) = NULL/, "SQL policy save should support pay group matrix airfare amounts");
-assert.match(server, /MAX_COMPANY_PAYABLE\s*=\s*150/, "backend should enforce BHD 150 company payout cap");
+assert.match(server, /DEFAULT_AIRFARE_POLICY_AMOUNT\s*=\s*150/, "backend may keep the seeded fallback amount while live policy rows drive calculations");
 assert.match(server, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "backend should enforce the fixed 360-day standard year");
-assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.max\(150\)/, "backend should reject airfare policy values above BHD 150");
-assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should reject airfare policy values above BHD 150");
+assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.required\(\)/, "backend should accept configured airfare policy values above BHD 150");
+assert.doesNotMatch(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should allow configured airfare values above BHD 150");
 assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*sp_ATLAS_PurgeAirfarePolicyRate[\s\S]*Airfare policy rule purged from preferences[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should purge airfare policy rules through SQL purge procedure");
 assert.match(server, /Installed delete procedure returned a non-purge state[\s\S]*force purge airfare policy rate after soft-delete response/, "backend should force purge when an old installed procedure returns a soft-delete state");
 assert.match(server, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/, "backend fallback should remove the airfare policy row");
