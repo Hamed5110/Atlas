@@ -84,6 +84,9 @@ import { calculateAirfare } from "../lib/airfare-engine";
 
 type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
+type ThemeMode = "light" | "dark";
+type ThemeAccent = "blue" | "emerald" | "slate";
+type UiDensity = "comfortable" | "standard" | "compact";
 
 type ReportRow = Record<string, unknown> & {
   __recordType?: ReportDrillType;
@@ -464,6 +467,20 @@ const AIRFARE_ENTITLEMENT_CYCLE_DAYS = 720;
 const AIRFARE_MAX_DAYS = 60;
 const AIRFARE_DEFAULT_PAYOUT = 150;
 const ESS_ONLY_VIEW: ViewKey = "Employee Self-Service";
+
+function syncWorkspaceThemeDom(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity) {
+  if (typeof window === "undefined") return;
+  const root = document.documentElement;
+  root.dataset.theme = themeMode;
+  root.dataset.accent = themeAccent;
+  root.dataset.density = uiDensity;
+  root.dataset.themeRevision = String(Date.now());
+  root.style.colorScheme = themeMode;
+  window.dispatchEvent(new CustomEvent("atlas:theme-preference-change", {
+    detail: { themeMode, themeAccent, uiDensity }
+  }));
+}
+
 const paymentModeLabels: Record<string, string> = {
   entitlement: "Airfare entitlement amount",
   company: "Paid by company",
@@ -813,9 +830,10 @@ export default function DashboardPage() {
   const [allocationEmployeeSearch, setAllocationEmployeeSearch] = useState("");
   const [allocationEmployeeType, setAllocationEmployeeType] = useState("");
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<number>>(new Set());
-  const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
-  const [themeAccent, setThemeAccent] = useState<"blue" | "emerald" | "slate">("blue");
-  const [uiDensity, setUiDensity] = useState<"comfortable" | "standard" | "compact">("standard");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [themeAccent, setThemeAccent] = useState<ThemeAccent>("blue");
+  const [uiDensity, setUiDensity] = useState<UiDensity>("standard");
+  const themeTelemetryReadyRef = useRef(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [loginLogoUrl, setLoginLogoUrl] = useState("");
@@ -937,6 +955,32 @@ export default function DashboardPage() {
       delete next[field];
       return next;
     });
+  }
+
+  function updateThemeMode(nextMode: ThemeMode) {
+    syncWorkspaceThemeDom(nextMode, themeAccent, uiDensity);
+    setThemeMode(nextMode);
+  }
+
+  function updateThemeAccent(nextAccent: ThemeAccent) {
+    syncWorkspaceThemeDom(themeMode, nextAccent, uiDensity);
+    setThemeAccent(nextAccent);
+  }
+
+  function updateUiDensity(nextDensity: UiDensity) {
+    syncWorkspaceThemeDom(themeMode, themeAccent, nextDensity);
+    setUiDensity(nextDensity);
+  }
+
+  function resetWorkspaceAppearance() {
+    syncWorkspaceThemeDom("light", "blue", "standard");
+    setThemeMode("light");
+    setThemeAccent("blue");
+    setUiDensity("standard");
+    setSidebarCollapsed(false);
+    setRightPanelsCollapsed(false);
+    setShowSyncStatus(true);
+    setMessage("Workspace appearance reset to standard.");
   }
   const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null);
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
@@ -1273,16 +1317,20 @@ export default function DashboardPage() {
       const raw = window.localStorage.getItem(UI_PREFERENCES_STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as {
-        themeMode?: "light" | "dark";
-        themeAccent?: "blue" | "emerald" | "slate";
-        uiDensity?: "comfortable" | "standard" | "compact";
+        themeMode?: ThemeMode;
+        themeAccent?: ThemeAccent;
+        uiDensity?: UiDensity;
         sidebarCollapsed?: boolean;
         rightPanelsCollapsed?: boolean;
         showSyncStatus?: boolean;
       };
-      if (saved.themeMode === "light" || saved.themeMode === "dark") setThemeMode(saved.themeMode);
-      if (saved.themeAccent === "blue" || saved.themeAccent === "emerald" || saved.themeAccent === "slate") setThemeAccent(saved.themeAccent);
-      if (saved.uiDensity === "comfortable" || saved.uiDensity === "standard" || saved.uiDensity === "compact") setUiDensity(saved.uiDensity);
+      const nextThemeMode = saved.themeMode === "light" || saved.themeMode === "dark" ? saved.themeMode : "light";
+      const nextThemeAccent = saved.themeAccent === "blue" || saved.themeAccent === "emerald" || saved.themeAccent === "slate" ? saved.themeAccent : "blue";
+      const nextUiDensity = saved.uiDensity === "comfortable" || saved.uiDensity === "standard" || saved.uiDensity === "compact" ? saved.uiDensity : "standard";
+      syncWorkspaceThemeDom(nextThemeMode, nextThemeAccent, nextUiDensity);
+      setThemeMode(nextThemeMode);
+      setThemeAccent(nextThemeAccent);
+      setUiDensity(nextUiDensity);
       if (typeof saved.sidebarCollapsed === "boolean") setSidebarCollapsed(saved.sidebarCollapsed);
       if (typeof saved.rightPanelsCollapsed === "boolean") setRightPanelsCollapsed(saved.rightPanelsCollapsed);
       if (typeof saved.showSyncStatus === "boolean") setShowSyncStatus(saved.showSyncStatus);
@@ -1314,6 +1362,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    syncWorkspaceThemeDom(themeMode, themeAccent, uiDensity);
     window.localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify({
       themeMode,
       themeAccent,
@@ -1322,6 +1371,11 @@ export default function DashboardPage() {
       rightPanelsCollapsed,
       showSyncStatus
     }));
+    if (!themeTelemetryReadyRef.current) {
+      themeTelemetryReadyRef.current = true;
+      return;
+    }
+    void atlasHealth().catch(() => undefined);
   }, [themeMode, themeAccent, uiDensity, sidebarCollapsed, rightPanelsCollapsed, showSyncStatus]);
 
   useEffect(() => {
@@ -4900,7 +4954,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className={`shell ${themeMode === "dark" ? "theme-dark" : ""} accent-${themeAccent} density-${uiDensity} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${rightPanelsCollapsed ? "right-panels-collapsed" : ""}`}>
+    <main
+      className={`shell ${themeMode === "dark" ? "theme-dark" : ""} accent-${themeAccent} density-${uiDensity} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${rightPanelsCollapsed ? "right-panels-collapsed" : ""}`}
+      data-theme={themeMode}
+      data-accent={themeAccent}
+      data-density={uiDensity}
+    >
       <aside className="sidebar glass-panel">
         <button
           className="sidebar-toggle"
@@ -5004,8 +5063,9 @@ export default function DashboardPage() {
             </button>
             <button className="icon-button" onClick={() => setShowNotifications((current) => !current)} title="Validation notifications"><Bell size={18} /><span>{notificationCount}</span></button>
             <button className="icon-button" onClick={() => {
-              setThemeMode((current) => current === "light" ? "dark" : "light");
-              setMessage(themeMode === "light" ? "Dark mode enabled." : "Normal mode enabled.");
+              const nextTheme = themeMode === "light" ? "dark" : "light";
+              updateThemeMode(nextTheme);
+              setMessage(nextTheme === "dark" ? "Dark mode enabled." : "Normal mode enabled.");
             }} title={themeMode === "light" ? "Switch to dark mode" : "Switch to normal mode"}>
               {themeMode === "light" ? <Moon size={18} /> : <Sun size={18} />}
             </button>
@@ -6557,15 +6617,21 @@ export default function DashboardPage() {
                 <div className="card-title"><Palette size={18} /> Appearance and workspace</div>
                 <p className="muted">These preferences are saved on this browser, so refresh and restart keep the same workspace style.</p>
                 <div className="form-grid two">
+                  <Field label="Theme mode">
+                    <select value={themeMode} onChange={(event) => updateThemeMode(event.target.value as ThemeMode)}>
+                      <option value="light">Light glass</option>
+                      <option value="dark">Dark glass</option>
+                    </select>
+                  </Field>
                   <Field label="Theme accent">
-                    <select value={themeAccent} onChange={(event) => setThemeAccent(event.target.value as "blue" | "emerald" | "slate")}>
+                    <select value={themeAccent} onChange={(event) => updateThemeAccent(event.target.value as ThemeAccent)}>
                       <option value="blue">Blue professional</option>
                       <option value="emerald">Emerald calm</option>
                       <option value="slate">Slate focused</option>
                     </select>
                   </Field>
                   <Field label="Application density">
-                    <select value={uiDensity} onChange={(event) => setUiDensity(event.target.value as "comfortable" | "standard" | "compact")}>
+                    <select value={uiDensity} onChange={(event) => updateUiDensity(event.target.value as UiDensity)}>
                       <option value="comfortable">Comfortable</option>
                       <option value="standard">Standard</option>
                       <option value="compact">Compact</option>
@@ -6575,15 +6641,7 @@ export default function DashboardPage() {
                 <div className="button-row">
                   <button className="soft-button" onClick={() => setSidebarCollapsed((current) => !current)}>{sidebarCollapsed ? "Expand left menu" : "Collapse left menu"}</button>
                   <button className="soft-button" onClick={() => setRightPanelsCollapsed((current) => !current)}>{rightPanelsCollapsed ? "Show right panels" : "Hide right panels"}</button>
-                  <button className="soft-button" onClick={() => {
-                    setThemeMode("light");
-                    setThemeAccent("blue");
-                    setUiDensity("standard");
-                    setSidebarCollapsed(false);
-                    setRightPanelsCollapsed(false);
-                    setShowSyncStatus(true);
-                    setMessage("Workspace appearance reset to standard.");
-                  }}>Reset workspace</button>
+                  <button className="soft-button" onClick={resetWorkspaceAppearance}>Reset workspace</button>
                 </div>
               </div>
               <div className="premium-table">
