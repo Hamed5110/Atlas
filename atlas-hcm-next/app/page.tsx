@@ -703,6 +703,77 @@ const emptyAllocationForm = () => ({
   remarks: ""
 });
 
+type FieldErrors = Record<string, string>;
+type AllocationFormState = ReturnType<typeof emptyAllocationForm>;
+type SelfServiceTicketFormState = {
+  travelFromDate: string;
+  travelToDate: string;
+  origin: string;
+  destination: string;
+  tripType: string;
+  cabinClass: string;
+  estimatedCostBHD: string;
+  preferredAirline: string;
+  purpose: string;
+};
+
+function isEndBeforeStart(startValue: string, endValue: string) {
+  if (!startValue || !endValue) return false;
+  return new Date(`${endValue}T00:00:00`) < new Date(`${startValue}T00:00:00`);
+}
+
+function validateSelfServiceTicketForm(form: SelfServiceTicketFormState, activeEmployeeId: string, canSelectEmployee: boolean) {
+  const errors: FieldErrors = {};
+  const estimatedCost = toNumber(form.estimatedCostBHD);
+
+  if (!form.travelFromDate) errors.travelFromDate = "Travel date is required.";
+  if (canSelectEmployee && !activeEmployeeId) errors.employeeId = "Select an employee.";
+  if (!form.origin.trim()) errors.origin = "From airport or city is required.";
+  if (!form.destination.trim()) errors.destination = "Destination airport or city is required.";
+  if (form.travelFromDate && form.travelToDate && isEndBeforeStart(form.travelFromDate, form.travelToDate)) {
+    errors.travelToDate = "Return date cannot be before travel date.";
+  }
+  if (!form.estimatedCostBHD || estimatedCost <= 0) errors.estimatedCostBHD = "Enter an estimated cost above zero.";
+  if (form.preferredAirline.length > 120) errors.preferredAirline = "Keep airline name under 120 characters.";
+  if (form.purpose.length > 500) errors.purpose = "Keep purpose under 500 characters.";
+
+  return errors;
+}
+
+function validateAllocationTicketForm(
+  form: AllocationFormState,
+  selectedEmployee: Employee | undefined,
+  ticketCost: number,
+  requiresManagerApproval: boolean,
+  hasManagerApproval: boolean,
+  requiresLoanManagerApproval: boolean
+) {
+  const errors: FieldErrors = {};
+  const year = Number(form.year);
+  const loanTenure = Number(form.loanTenure);
+
+  if (!selectedEmployee) errors.employeeId = "Select an employee.";
+  if (!form.date) errors.date = "Allocation date is required.";
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) errors.year = "Enter a valid allocation year.";
+  if (ticketCost <= 0) errors.ticketCost = "Ticket amount must be more than zero.";
+  if (form.paymentMode === "loan" && (!Number.isFinite(loanTenure) || loanTenure < 1)) {
+    errors.loanTenure = "Loan tenure must be at least 1 month.";
+  }
+  if (requiresManagerApproval && !hasManagerApproval) {
+    errors.managerApproval = requiresLoanManagerApproval
+      ? "Loan ticket needs manager approval before processing."
+      : "Second ticket in this year needs manager approval before processing.";
+  }
+  if (isEndBeforeStart(form.leaveStart, form.leaveEnd)) errors.leaveEnd = "Leave end cannot be before leave start.";
+  if (form.route.length > 250) errors.route = "Keep route under 250 characters.";
+  if (form.ticketNo.length > 80) errors.ticketNo = "Keep ticket number under 80 characters.";
+  if (form.supplier.length > 120) errors.supplier = "Keep supplier under 120 characters.";
+  if (form.invoiceNo.length > 80) errors.invoiceNo = "Keep invoice number under 80 characters.";
+  if (form.remarks.length > 500) errors.remarks = "Keep remarks under 500 characters.";
+
+  return errors;
+}
+
 export default function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>("Overview");
   const [session, setSession] = useState<AtlasSession | null>(null);
@@ -786,6 +857,7 @@ export default function DashboardPage() {
   });
   const [resetEmail, setResetEmail] = useState("");
   const [allocationForm, setAllocationForm] = useState(emptyAllocationForm);
+  const [allocationErrors, setAllocationErrors] = useState<FieldErrors>({});
   const [allocationWhatsAppForm, setAllocationWhatsAppForm] = useState({
     managerNumber: "",
     subject: "Airfare Allocation Approval",
@@ -818,6 +890,7 @@ export default function DashboardPage() {
     preferredAirline: "",
     purpose: ""
   });
+  const [selfServiceErrors, setSelfServiceErrors] = useState<FieldErrors>({});
   const [loanForm, setLoanForm] = useState({
     employeeId: "",
     amount: "0",
@@ -847,6 +920,24 @@ export default function DashboardPage() {
     branch: "",
     isActive: true
   });
+
+  function clearAllocationError(field: string) {
+    setAllocationErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function clearSelfServiceError(field: string) {
+    setSelfServiceErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
   const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null);
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
   const [companyForm, setCompanyForm] = useState({
@@ -1503,6 +1594,12 @@ export default function DashboardPage() {
   async function submitSelfServiceRequest(event: React.FormEvent) {
     event.preventDefault();
     if (!session) return;
+    const errors = validateSelfServiceTicketForm(selfServiceForm, activeSelfServiceEmployeeId, canSelectSelfServiceEmployee);
+    setSelfServiceErrors(errors);
+    if (Object.keys(errors).length) {
+      setMessage("Review the highlighted ticket request fields before submitting.");
+      return;
+    }
     setBusy(true);
     try {
       await atlasMutation<EmployeeAllowanceRequest>("/employee-self-service/requests", session.token, session.sessionId, "POST", {
@@ -1518,6 +1615,7 @@ export default function DashboardPage() {
         preferredAirline: "",
         purpose: ""
       }));
+      setSelfServiceErrors({});
       await reloadSelfService(session, activeSelfServiceEmployeeId);
       setMessage(session.user.role === "employee" ? "Request submitted to admin/HR for review." : "Employee airfare request submitted for review.");
     } catch (err) {
@@ -2031,13 +2129,14 @@ export default function DashboardPage() {
 
   async function handleCreateAllocation() {
     if (!session) return setMessage("Please sign in before saving.");
-    if (!selectedEmployee) return setMessage("Select an employee first.");
-    if (ticketCost <= 0) return setMessage("Ticket cost must be more than zero.");
-    if (requiresManagerApproval && !hasManagerApproval) {
-      return setMessage(requiresLoanManagerApproval
-        ? "Loan ticket needs manager approval before processing."
-        : "Second ticket in this year needs manager approval before processing.");
+    const errors = validateAllocationTicketForm(allocationForm, selectedEmployee, ticketCost, requiresManagerApproval, hasManagerApproval, requiresLoanManagerApproval);
+    setAllocationErrors(errors);
+    if (Object.keys(errors).length) {
+      setMessage("Review the highlighted airfare allocation fields before saving.");
+      return;
     }
+    if (!selectedEmployee) return;
+    const allocationEmployee = selectedEmployee;
     if (allocationForm.decision === "reject") {
       setMessage("Allocation rejected. No ticket, loan, or payment entry was created.");
       return;
@@ -2079,7 +2178,7 @@ export default function DashboardPage() {
       }
 
       const payload = {
-        employeeId: selectedEmployee.EmployeeID,
+        employeeId: allocationEmployee.EmployeeID,
         date: allocationForm.date,
         year: Number(allocationForm.year),
         overrideReason: allocationForm.overrideReason,
@@ -2131,7 +2230,8 @@ export default function DashboardPage() {
         ? `System confirmation: airfare allocation #${allocation.AllocationID} updated.`
         : finalPaymentMode === "loan" ? `System confirmation: airfare allocation #${allocation.AllocationID} saved and excess loan created.` : `System confirmation: airfare allocation #${allocation.AllocationID} saved.`);
       resetAllocationForm();
-      printAllocationLetter(selectedEmployee, allocation, payload);
+      setAllocationErrors({});
+      printAllocationLetter(allocationEmployee, allocation, payload);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Allocation save failed");
     } finally {
@@ -2192,6 +2292,7 @@ export default function DashboardPage() {
     setEditingAllocationId(null);
     setAllocationFile(null);
     setAllocationEligibilityReview(null);
+    setAllocationErrors({});
     setAllocationForm(emptyAllocationForm());
   }
 
@@ -5405,7 +5506,10 @@ export default function DashboardPage() {
                   />
                 </Field>
                 <Field label="Employee">
-                  <select value={allocationForm.employeeId} onChange={(e) => setAllocationForm({ ...allocationForm, employeeId: e.target.value, overrideReason: "", managerApproval: "" })}>
+                  <select value={allocationForm.employeeId} onChange={(e) => {
+                    clearAllocationError("employeeId");
+                    setAllocationForm({ ...allocationForm, employeeId: e.target.value, overrideReason: "", managerApproval: "" });
+                  }} {...fieldErrorProps(allocationErrors, "employeeId")}>
                     <option value="">Select employee</option>
                     {allocationEmployeeRows.map((employee) => (
                       <option key={employee.EmployeeID} value={employee.EmployeeID}>
@@ -5413,14 +5517,23 @@ export default function DashboardPage() {
                       </option>
                     ))}
                   </select>
+                  <InlineFieldError id="employeeId" message={allocationErrors.employeeId} />
                 </Field>
-                <Field label="Allocation date"><input type="date" value={allocationForm.date} onChange={(event) => {
+                <Field label="Allocation date" errorId="date" error={allocationErrors.date}><input type="date" value={allocationForm.date} onChange={(event) => {
                   const selectedDate = event.target.value;
                   const selectedYear = selectedDate ? new Date(selectedDate).getFullYear().toString() : allocationForm.year;
+                  clearAllocationError("date");
+                  clearAllocationError("year");
                   setAllocationForm({ ...allocationForm, date: selectedDate, year: selectedYear });
-                }} /></Field>
-                <Field label="Allocation year"><input type="number" placeholder="Year" value={allocationForm.year} onChange={(e) => setAllocationForm({ ...allocationForm, year: e.target.value })} /></Field>
-                <Field label="Ticket Amount"><input type="number" step="0.01" placeholder="Ticket amount" value={allocationForm.ticketCost} onChange={(e) => setAllocationForm({ ...allocationForm, ticketCost: e.target.value })} /></Field>
+                }} {...fieldErrorProps(allocationErrors, "date")} /></Field>
+                <Field label="Allocation year" errorId="year" error={allocationErrors.year}><input type="number" placeholder="Year" value={allocationForm.year} onChange={(e) => {
+                  clearAllocationError("year");
+                  setAllocationForm({ ...allocationForm, year: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "year")} /></Field>
+                <Field label="Ticket Amount" errorId="ticketCost" error={allocationErrors.ticketCost}><input type="number" step="0.01" placeholder="Ticket amount" value={allocationForm.ticketCost} onChange={(e) => {
+                  clearAllocationError("ticketCost");
+                  setAllocationForm({ ...allocationForm, ticketCost: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "ticketCost")} /></Field>
                 <Field label="Selected Payment Option">
                   <select value={allocationForm.paymentMode} onChange={(e) => setAllocationForm({ ...allocationForm, paymentMode: e.target.value })}>
                     <option value="entitlement">Use airfare entitlement amount</option>
@@ -5437,11 +5550,23 @@ export default function DashboardPage() {
                     <option value="reject">Reject / hold ticket</option>
                   </select>
                 </Field>
-                <Field label="Loan tenure months"><input type="number" placeholder="Loan tenure" value={allocationForm.loanTenure} onChange={(e) => setAllocationForm({ ...allocationForm, loanTenure: e.target.value })} /></Field>
+                <Field label="Loan tenure months" errorId="loanTenure" error={allocationErrors.loanTenure}><input type="number" placeholder="Loan tenure" value={allocationForm.loanTenure} onChange={(e) => {
+                  clearAllocationError("loanTenure");
+                  setAllocationForm({ ...allocationForm, loanTenure: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "loanTenure")} /></Field>
                 <label className="switch-row"><input type="checkbox" checked={allocationForm.emergency} onChange={(e) => setAllocationForm({ ...allocationForm, emergency: e.target.checked })} /> Emergency ticket</label>
-                <input placeholder="Remarks" value={allocationForm.remarks} onChange={(e) => setAllocationForm({ ...allocationForm, remarks: e.target.value })} />
-                <Field label="Leave start"><input type="date" value={allocationForm.leaveStart} onChange={(e) => setAllocationForm({ ...allocationForm, leaveStart: e.target.value })} /></Field>
-                <Field label="Leave end"><input type="date" value={allocationForm.leaveEnd} onChange={(e) => setAllocationForm({ ...allocationForm, leaveEnd: e.target.value })} /></Field>
+                <Field label="Remarks" errorId="remarks" error={allocationErrors.remarks}><input placeholder="Remarks" value={allocationForm.remarks} onChange={(e) => {
+                  clearAllocationError("remarks");
+                  setAllocationForm({ ...allocationForm, remarks: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "remarks")} /></Field>
+                <Field label="Leave start"><input type="date" value={allocationForm.leaveStart} onChange={(e) => {
+                  clearAllocationError("leaveEnd");
+                  setAllocationForm({ ...allocationForm, leaveStart: e.target.value });
+                }} /></Field>
+                <Field label="Leave end" errorId="leaveEnd" error={allocationErrors.leaveEnd}><input type="date" value={allocationForm.leaveEnd} onChange={(e) => {
+                  clearAllocationError("leaveEnd");
+                  setAllocationForm({ ...allocationForm, leaveEnd: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "leaveEnd")} /></Field>
                 <AirportSearchField
                   id="atlas-allocation-route-airport"
                   label="Route / destination"
@@ -5449,11 +5574,25 @@ export default function DashboardPage() {
                   options={airportOptions}
                   placeholder="Search airport, city, or code"
                   className="span-2"
-                  onChange={(value) => setAllocationForm({ ...allocationForm, route: value })}
+                  error={allocationErrors.route}
+                  errorId="route"
+                  onChange={(value) => {
+                    clearAllocationError("route");
+                    setAllocationForm({ ...allocationForm, route: value });
+                  }}
                 />
-                <Field label="Ticket number"><input placeholder="Ticket / PNR" value={allocationForm.ticketNo} onChange={(e) => setAllocationForm({ ...allocationForm, ticketNo: e.target.value })} /></Field>
-                <Field label="Supplier"><input placeholder="Travel agent / airline" value={allocationForm.supplier} onChange={(e) => setAllocationForm({ ...allocationForm, supplier: e.target.value })} /></Field>
-                <Field label="Invoice number"><input placeholder="Invoice / receipt no" value={allocationForm.invoiceNo} onChange={(e) => setAllocationForm({ ...allocationForm, invoiceNo: e.target.value })} /></Field>
+                <Field label="Ticket number" errorId="ticketNo" error={allocationErrors.ticketNo}><input placeholder="Ticket / PNR" value={allocationForm.ticketNo} onChange={(e) => {
+                  clearAllocationError("ticketNo");
+                  setAllocationForm({ ...allocationForm, ticketNo: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "ticketNo")} /></Field>
+                <Field label="Supplier" errorId="supplier" error={allocationErrors.supplier}><input placeholder="Travel agent / airline" value={allocationForm.supplier} onChange={(e) => {
+                  clearAllocationError("supplier");
+                  setAllocationForm({ ...allocationForm, supplier: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "supplier")} /></Field>
+                <Field label="Invoice number" errorId="invoiceNo" error={allocationErrors.invoiceNo}><input placeholder="Invoice / receipt no" value={allocationForm.invoiceNo} onChange={(e) => {
+                  clearAllocationError("invoiceNo");
+                  setAllocationForm({ ...allocationForm, invoiceNo: e.target.value });
+                }} {...fieldErrorProps(allocationErrors, "invoiceNo")} /></Field>
                 <Field label="Ticket / receipt attachment">
                   <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={(event) => setAllocationFile(event.target.files?.[0] || null)} />
                 </Field>
@@ -5510,12 +5649,16 @@ export default function DashboardPage() {
                         onChange={(event) => setAllocationForm({ ...allocationForm, overrideReason: event.target.value })}
                       />
                     </Field>
-                    <Field label="Manager approval / reference">
+                    <Field label="Manager approval / reference" errorId="managerApproval" error={allocationErrors.managerApproval}>
                       <textarea
                         rows={2}
                         value={allocationForm.managerApproval}
                         placeholder="Enter manager approval note or reference code"
-                        onChange={(event) => setAllocationForm({ ...allocationForm, managerApproval: event.target.value })}
+                        onChange={(event) => {
+                          clearAllocationError("managerApproval");
+                          setAllocationForm({ ...allocationForm, managerApproval: event.target.value });
+                        }}
+                        {...fieldErrorProps(allocationErrors, "managerApproval")}
                       />
                     </Field>
                   </div>
@@ -5800,20 +5943,33 @@ export default function DashboardPage() {
                 <p className="muted">Request entry is available after this login is mapped to an employee profile.</p>
               ) : (
                 <>
-                  <form className="form-grid self-service-ticket-form" onSubmit={submitSelfServiceRequest}>
-                    <label>Travel date <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value })} required /></label>
+                  <form className="form-grid self-service-ticket-form" onSubmit={submitSelfServiceRequest} noValidate>
+                    <Field label="Travel date" errorId="travelFromDate" error={selfServiceErrors.travelFromDate}>
+                      <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => {
+                        clearSelfServiceError("travelFromDate");
+                        setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value });
+                      }} required {...fieldErrorProps(selfServiceErrors, "travelFromDate")} />
+                    </Field>
                     {canSelectSelfServiceEmployee ? (
-                      <label>Employee
-                        <select value={activeSelfServiceEmployeeId} onChange={(event) => changeSelfServiceEmployee(event.target.value)} required>
+                      <Field label="Employee" errorId="employeeId" error={selfServiceErrors.employeeId}>
+                        <select value={activeSelfServiceEmployeeId} onChange={(event) => {
+                          clearSelfServiceError("employeeId");
+                          changeSelfServiceEmployee(event.target.value);
+                        }} required {...fieldErrorProps(selfServiceErrors, "employeeId")}>
                           {selfServiceEmployees.map((employee) => (
                             <option key={employee.EmployeeID} value={employee.EmployeeID}>
                               {employee.EmployeeCode} - {employee.FullName}
                             </option>
                           ))}
                         </select>
-                      </label>
+                      </Field>
                     ) : null}
-                    <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
+                    <Field label="Return date" errorId="travelToDate" error={selfServiceErrors.travelToDate}>
+                      <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => {
+                        clearSelfServiceError("travelToDate");
+                        setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value });
+                      }} {...fieldErrorProps(selfServiceErrors, "travelToDate")} />
+                    </Field>
                     <AirportSearchField
                       id="atlas-origin-airport"
                       label="From"
@@ -5821,7 +5977,12 @@ export default function DashboardPage() {
                       options={airportOptions}
                       placeholder="Search airport, city, or code"
                       className="span-2"
-                      onChange={(value) => setSelfServiceForm({ ...selfServiceForm, origin: value })}
+                      error={selfServiceErrors.origin}
+                      errorId="origin"
+                      onChange={(value) => {
+                        clearSelfServiceError("origin");
+                        setSelfServiceForm({ ...selfServiceForm, origin: value });
+                      }}
                     />
                     <AirportSearchField
                       id="atlas-destination-airport"
@@ -5831,7 +5992,12 @@ export default function DashboardPage() {
                       placeholder="Search airport, city, or code"
                       required
                       className="span-2"
-                      onChange={(value) => setSelfServiceForm({ ...selfServiceForm, destination: value })}
+                      error={selfServiceErrors.destination}
+                      errorId="destination"
+                      onChange={(value) => {
+                        clearSelfServiceError("destination");
+                        setSelfServiceForm({ ...selfServiceForm, destination: value });
+                      }}
                     />
                     <label>Trip type
                       <select value={selfServiceForm.tripType} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, tripType: event.target.value })}>
@@ -5848,9 +6014,26 @@ export default function DashboardPage() {
                         <option value="First">First</option>
                       </select>
                     </label>
-                    <label>Estimated cost BHD <input type="number" min="0" step="0.01" value={selfServiceForm.estimatedCostBHD} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, estimatedCostBHD: event.target.value })} required /></label>
-                    <label>Preferred airline <input value={selfServiceForm.preferredAirline} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, preferredAirline: event.target.value })} /></label>
-                    <label className="span-2">Purpose <textarea value={selfServiceForm.purpose} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, purpose: event.target.value })} /></label>
+                    <Field label="Estimated cost BHD" errorId="estimatedCostBHD" error={selfServiceErrors.estimatedCostBHD}>
+                      <input type="number" min="0" step="0.01" value={selfServiceForm.estimatedCostBHD} onChange={(event) => {
+                        clearSelfServiceError("estimatedCostBHD");
+                        setSelfServiceForm({ ...selfServiceForm, estimatedCostBHD: event.target.value });
+                      }} required {...fieldErrorProps(selfServiceErrors, "estimatedCostBHD")} />
+                    </Field>
+                    <Field label="Preferred airline" errorId="preferredAirline" error={selfServiceErrors.preferredAirline}>
+                      <input value={selfServiceForm.preferredAirline} onChange={(event) => {
+                        clearSelfServiceError("preferredAirline");
+                        setSelfServiceForm({ ...selfServiceForm, preferredAirline: event.target.value });
+                      }} {...fieldErrorProps(selfServiceErrors, "preferredAirline")} />
+                    </Field>
+                    <label className="field-shell span-2">
+                      <span>Purpose</span>
+                      <textarea value={selfServiceForm.purpose} onChange={(event) => {
+                        clearSelfServiceError("purpose");
+                        setSelfServiceForm({ ...selfServiceForm, purpose: event.target.value });
+                      }} {...fieldErrorProps(selfServiceErrors, "purpose")} />
+                      <InlineFieldError id="purpose" message={selfServiceErrors.purpose} />
+                    </label>
                     <button className="shine-button" type="submit" disabled={busy}>Submit request</button>
                     <button className="secondary-button" type="button" disabled={busy} onClick={() => reloadSelfService()}>Refresh</button>
                   </form>
@@ -6951,6 +7134,8 @@ function AirportSearchField({
   options,
   placeholder,
   required,
+  error,
+  errorId,
   className = "",
   onChange
 }: {
@@ -6960,6 +7145,8 @@ function AirportSearchField({
   options: AirportOption[];
   placeholder?: string;
   required?: boolean;
+  error?: string;
+  errorId?: string;
   className?: string;
   onChange: (value: string) => void;
 }) {
@@ -7015,6 +7202,7 @@ function AirportSearchField({
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={`${id}-options`}
+          {...(error ? { "aria-invalid": true, "aria-describedby": `${errorId || id}-error` } : {})}
         />
         <button className="airport-search-toggle" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen((current) => !current)} aria-label={`Show ${label} airports`}>
           <Search size={16} />
@@ -7045,6 +7233,7 @@ function AirportSearchField({
           </div>
         ) : null}
       </div>
+      <InlineFieldError id={errorId || id} message={error} />
     </label>
   );
 }
@@ -7185,11 +7374,26 @@ function SelectField({ placeholder, value, options, onChange, onAddOption, onEdi
   );
 }
 
-function Field({ label, children, onDoubleClick }: { label: string; children: React.ReactNode; onDoubleClick?: () => void }) {
+function fieldErrorProps(errors: FieldErrors, field: string) {
+  return errors[field] ? { "aria-invalid": true, "aria-describedby": `${field}-error` } : {};
+}
+
+function InlineFieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <span className="field-error" id={`${id}-error`} role="alert">
+      <AlertTriangle size={14} />
+      {message}
+    </span>
+  );
+}
+
+function Field({ label, children, onDoubleClick, errorId, error }: { label: string; children: React.ReactNode; onDoubleClick?: () => void; errorId?: string; error?: string }) {
   return (
     <label className="field-shell" onDoubleClick={onDoubleClick}>
       <span>{label}</span>
       {children}
+      <InlineFieldError id={errorId || label.toLowerCase().replace(/[^a-z0-9]+/g, "-")} message={error} />
     </label>
   );
 }

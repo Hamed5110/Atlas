@@ -16,7 +16,8 @@
                     "test:airfare-company":  "node tests/airfare-excess-reports-company-source.test.mjs",
                     "test:opening-balance":  "node tests/opening-balance-source.test.mjs",
                     "test:ui-layout":  "node tests/ui-layout-source.test.mjs",
-                    "test":  "npm run test:formula \u0026\u0026 npm run test:import \u0026\u0026 npm run test:dropdowns \u0026\u0026 npm run test:loans \u0026\u0026 npm run test:airfare-attachments \u0026\u0026 npm run test:airfare-company \u0026\u0026 npm run test:opening-balance \u0026\u0026 npm run test:ui-layout",
+                    "test:frontend-verification":  "node tests/frontend-verification.test.mjs",
+                    "test":  "npm run test:formula \u0026\u0026 npm run test:import \u0026\u0026 npm run test:dropdowns \u0026\u0026 npm run test:loans \u0026\u0026 npm run test:airfare-attachments \u0026\u0026 npm run test:airfare-company \u0026\u0026 npm run test:opening-balance \u0026\u0026 npm run test:ui-layout \u0026\u0026 npm run test:frontend-verification",
                     "dev-public":  "next dev -H 0.0.0.0",
                     "start-public":  "next start -H 0.0.0.0"
                 },

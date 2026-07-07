@@ -810,6 +810,14 @@ h3 { font-size: 20px; letter-spacing: 0; }
   border-color: rgba(21,94,239,.42);
   box-shadow: 0 0 0 4px rgba(21,94,239,.1);
 }
+.form-grid input[aria-invalid="true"],
+.form-grid select[aria-invalid="true"],
+.form-grid textarea[aria-invalid="true"],
+.airport-search-field input[aria-invalid="true"] {
+  border-color: rgba(220,38,38,.62);
+  background: #fffafa;
+  box-shadow: 0 0 0 4px rgba(220,38,38,.08);
+}
 .form-grid textarea {
   min-height: 84px;
   resize: vertical;
@@ -1739,12 +1747,13 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .airfare-layout {
   display: grid;
-  gap: var(--page-gap);
+  gap: clamp(16px, 1.25vw, 28px);
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  container-type: inline-size;
 }
 .airfare-layout.recent-open {
-  grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, clamp(360px, 24vw, 430px)) minmax(0, 1fr);
 }
 .airfare-layout.recent-closed {
   grid-template-columns: minmax(0, 1fr);
@@ -1755,6 +1764,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   overflow: hidden;
   position: sticky;
   top: 112px;
+  box-shadow: 0 22px 60px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.78);
+  transform: translateZ(0);
 }
 .recent-allocations-panel .stack-list {
   max-height: calc(100vh - 230px);
@@ -1774,9 +1785,40 @@ h3 { font-size: 20px; letter-spacing: 0; }
     transform: translateX(0);
   }
 }
+
+@media (min-width: 1800px) {
+  .airfare-layout.recent-open {
+    grid-template-columns: minmax(390px, 460px) minmax(0, 1fr);
+  }
+  .allocation-ticket-form,
+  .self-service-ticket-form {
+    grid-template-columns: repeat(2, minmax(320px, 1fr));
+  }
+  .recent-allocations-panel {
+    max-height: calc(100vh - 148px);
+  }
+  .recent-allocations-panel .stack-list {
+    max-height: calc(100vh - 248px);
+  }
+}
+
+@media (min-width: 2400px) {
+  .airfare-layout.recent-open {
+    grid-template-columns: minmax(420px, 500px) minmax(0, 1fr);
+  }
+  .allocation-ticket-form,
+  .self-service-ticket-form {
+    grid-template-columns: repeat(2, minmax(360px, 1fr));
+  }
+}
 .recent-allocation-card {
   gap: 10px;
   padding: 16px;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.recent-allocation-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(15,23,42,.08);
 }
 .recent-allocation-head {
   display: grid;
@@ -2097,6 +2139,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   display: grid;
   gap: 6px;
   min-width: 0;
+  align-self: start;
 }
 .field-shell > span {
   color: #64748b;
@@ -2105,6 +2148,22 @@ h3 { font-size: 20px; letter-spacing: 0; }
   letter-spacing: .06em;
   text-transform: uppercase;
   padding-left: 2px;
+}
+.field-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.field-error svg {
+  flex: 0 0 auto;
+  color: #dc2626;
 }
 .form-section-label {
   color: var(--muted);
@@ -2727,6 +2786,18 @@ h3 { font-size: 20px; letter-spacing: 0; }
 .self-service-ticket-form,
 .allocation-ticket-form {
   align-items: start;
+  grid-template-columns: repeat(2, minmax(min(100%, 280px), 1fr));
+  gap: clamp(12px, .9vw, 18px) clamp(14px, 1vw, 20px);
+}
+
+.allocation-ticket-form input,
+.allocation-ticket-form select,
+.allocation-ticket-form textarea,
+.self-service-ticket-form input,
+.self-service-ticket-form select,
+.self-service-ticket-form textarea {
+  min-height: 54px;
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
 }
 
 .self-service-ticket-form .span-2,
@@ -3193,6 +3264,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .eligibility-grid,
   .form-grid.one,
   .form-grid.two,
+  .allocation-ticket-form,
+  .self-service-ticket-form,
   .preferences-policy-card .form-grid.one,
   .preferences-policy-card .calc-result,
   .preferences-policy-card .policy-rule-picker,
