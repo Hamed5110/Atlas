@@ -8,6 +8,11 @@ assert.match(source, /function validateAllocationTicketForm\(/, "allocation form
 assert.match(source, /function validateSelfServiceTicketForm\(/, "self-service ticket form should have a client-side validator");
 assert.match(source, /function InlineFieldError\([\s\S]*role="alert"/, "inline errors should announce validation feedback");
 assert.match(source, /aria-invalid[\s\S]*aria-describedby/, "invalid fields should link controls to inline errors");
+assert.match(source, /function syncWorkspaceThemeDom\(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity\)/, "theme engine should centralize DOM dataset synchronization");
+assert.match(source, /document\.documentElement[\s\S]*dataset\.theme\s*=\s*themeMode[\s\S]*dataset\.themeRevision/, "theme changes should force root DOM dataset updates");
+assert.match(source, /atlas:theme-preference-change/, "theme mutations should emit a local UI telemetry event");
+assert.match(source, /void atlasHealth\(\)\.catch\(\(\) => undefined\)/, "theme preference mutations should ping the existing backend service path");
+assert.match(source, /data-theme=\{themeMode\}[\s\S]*data-accent=\{themeAccent\}[\s\S]*data-density=\{uiDensity\}/, "root shell should expose active theme state as data attributes");
 
 const allocationSubmit = source.match(/async function handleCreateAllocation\(\)[\s\S]*?const allocation = await atlasMutation<Allocation>/)?.[0] || "";
 assert.match(allocationSubmit, /validateAllocationTicketForm\(/, "allocation validation should run before saving");
@@ -21,12 +26,19 @@ assert.match(css, /@media \(min-width:\s*1800px\)[\s\S]*\.airfare-layout\.recent
 assert.match(css, /@media \(min-width:\s*2400px\)[\s\S]*\.airfare-layout\.recent-open/, "2K and 4K layout should have an explicit wide breakpoint");
 assert.match(css, /--shell-max:\s*2560px/, "shell should be constrained for HD and 4K workspaces");
 assert.match(css, /--control-h:\s*54px/, "controls should share a stable HD height token");
+assert.match(css, /\[data-theme="light"\][\s\S]*--surface-glass:[\s\S]*--shadow-extruded:[\s\S]*--bg-app:/, "light theme should compile the design token contract");
+assert.match(css, /\[data-theme="dark"\][\s\S]*--surface-glass:[\s\S]*--shadow-extruded:[\s\S]*--bg-app:/, "dark theme should compile the same design token contract");
+assert.match(css, /\.shell\s*{[\s\S]*perspective:\s*1600px[\s\S]*transform-style:\s*preserve-3d/, "app shell should establish the 3D perspective layer");
+assert.match(css, /\.icon-button:active\s*{[\s\S]*translateZ\(2px\)/, "icon buttons should physically compress on active press");
+assert.match(css, /\.shine-button:active\s*{[\s\S]*translateZ\(2px\)/, "primary buttons should physically compress on active press");
+assert.match(css, /\.icon-button:hover svg,[\s\S]*transform:\s*scale\(1\.08\)\s*rotate\(-5deg\)/, "SVG icons should animate with scale and rotation on hover");
 assert.match(css, /\.airfare-layout\.recent-open\s*{[\s\S]*grid-template-columns:\s*minmax\(340px,\s*clamp\(380px,\s*24vw,\s*460px\)\)\s*minmax\(0,\s*1fr\)/, "recent allocations should stay as a left drawer with a stable form column");
 assert.match(css, /\.form-grid input\[aria-invalid="true"\][\s\S]*border-color:\s*rgba\(220,38,38,\.62\)/, "invalid controls should have visible error styling");
 assert.match(css, /\.field-error\s*{[\s\S]*display:\s*inline-flex[\s\S]*line-height:\s*1\.35/, "inline errors should remain compact and aligned");
 assert.match(css, /\[dir="rtl"\] \.airport-search-toggle\s*{[\s\S]*left:\s*8px[\s\S]*right:\s*auto/, "RTL airport search controls should mirror toggle placement");
 assert.match(css, /\[dir="rtl"\] \.nav-item:hover,[\s\S]*transform:\s*translateX\(-2px\)/, "RTL nav motion should mirror LTR motion");
 assert.match(css, /font-family:\s*Inter,\s*Cairo,\s*Amiri/, "font stack should include Cairo and Amiri for Arabic text");
+assert.match(css, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*transition-duration:\s*\.001ms/, "motion system should honor reduced-motion preferences");
 assert.match(css, /@media \(max-width:\s*720px\)[\s\S]*\.topbar\s*{[\s\S]*position:\s*static/, "mobile topbar should stay in document flow instead of crowding content");
 assert.match(css, /@media \(max-width:\s*720px\)[\s\S]*\.allocation-ticket-form,[\s\S]*\.self-service-ticket-form,[\s\S]*grid-template-columns:\s*1fr/, "ticket forms should stack cleanly on mobile");
 
