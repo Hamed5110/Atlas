@@ -894,8 +894,6 @@ export default function DashboardPage() {
       || selfServiceAlerts.find((request) => ["Submitted", "ManagerApproved", "HRApproved"].includes(request.ApprovalStatus))
       || null
     : null;
-  const originAirportSuggestions = filterAirportOptions(airportOptions, selfServiceForm.origin);
-  const destinationAirportSuggestions = filterAirportOptions(airportOptions, selfServiceForm.destination);
   const userFormEmployeeOptions = employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
   const selectedUserFormEmployee = userFormEmployeeOptions.find((employee) => employee.EmployeeID === Number(userForm.employeeId));
   const isEmployeePortalSession = session?.user.role === "employee";
@@ -5770,22 +5768,23 @@ export default function DashboardPage() {
                       </label>
                     ) : null}
                     <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
-                    <label>From
-                      <input list="atlas-origin-airports" value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} placeholder="Search airport, city, or code" />
-                      <datalist id="atlas-origin-airports">
-                        {originAirportSuggestions.map((airport) => (
-                          <option key={`${airport.code}-${airport.ident}-origin`} value={airport.label} />
-                        ))}
-                      </datalist>
-                    </label>
-                    <label>Destination
-                      <input list="atlas-destination-airports" value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} placeholder="Search airport, city, or code" required />
-                      <datalist id="atlas-destination-airports">
-                        {destinationAirportSuggestions.map((airport) => (
-                          <option key={`${airport.code}-${airport.ident}-destination`} value={airport.label} />
-                        ))}
-                      </datalist>
-                    </label>
+                    <AirportSearchField
+                      id="atlas-origin-airport"
+                      label="From"
+                      value={selfServiceForm.origin}
+                      options={airportOptions}
+                      placeholder="Search airport, city, or code"
+                      onChange={(value) => setSelfServiceForm({ ...selfServiceForm, origin: value })}
+                    />
+                    <AirportSearchField
+                      id="atlas-destination-airport"
+                      label="Destination"
+                      value={selfServiceForm.destination}
+                      options={airportOptions}
+                      placeholder="Search airport, city, or code"
+                      required
+                      onChange={(value) => setSelfServiceForm({ ...selfServiceForm, destination: value })}
+                    />
                     <label>Trip type
                       <select value={selfServiceForm.tripType} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, tripType: event.target.value })}>
                         <option value="RoundTrip">Round trip</option>
@@ -6894,6 +6893,109 @@ function MetricGrid({ metrics }: { metrics: { totalAirfare: number; opening: num
       <Metric title="Airfare Payable" value={money.format(metrics.totalAirfare)} icon={<TrendingUp />} tone="cyan" />
       <Metric title="Loan Exposure" value={money.format(metrics.loanBalance)} icon={<CreditCard />} tone="rose" />
     </section>
+  );
+}
+
+function AirportSearchField({
+  id,
+  label,
+  value,
+  options,
+  placeholder,
+  required,
+  onChange
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: AirportOption[];
+  placeholder?: string;
+  required?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const matches = useMemo(() => filterAirportOptions(options, value, 40), [options, value]);
+  const hasAirportData = options.length > 0;
+
+  function selectAirport(airport: AirportOption) {
+    onChange(airport.label);
+    setOpen(false);
+    setActiveIndex(0);
+  }
+
+  return (
+    <label className="airport-search-field" htmlFor={id}>
+      {label}
+      <div className="airport-search-shell">
+        <input
+          id={id}
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+            setActiveIndex(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          onKeyDown={(event) => {
+            if (!open && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+              setOpen(true);
+              return;
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActiveIndex((current) => Math.min(current + 1, Math.max(matches.length - 1, 0)));
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveIndex((current) => Math.max(current - 1, 0));
+            }
+            if (event.key === "Enter" && open && matches[activeIndex]) {
+              event.preventDefault();
+              selectAirport(matches[activeIndex]);
+            }
+            if (event.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+          placeholder={placeholder}
+          required={required}
+          autoComplete="off"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={`${id}-options`}
+        />
+        <button className="airport-search-toggle" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen((current) => !current)} aria-label={`Show ${label} airports`}>
+          <Search size={16} />
+        </button>
+        {open ? (
+          <div className="airport-search-menu" id={`${id}-options`} role="listbox">
+            {hasAirportData ? matches.map((airport, index) => (
+              <button
+                className={index === activeIndex ? "airport-option active" : "airport-option"}
+                key={`${airport.code}-${airport.ident}-${airport.countryCode}-${index}`}
+                type="button"
+                role="option"
+                aria-selected={index === activeIndex}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => selectAirport(airport)}
+              >
+                <strong>{airport.code}</strong>
+                <span>{airport.name}</span>
+                <small>{[airport.city, airport.country].filter(Boolean).join(", ")}</small>
+              </button>
+            )) : (
+              <div className="airport-search-empty">Airport list is loading. You can still type the route manually.</div>
+            )}
+            {hasAirportData && matches.length === 0 ? (
+              <div className="airport-search-empty">No matching airport found. Type the city or airport manually.</div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </label>
   );
 }
 

@@ -46,6 +46,7 @@ assert.match(serverText, /alerts=pending|AlertMode|ApprovalStatus IN \(N'Submitt
 assert.match(serverText, /ApprovalStatus, SubmittedAt[\s\S]*N'Submitted', SYSUTCDATETIME\(\)/, 'new self-service requests should be submitted immediately');
 assert.match(pageText, /selfServiceAlerts[\s\S]*\/employee-self-service\/requests\?alerts=pending[\s\S]*Open request/, 'admin/HR notification panel should show pending self-service requests');
 assert.match(pageText, /airports-world\.json/, 'self-service route fields should load the bundled world airport code dataset');
-assert.match(pageText, /atlas-origin-airports[\s\S]*atlas-destination-airports/, 'self-service From and Destination fields should use searchable airport-code pickers');
+assert.match(pageText, /function AirportSearchField[\s\S]*airport-search-menu[\s\S]*airport\.code/, 'self-service route fields should use the controlled airport-code search component');
+assert.match(pageText, /id="atlas-origin-airport"[\s\S]*id="atlas-destination-airport"/, 'self-service From and Destination fields should render airport search controls');
 
 console.log('Employee self-service allocation link source checks passed');
