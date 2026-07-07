@@ -2645,11 +2645,11 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 
 .self-service-grid > .table-card {
-  order: 1;
+  order: 2;
 }
 
 .self-service-grid > .form-card {
-  order: 2;
+  order: 3;
 }
 
 .self-service-grid .responsive-table {
@@ -2700,6 +2700,40 @@ h3 { font-size: 20px; letter-spacing: 0; }
 
 .summary-focus-row.compact {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.self-service-review-panel {
+  order: 1;
+}
+
+.review-request-layout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.review-request-layout > div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.review-request-layout small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.review-request-layout strong {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .request-actions {
@@ -3034,6 +3068,9 @@ h3 { font-size: 20px; letter-spacing: 0; }
     grid-template-columns: 1fr;
   }
   .self-service-employee-picker {
+    grid-template-columns: 1fr;
+  }
+  .review-request-layout {
     grid-template-columns: 1fr;
   }
   .self-service-grid .span-2 {

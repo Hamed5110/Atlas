@@ -137,6 +137,18 @@ type EmployeeAllowanceRequest = {
   LinkedAllocationID?: number;
   CreatedAt?: string;
 };
+type AirportOption = {
+  code: string;
+  iata?: string;
+  ident?: string;
+  name: string;
+  city?: string;
+  country: string;
+  countryCode: string;
+  type: string;
+  scheduled?: boolean;
+  label: string;
+};
 type DisplayedReport = {
   title: string;
   columns: string[];
@@ -305,6 +317,7 @@ type NotificationItem = {
   tone: "warning" | "info" | "success";
   actionLabel?: string;
   targetView?: ViewKey;
+  requestId?: number;
 };
 type SystemIntegrityModel = {
   modelName: string;
@@ -478,6 +491,26 @@ function toEmployeeLifecycleStatus(value: string | null | undefined) {
 
 function isAirfareEligibleEmployeeStatus(value: string | null | undefined) {
   return toEmployeeLifecycleStatus(value) === "Active";
+}
+
+function filterAirportOptions(options: AirportOption[], query: string, limit = 80) {
+  const normalized = String(query || "").trim().toLowerCase();
+  const base = normalized
+    ? options.filter((airport) => {
+      const haystack = `${airport.code} ${airport.iata || ""} ${airport.ident || ""} ${airport.name} ${airport.city || ""} ${airport.country}`.toLowerCase();
+      return haystack.includes(normalized);
+    })
+    : options;
+  return base
+    .slice()
+    .sort((a, b) => {
+      const aExact = normalized && [a.code, a.iata, a.ident].some((code) => String(code || "").toLowerCase() === normalized) ? -1 : 0;
+      const bExact = normalized && [b.code, b.iata, b.ident].some((code) => String(code || "").toLowerCase() === normalized) ? -1 : 0;
+      const aScheduled = a.scheduled ? -1 : 0;
+      const bScheduled = b.scheduled ? -1 : 0;
+      return aExact - bExact || aScheduled - bScheduled || a.label.localeCompare(b.label);
+    })
+    .slice(0, limit);
 }
 
 function buildAllocationSettlementRows(allocation: Allocation) {
@@ -683,7 +716,9 @@ export default function DashboardPage() {
   const [selfServiceSummary, setSelfServiceSummary] = useState<EmployeeSelfServiceSummary | null>(null);
   const [selfServiceRequests, setSelfServiceRequests] = useState<EmployeeAllowanceRequest[]>([]);
   const [selfServiceAlerts, setSelfServiceAlerts] = useState<EmployeeAllowanceRequest[]>([]);
+  const [selectedSelfServiceReviewId, setSelectedSelfServiceReviewId] = useState<number | null>(null);
   const [selfServiceEmployeeId, setSelfServiceEmployeeId] = useState("");
+  const [airportOptions, setAirportOptions] = useState<AirportOption[]>([]);
   const [allocationAttachments, setAllocationAttachments] = useState<Record<number, AllocationAttachment[]>>({});
   const [users, setUsers] = useState<AtlasUser[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -850,6 +885,17 @@ export default function DashboardPage() {
   const canSelectSelfServiceEmployee = Boolean(selfServiceSummary?.canSelectEmployee || ["admin", "manager", "hr"].includes(session?.user.role || ""));
   const selfServiceEmployees = employees.length ? employees : employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
   const activeSelfServiceEmployeeId = selfServiceEmployeeId || (selfServiceSummary?.employee?.EmployeeID ? String(selfServiceSummary.employee.EmployeeID) : "");
+  const canReviewSelfServiceRequests = ["admin", "manager", "hr"].includes(session?.user.role || "");
+  const selfServiceReviewRequests = [...selfServiceAlerts, ...selfServiceRequests].filter((request, index, rows) => (
+    rows.findIndex((item) => Number(item.RequestID) === Number(request.RequestID)) === index
+  ));
+  const activeSelfServiceReviewRequest = canReviewSelfServiceRequests
+    ? selfServiceReviewRequests.find((request) => Number(request.RequestID) === Number(selectedSelfServiceReviewId))
+      || selfServiceAlerts.find((request) => ["Submitted", "ManagerApproved", "HRApproved"].includes(request.ApprovalStatus))
+      || null
+    : null;
+  const originAirportSuggestions = filterAirportOptions(airportOptions, selfServiceForm.origin);
+  const destinationAirportSuggestions = filterAirportOptions(airportOptions, selfServiceForm.destination);
   const userFormEmployeeOptions = employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
   const selectedUserFormEmployee = userFormEmployeeOptions.find((employee) => employee.EmployeeID === Number(userForm.employeeId));
   const isEmployeePortalSession = session?.user.role === "employee";
@@ -1115,6 +1161,21 @@ export default function DashboardPage() {
     atlasHealth()
       .then(() => setStatus("API online: sign in for live SQL"))
       .catch(() => setStatus("Preview mode: API not reachable"));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/data/airports-world.json")
+      .then((response) => response.ok ? response.json() : [])
+      .then((rows: AirportOption[]) => {
+        if (!cancelled && Array.isArray(rows)) setAirportOptions(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setAirportOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1468,12 +1529,13 @@ export default function DashboardPage() {
     }
   }
 
-  async function transitionSelfServiceRequest(requestId: number, toStatus: string) {
+  async function transitionSelfServiceRequest(requestId: number, toStatus: string, actionNote = "") {
     if (!session) return;
     setBusy(true);
     try {
-      const updated = await atlasMutation<EmployeeAllowanceRequest>(`/employee-self-service/requests/${requestId}/transition`, session.token, session.sessionId, "POST", { toStatus });
+      const updated = await atlasMutation<EmployeeAllowanceRequest>(`/employee-self-service/requests/${requestId}/transition`, session.token, session.sessionId, "POST", { toStatus, actionNote });
       await reloadSelfService(session, activeSelfServiceEmployeeId);
+      setSelectedSelfServiceReviewId(Number(requestId));
       const allocationNote = updated.LinkedAllocationID ? ` Allocation #${updated.LinkedAllocationID} is linked.` : "";
       setMessage(`Request ${toStatus.toLowerCase()}.${allocationNote}`);
     } catch (err) {
@@ -1481,6 +1543,19 @@ export default function DashboardPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function reviewSelfServiceRequest(request: EmployeeAllowanceRequest, toStatus: "ManagerApproved" | "Rejected") {
+    if (toStatus === "ManagerApproved") {
+      const ok = window.confirm(`Approve airfare request ${request.RequestNo || request.RequestID} for ${request.FullName || request.EmployeeCode || "employee"}?`);
+      if (!ok) return;
+      void transitionSelfServiceRequest(request.RequestID, toStatus, "Approved from Employee Self-Service review.");
+      return;
+    }
+    const reason = window.prompt(`Reject airfare request ${request.RequestNo || request.RequestID}. Enter rejection reason:`, "");
+    if (reason === null) return;
+    const note = reason.trim() || "Rejected from Employee Self-Service review.";
+    void transitionSelfServiceRequest(request.RequestID, toStatus, note);
   }
 
   async function openSelfServiceAllocation(allocationId: number | undefined) {
@@ -4189,7 +4264,8 @@ export default function DashboardPage() {
       detail: `${request.FullName || "Employee"} requested ${money.format(Number(request.EstimatedCostBHD || 0))} for ${request.Destination || "travel"} (${request.ApprovalStatus}).`,
       tone: "warning" as const,
       actionLabel: "Open request",
-      targetView: "Employee Self-Service" as ViewKey
+      targetView: "Employee Self-Service" as ViewKey,
+      requestId: request.RequestID
     })),
     ...employees.filter((employee) => calculateRemainingDays(employee) < 0).slice(0, 4).map((employee) => ({
       title: `${employee.EmployeeCode} balance review`,
@@ -4836,6 +4912,9 @@ export default function DashboardPage() {
                         const targetView = item.targetView;
                         if (targetView) {
                           setActiveView(targetView);
+                        }
+                        if (item.requestId) {
+                          setSelectedSelfServiceReviewId(item.requestId);
                         }
                         setShowNotifications(false);
                       }}>{item.actionLabel || "Open"}</button>
@@ -5574,6 +5653,42 @@ export default function DashboardPage() {
               )}
             </div>
 
+            {activeSelfServiceReviewRequest ? (
+              <div className="glass-panel self-service-review-panel">
+                <div className="card-title"><ShieldCheck size={18} /> Review employee airfare request</div>
+                <div className="review-request-layout">
+                  <div>
+                    <small>Employee</small>
+                    <strong>{activeSelfServiceReviewRequest.EmployeeCode} - {activeSelfServiceReviewRequest.FullName}</strong>
+                  </div>
+                  <div>
+                    <small>Route</small>
+                    <strong>{activeSelfServiceReviewRequest.Origin || "Origin not set"} to {activeSelfServiceReviewRequest.Destination}</strong>
+                  </div>
+                  <div>
+                    <small>Travel date</small>
+                    <strong>{String(activeSelfServiceReviewRequest.TravelFromDate || "").slice(0, 10) || "-"}</strong>
+                  </div>
+                  <div>
+                    <small>Estimated cost</small>
+                    <strong>{money.format(Number(activeSelfServiceReviewRequest.EstimatedCostBHD || 0))}</strong>
+                  </div>
+                  <div>
+                    <small>Status</small>
+                    <strong>{activeSelfServiceReviewRequest.ApprovalStatus}</strong>
+                  </div>
+                  <div className="button-row compact">
+                    <button className="shine-button" type="button" disabled={busy || !["Submitted", "ManagerApproved", "HRApproved"].includes(activeSelfServiceReviewRequest.ApprovalStatus)} onClick={() => reviewSelfServiceRequest(activeSelfServiceReviewRequest, "ManagerApproved")}>
+                      Approve request
+                    </button>
+                    <button className="mini-danger" type="button" disabled={busy || !["Submitted", "ManagerApproved", "HRApproved"].includes(activeSelfServiceReviewRequest.ApprovalStatus)} onClick={() => reviewSelfServiceRequest(activeSelfServiceReviewRequest, "Rejected")}>
+                      Reject request
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="glass-panel table-card">
               <div className="card-title"><Plane size={18} /> My Airfare Requests</div>
               <div className="responsive-table">
@@ -5609,10 +5724,16 @@ export default function DashboardPage() {
                               <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Submitted")}>Submit</button>
                             ) : null}
                             {request.ApprovalStatus === "Submitted" && ["admin", "manager", "hr"].includes(session.user.role) ? (
-                              <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "ManagerApproved")}>Approve</button>
+                              <button className="mini-soft" type="button" disabled={busy} onClick={() => {
+                                setSelectedSelfServiceReviewId(request.RequestID);
+                                reviewSelfServiceRequest(request, "ManagerApproved");
+                              }}>Approve</button>
                             ) : null}
                             {["Submitted", "ManagerApproved", "HRApproved"].includes(request.ApprovalStatus) && ["admin", "manager", "hr"].includes(session.user.role) ? (
-                              <button className="mini-danger" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Rejected")}>Reject</button>
+                              <button className="mini-danger" type="button" disabled={busy} onClick={() => {
+                                setSelectedSelfServiceReviewId(request.RequestID);
+                                reviewSelfServiceRequest(request, "Rejected");
+                              }}>Reject</button>
                             ) : null}
                             {!["Cancelled", "Issued", "Rejected", "ManagerApproved", "HRApproved", "FinanceApproved"].includes(request.ApprovalStatus) ? (
                               <button className="mini-soft" type="button" disabled={busy} onClick={() => transitionSelfServiceRequest(request.RequestID, "Cancelled")}>Cancel</button>
@@ -5649,8 +5770,22 @@ export default function DashboardPage() {
                       </label>
                     ) : null}
                     <label>Return date <input type="date" value={selfServiceForm.travelToDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelToDate: event.target.value })} /></label>
-                    <label>From <input value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} /></label>
-                    <label>Destination <input value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} required /></label>
+                    <label>From
+                      <input list="atlas-origin-airports" value={selfServiceForm.origin} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, origin: event.target.value })} placeholder="Search airport, city, or code" />
+                      <datalist id="atlas-origin-airports">
+                        {originAirportSuggestions.map((airport) => (
+                          <option key={`${airport.code}-${airport.ident}-origin`} value={airport.label} />
+                        ))}
+                      </datalist>
+                    </label>
+                    <label>Destination
+                      <input list="atlas-destination-airports" value={selfServiceForm.destination} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, destination: event.target.value })} placeholder="Search airport, city, or code" required />
+                      <datalist id="atlas-destination-airports">
+                        {destinationAirportSuggestions.map((airport) => (
+                          <option key={`${airport.code}-${airport.ident}-destination`} value={airport.label} />
+                        ))}
+                      </datalist>
+                    </label>
                     <label>Trip type
                       <select value={selfServiceForm.tripType} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, tripType: event.target.value })}>
                         <option value="RoundTrip">Round trip</option>

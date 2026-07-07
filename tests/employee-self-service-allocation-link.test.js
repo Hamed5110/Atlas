@@ -11,7 +11,8 @@ assert.match(serverText, /async function createAllocationFromSelfServiceRequest/
 assert.match(serverText, /LinkedAllocationID = @AllocationID/, 'request is not linked back to the created allocation');
 assert.match(serverText, /ManagerApproved'.*HRApproved'.*FinanceApproved'.*Issued/s, 'approval statuses do not trigger allocation creation');
 assert.match(pageText, /Open allocation/, 'self-service request table does not expose the linked allocation action');
-assert.match(pageText, /transitionSelfServiceRequest\(request\.RequestID, "ManagerApproved"\)/, 'manager approval action is missing from self-service table');
+assert.match(pageText, /reviewSelfServiceRequest\(request, "ManagerApproved"\)/, 'manager approval review action is missing from self-service table');
+assert.match(pageText, /Review employee airfare request[\s\S]*Approve request[\s\S]*Reject request/, 'admin/HR review card should ask for approve or reject');
 assert.match(pageText, /className="self-service-grid"/, 'phase-2 self-service workspace is not rendered inside phase-1 app');
 assert.match(pageText, /New Ticket Request/, 'self-service form should be clearly labeled below the request workflow');
 assert.match(pageText, /self-service-summary-panel[^]*My Airfare Requests[^]*New Ticket Request/, 'self-service screen should show summary, then request workflow, then new request form');
@@ -44,5 +45,7 @@ assert.match(serverText, /function requireNonEmployeePortal[\s\S]*Employee Self-
 assert.match(serverText, /alerts=pending|AlertMode|ApprovalStatus IN \(N'Submitted', N'ManagerApproved', N'HRApproved'\)/, 'backend should expose pending self-service alerts for admin/manager/HR');
 assert.match(serverText, /ApprovalStatus, SubmittedAt[\s\S]*N'Submitted', SYSUTCDATETIME\(\)/, 'new self-service requests should be submitted immediately');
 assert.match(pageText, /selfServiceAlerts[\s\S]*\/employee-self-service\/requests\?alerts=pending[\s\S]*Open request/, 'admin/HR notification panel should show pending self-service requests');
+assert.match(pageText, /airports-world\.json/, 'self-service route fields should load the bundled world airport code dataset');
+assert.match(pageText, /atlas-origin-airports[\s\S]*atlas-destination-airports/, 'self-service From and Destination fields should use searchable airport-code pickers');
 
 console.log('Employee self-service allocation link source checks passed');
