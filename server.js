@@ -4023,9 +4023,15 @@ app.get('/api/allocations', authenticateToken, async (req, res) => {
         const result = await db.request()
             .input('Year', sql.Int, parseInt(year))
             .query(`
-                SELECT a.*, e.EmployeeCode, e.FullName
+                SELECT a.*, e.EmployeeCode, e.FullName,
+                       sr.RequestID AS SelfServiceRequestID,
+                       sr.RequestNo AS SelfServiceRequestNo,
+                       sr.ApprovalStatus AS SelfServiceApprovalStatus,
+                       sr.Origin AS SelfServiceOrigin,
+                       sr.Destination AS SelfServiceDestination
                 FROM Allocations a
                 JOIN Employees e ON a.EmployeeID = e.EmployeeID
+                LEFT JOIN dbo.ext_employee_allowance_requests sr ON sr.LinkedAllocationID = a.AllocationID
                 WHERE a.AllocYear = @Year
                 ORDER BY a.AllocationDate DESC
             `);
@@ -4080,9 +4086,15 @@ app.get('/api/allocations/:id(\\d+)', authenticateToken, async (req, res) => {
         const result = await db.request()
             .input('AllocationID', sql.BigInt, allocationId)
             .query(`
-                SELECT a.*, e.EmployeeCode, e.FullName
+                SELECT a.*, e.EmployeeCode, e.FullName,
+                       sr.RequestID AS SelfServiceRequestID,
+                       sr.RequestNo AS SelfServiceRequestNo,
+                       sr.ApprovalStatus AS SelfServiceApprovalStatus,
+                       sr.Origin AS SelfServiceOrigin,
+                       sr.Destination AS SelfServiceDestination
                 FROM Allocations a
                 JOIN Employees e ON a.EmployeeID = e.EmployeeID
+                LEFT JOIN dbo.ext_employee_allowance_requests sr ON sr.LinkedAllocationID = a.AllocationID
                 WHERE a.AllocationID = @AllocationID
             `);
 

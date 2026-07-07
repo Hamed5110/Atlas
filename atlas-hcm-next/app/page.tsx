@@ -1576,6 +1576,30 @@ export default function DashboardPage() {
     }
   }
 
+  async function openLinkedSelfServiceRequest(allocation: Allocation) {
+    const requestId = Number(allocation.SelfServiceRequestID || 0);
+    if (!session || !requestId) {
+      setMessage("This allocation is not linked to an Employee Self-Service request.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const employeeId = allocation.EmployeeID ? String(allocation.EmployeeID) : activeSelfServiceEmployeeId;
+      if (employeeId) {
+        await reloadSelfService(session, employeeId);
+      }
+      setSelectedSelfServiceReviewId(requestId);
+      setActiveView(ESS_ONLY_VIEW);
+      setMessage(`Opened Employee Self-Service request ${allocation.SelfServiceRequestNo || `#${requestId}`} linked to AF-${allocation.AllocationID}.`);
+    } catch (err) {
+      setSelectedSelfServiceReviewId(requestId);
+      setActiveView(ESS_ONLY_VIEW);
+      setMessage(err instanceof Error ? err.message : "Opened Employee Self-Service, but the linked request could not be refreshed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleLogin(event?: { preventDefault?: () => void }) {
     event?.preventDefault?.();
     setBusy(true);
@@ -5294,11 +5318,69 @@ export default function DashboardPage() {
 
         {activeView === "Airfare" && (
           <section className={`calc-grid airfare-layout ${recentAllocationsOpen ? "recent-open" : "recent-closed"}`}>
+            {recentAllocationsOpen && (
+            <aside className="glass-panel table-card recent-allocations-panel" id="recent-allocations-drawer" aria-label="Recent allocations">
+              <div className="card-title">
+                <span>Recent allocations</span>
+                <button className="mini-soft" type="button" onClick={() => setRecentAllocationsOpen(false)}><X size={16} /> Close</button>
+              </div>
+              <div className="stack-list">
+                {filteredAllocations.length === 0 && <p className="muted">No allocations found for this year/search.</p>}
+                {filteredAllocations.map((allocation) => (
+                  <div className="notice recent-allocation-card" key={allocation.AllocationID}>
+                    <span />
+                    <div>
+                      <div className="recent-allocation-head">
+                        <strong>{allocation.EmployeeCode} - {allocation.FullName}</strong>
+                        <small>{formatPaymentModeLabel(allocation.PaymentMode)}</small>
+                      </div>
+                      {allocation.SelfServiceRequestID ? (
+                        <button className="ess-link-chip" type="button" disabled={busy} onClick={() => openLinkedSelfServiceRequest(allocation)}>
+                          <ClipboardCheck size={14} />
+                          <span>{allocation.SelfServiceRequestNo || `ESS-${allocation.SelfServiceRequestID}`}</span>
+                          <small>{allocation.SelfServiceApprovalStatus || "Linked request"}</small>
+                        </button>
+                      ) : null}
+                      <div className="document-chip-row">
+                        <span>Document No.</span>
+                        <strong>AF-{allocation.AllocationID}</strong>
+                        <span>Date</span>
+                        <strong>{formatExportDate(allocation.AllocationDate)}</strong>
+                      </div>
+                      <div className="recent-allocation-breakdown">
+                        {buildAllocationSettlementRows(allocation).map((row) => (
+                          <span key={`${allocation.AllocationID}-${row.label}`}>
+                            <small>{row.label}</small>
+                            <strong>{money.format(row.value)}</strong>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="attachment-row">
+                        {(allocationAttachments[allocation.AllocationID] || []).length === 0 && <small>No attachment</small>}
+                        {(allocationAttachments[allocation.AllocationID] || []).map((attachment) => (
+                          <button className="mini-soft" key={attachment.AttachmentID} onClick={() => viewAllocationAttachment(attachment)}>View {attachment.MimeType.includes("pdf") ? "PDF" : "Image"}</button>
+                        ))}
+                        <button className="mini-soft" disabled={busy} onClick={() => handleEditAllocation(allocation)}>Edit</button>
+                        <button className="mini-danger" disabled={busy} onClick={() => handleDeleteAllocation(allocation)}><Trash2 size={14} /> Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </aside>
+            )}
             <div className="glass-panel form-card">
               <div className="card-title">
                 <span><Plane size={18} /> Airfare allocation</span>
-                <button className="mini-soft" type="button" onClick={() => setRecentAllocationsOpen((current) => !current)}>
-                  <Eye size={16} /> {recentAllocationsOpen ? "Hide recent" : "Show recent"}
+                <button
+                  className="mini-soft"
+                  type="button"
+                  aria-expanded={recentAllocationsOpen}
+                  aria-controls="recent-allocations-drawer"
+                  onClick={() => setRecentAllocationsOpen((current) => !current)}
+                >
+                  {recentAllocationsOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                  {recentAllocationsOpen ? "Hide recent" : "Show recent"}
                 </button>
               </div>
               <div className="form-grid two allocation-ticket-form">
@@ -5575,50 +5657,6 @@ export default function DashboardPage() {
                 })}><Printer size={16} /> Preview print</button>
               </div>
             </div>
-            {recentAllocationsOpen && (
-            <div className="glass-panel table-card recent-allocations-panel">
-              <div className="card-title">
-                <span>Recent allocations</span>
-                <button className="mini-soft" type="button" onClick={() => setRecentAllocationsOpen(false)}><X size={16} /> Close</button>
-              </div>
-              <div className="stack-list">
-                {filteredAllocations.length === 0 && <p className="muted">No allocations found for this year/search.</p>}
-                {filteredAllocations.map((allocation) => (
-                  <div className="notice recent-allocation-card" key={allocation.AllocationID}>
-                    <span />
-                    <div>
-                      <div className="recent-allocation-head">
-                        <strong>{allocation.EmployeeCode} - {allocation.FullName}</strong>
-                        <small>{formatPaymentModeLabel(allocation.PaymentMode)}</small>
-                      </div>
-                      <div className="document-chip-row">
-                        <span>Document No.</span>
-                        <strong>AF-{allocation.AllocationID}</strong>
-                        <span>Date</span>
-                        <strong>{formatExportDate(allocation.AllocationDate)}</strong>
-                      </div>
-                      <div className="recent-allocation-breakdown">
-                        {buildAllocationSettlementRows(allocation).map((row) => (
-                          <span key={`${allocation.AllocationID}-${row.label}`}>
-                            <small>{row.label}</small>
-                            <strong>{money.format(row.value)}</strong>
-                          </span>
-                        ))}
-                      </div>
-                      <div className="attachment-row">
-                        {(allocationAttachments[allocation.AllocationID] || []).length === 0 && <small>No attachment</small>}
-                        {(allocationAttachments[allocation.AllocationID] || []).map((attachment) => (
-                          <button className="mini-soft" key={attachment.AttachmentID} onClick={() => viewAllocationAttachment(attachment)}>View {attachment.MimeType.includes("pdf") ? "PDF" : "Image"}</button>
-                        ))}
-                        <button className="mini-soft" disabled={busy} onClick={() => handleEditAllocation(allocation)}>Edit</button>
-                        <button className="mini-danger" disabled={busy} onClick={() => handleDeleteAllocation(allocation)}><Trash2 size={14} /> Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            )}
           </section>
         )}
 

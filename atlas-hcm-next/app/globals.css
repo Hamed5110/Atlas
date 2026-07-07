@@ -1739,11 +1739,42 @@ h3 { font-size: 20px; letter-spacing: 0; }
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
+.airfare-layout {
+  display: grid;
+  gap: var(--page-gap);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.airfare-layout.recent-open {
+  grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+}
 .airfare-layout.recent-closed {
   grid-template-columns: minmax(0, 1fr);
 }
 .recent-allocations-panel {
   align-self: start;
+  max-height: calc(100vh - 132px);
+  overflow: hidden;
+  position: sticky;
+  top: 112px;
+}
+.recent-allocations-panel .stack-list {
+  max-height: calc(100vh - 230px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.airfare-layout.recent-open .recent-allocations-panel {
+  animation: slideInLeft .18s ease-out both;
+}
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .recent-allocation-card {
   gap: 10px;
@@ -1800,6 +1831,33 @@ h3 { font-size: 20px; letter-spacing: 0; }
   margin: 0;
   color: var(--text);
   font-size: 12px;
+}
+.ess-link-chip {
+  align-items: center;
+  background: #eff6ff;
+  border: 1px solid rgba(11,99,246,.18);
+  border-radius: 999px;
+  color: #0b63f6;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 7px;
+  margin-top: 10px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  text-align: left;
+}
+.ess-link-chip span {
+  font-size: 12px;
+  font-weight: 900;
+}
+.ess-link-chip small {
+  color: #315a9a;
+  font-size: 11px;
+  font-weight: 800;
+}
+.ess-link-chip:hover {
+  background: #dbeafe;
 }
 .recent-allocation-breakdown span {
   min-width: 0;
@@ -2975,7 +3033,16 @@ h3 { font-size: 20px; letter-spacing: 0; }
     grid-template-columns: 1fr;
   }
   .airfare-layout { grid-template-columns: 1fr; }
-  .airfare-layout > .table-card { position: static; }
+  .airfare-layout.recent-open { grid-template-columns: 1fr; }
+  .airfare-layout > .table-card,
+  .recent-allocations-panel {
+    max-height: none;
+    overflow: visible;
+    position: static;
+  }
+  .recent-allocations-panel .stack-list {
+    max-height: 520px;
+  }
   .loan-action-panel { grid-template-columns: 1fr; }
   .loan-action-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .reports-workspace,

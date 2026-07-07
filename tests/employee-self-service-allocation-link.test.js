@@ -10,6 +10,7 @@ const extensionSql = fs.readFileSync(path.join(root, 'extensions', 'employee-por
 
 assert.match(serverText, /async function createAllocationFromSelfServiceRequest/, 'approval allocation link helper is missing');
 assert.match(serverText, /LinkedAllocationID = @AllocationID/, 'request is not linked back to the created allocation');
+assert.match(serverText, /sr\.RequestID AS SelfServiceRequestID[\s\S]*LEFT JOIN dbo\.ext_employee_allowance_requests sr ON sr\.LinkedAllocationID = a\.AllocationID/, 'allocation reads should expose linked Employee Self-Service request metadata');
 assert.match(serverText, /ManagerApproved'.*HRApproved'.*FinanceApproved'.*Issued/s, 'approval statuses do not trigger allocation creation');
 assert.match(pageText, /Open allocation/, 'self-service request table does not expose the linked allocation action');
 assert.match(pageText, /reviewSelfServiceRequest\(request, "ManagerApproved"\)/, 'manager approval review action is missing from self-service table');
@@ -50,7 +51,11 @@ assert.match(pageText, /airports-world\.json/, 'self-service route fields should
 assert.match(pageText, /function AirportSearchField[\s\S]*airport-search-menu[\s\S]*airport\.code/, 'self-service route fields should use the controlled airport-code search component');
 assert.match(pageText, /id="atlas-origin-airport"[\s\S]*id="atlas-destination-airport"/, 'self-service From and Destination fields should render airport search controls');
 assert.match(pageText, /id="atlas-allocation-route-airport"[\s\S]*label="Route \/ destination"/, 'airfare allocation route should use the same airport-code search control');
+assert.match(pageText, /openLinkedSelfServiceRequest[\s\S]*setActiveView\(ESS_ONLY_VIEW\)/, 'airfare allocation should be able to open the linked Employee Self-Service request');
+assert.match(pageText, /id="recent-allocations-drawer"[\s\S]*aria-expanded=\{recentAllocationsOpen\}/, 'recent allocations should use an accessible sliding drawer control');
+assert.match(pageText, /ess-link-chip[\s\S]*SelfServiceRequestNo/, 'recent allocation cards should show linked Employee Self-Service request metadata');
 assert.match(cssText, /\.self-service-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'self-service airport search results should stay in the form flow');
 assert.match(cssText, /\.allocation-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'allocation airport search results should stay in the form flow');
+assert.match(cssText, /\.airfare-layout\.recent-open[\s\S]*grid-template-columns:\s*minmax\(320px,\s*390px\) minmax\(0,\s*1fr\)/, 'recent allocations drawer should slide in on the left of the allocation form');
 
 console.log('Employee self-service allocation link source checks passed');

@@ -109,6 +109,11 @@ export type Allocation = {
   LeaveStart?: string;
   LeaveEnd?: string;
   Remarks?: string;
+  SelfServiceRequestID?: number;
+  SelfServiceRequestNo?: string;
+  SelfServiceApprovalStatus?: string;
+  SelfServiceOrigin?: string;
+  SelfServiceDestination?: string;
 };
 
 export type AllocationAttachment = {
