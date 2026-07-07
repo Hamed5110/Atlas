@@ -41,5 +41,8 @@ assert.doesNotMatch(pageText, /employee\.Email \|\| `\$\{employee\.EmployeeCode 
 assert.match(pageText, /visibleNav\s*=\s*isEmployeePortalSession\s*\?\s*nav\.filter\(\(item\) => item\.label === ESS_ONLY_VIEW\)\s*:\s*nav/, 'ESS users should only see the Employee Self-Service menu item');
 assert.match(pageText, /activeSession\.user\.role === "employee"[\s\S]*\/employee-self-service\/summary[\s\S]*setActiveView\(ESS_ONLY_VIEW\)/, 'ESS users should load only self-service data and land on the request screen');
 assert.match(serverText, /function requireNonEmployeePortal[\s\S]*Employee Self-Service users can access request screens only/, 'backend should block employee-role access outside ESS APIs');
+assert.match(serverText, /alerts=pending|AlertMode|ApprovalStatus IN \(N'Submitted', N'ManagerApproved', N'HRApproved'\)/, 'backend should expose pending self-service alerts for admin/manager/HR');
+assert.match(serverText, /ApprovalStatus, SubmittedAt[\s\S]*N'Submitted', SYSUTCDATETIME\(\)/, 'new self-service requests should be submitted immediately');
+assert.match(pageText, /selfServiceAlerts[\s\S]*\/employee-self-service\/requests\?alerts=pending[\s\S]*Open request/, 'admin/HR notification panel should show pending self-service requests');
 
 console.log('Employee self-service allocation link source checks passed');

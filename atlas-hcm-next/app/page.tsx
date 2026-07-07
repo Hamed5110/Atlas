@@ -299,6 +299,13 @@ type SystemIntegrityAction = {
   targetRecordType?: string | null;
   targetRecordID?: number | string | null;
 };
+type NotificationItem = {
+  title: string;
+  detail: string;
+  tone: "warning" | "info" | "success";
+  actionLabel?: string;
+  targetView?: ViewKey;
+};
 type SystemIntegrityModel = {
   modelName: string;
   mode: string;
@@ -675,6 +682,7 @@ export default function DashboardPage() {
   const [airfarePolicyRates, setAirfarePolicyRates] = useState<AirfarePolicyRate[]>([]);
   const [selfServiceSummary, setSelfServiceSummary] = useState<EmployeeSelfServiceSummary | null>(null);
   const [selfServiceRequests, setSelfServiceRequests] = useState<EmployeeAllowanceRequest[]>([]);
+  const [selfServiceAlerts, setSelfServiceAlerts] = useState<EmployeeAllowanceRequest[]>([]);
   const [selfServiceEmployeeId, setSelfServiceEmployeeId] = useState("");
   const [allocationAttachments, setAllocationAttachments] = useState<Record<number, AllocationAttachment[]>>({});
   const [users, setUsers] = useState<AtlasUser[]>([]);
@@ -1330,7 +1338,8 @@ export default function DashboardPage() {
       return;
     }
     const reportYear = new Date().getFullYear();
-    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, intelligenceData, verificationData, integrityData, airfarePayableData] = await Promise.all([
+    const canReviewSelfService = ["admin", "manager", "hr"].includes(activeSession.user.role);
+    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, selfServiceAlertData, intelligenceData, verificationData, integrityData, airfarePayableData] = await Promise.all([
       atlasFetch<Employee[]>("/employees?scope=active", activeSession.token, activeSession.sessionId),
       atlasFetch<Employee[]>("/employees?scope=all", activeSession.token, activeSession.sessionId),
       atlasFetch<Loan[]>("/loans/register", activeSession.token, activeSession.sessionId),
@@ -1342,6 +1351,7 @@ export default function DashboardPage() {
       ["admin", "manager", "hr"].includes(activeSession.user.role) ? atlasFetch<AirfarePolicyRate[]>("/airfare-policy-rates", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
       atlasFetch<EmployeeSelfServiceSummary>(`/employee-self-service/summary${selfServiceEmployeeQuery()}`, activeSession.token, activeSession.sessionId),
       atlasFetch<EmployeeAllowanceRequest[]>(`/employee-self-service/requests${selfServiceEmployeeQuery()}`, activeSession.token, activeSession.sessionId),
+      canReviewSelfService ? atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests?alerts=pending", activeSession.token, activeSession.sessionId) : Promise.resolve([]),
       atlasFetch<IntelligenceControlCenter>("/intelligence/control-center", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemVerification>("/intelligence/verification", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemIntegrityModel>(`/intelligence/system-integrity?year=${reportYear}`, activeSession.token, activeSession.sessionId),
@@ -1355,6 +1365,7 @@ export default function DashboardPage() {
     setAirfarePolicyRates(policyData);
     setSelfServiceSummary(selfServiceSummaryData);
     setSelfServiceRequests(selfServiceRequestData);
+    setSelfServiceAlerts(selfServiceAlertData);
     setSelfServiceEmployeeId((current) => current || (selfServiceSummaryData.employee?.EmployeeID ? String(selfServiceSummaryData.employee.EmployeeID) : ""));
     setCompanies(companyData);
     setBackupFiles(backupFileData);
@@ -1413,12 +1424,15 @@ export default function DashboardPage() {
 
   async function reloadSelfService(activeSession = session, employeeId = activeSelfServiceEmployeeId) {
     if (!activeSession) return;
-    const [summaryData, requestData] = await Promise.all([
+    const canReviewSelfService = ["admin", "manager", "hr"].includes(activeSession.user.role);
+    const [summaryData, requestData, alertData] = await Promise.all([
       atlasFetch<EmployeeSelfServiceSummary>(`/employee-self-service/summary${selfServiceEmployeeQuery(employeeId)}`, activeSession.token, activeSession.sessionId),
-      atlasFetch<EmployeeAllowanceRequest[]>(`/employee-self-service/requests${selfServiceEmployeeQuery(employeeId)}`, activeSession.token, activeSession.sessionId)
+      atlasFetch<EmployeeAllowanceRequest[]>(`/employee-self-service/requests${selfServiceEmployeeQuery(employeeId)}`, activeSession.token, activeSession.sessionId),
+      canReviewSelfService ? atlasFetch<EmployeeAllowanceRequest[]>("/employee-self-service/requests?alerts=pending", activeSession.token, activeSession.sessionId) : Promise.resolve([])
     ]);
     setSelfServiceSummary(summaryData);
     setSelfServiceRequests(requestData);
+    setSelfServiceAlerts(alertData);
     setSelfServiceEmployeeId(employeeId || (summaryData.employee?.EmployeeID ? String(summaryData.employee.EmployeeID) : ""));
   }
 
@@ -1446,7 +1460,7 @@ export default function DashboardPage() {
         purpose: ""
       }));
       await reloadSelfService(session, activeSelfServiceEmployeeId);
-      setMessage("Employee airfare request saved.");
+      setMessage(session.user.role === "employee" ? "Request submitted to admin/HR for review." : "Employee airfare request submitted for review.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Employee airfare request failed.");
     } finally {
@@ -4169,26 +4183,33 @@ export default function DashboardPage() {
   const masterEmployeeIds = employeeMasterRows.map((employee) => employee.EmployeeID);
   const allEmployeesSelected = masterEmployeeIds.length > 0 && masterEmployeeIds.every((id) => selectedEmployeeIds.has(id));
   const selectedMasterEmployeesCount = masterEmployeeIds.filter((id) => selectedEmployeeIds.has(id)).length;
-  const notificationItems = [
+  const notificationItems: NotificationItem[] = [
+    ...selfServiceAlerts.slice(0, 6).map((request) => ({
+      title: `${request.EmployeeCode || ""} self-service request`.trim(),
+      detail: `${request.FullName || "Employee"} requested ${money.format(Number(request.EstimatedCostBHD || 0))} for ${request.Destination || "travel"} (${request.ApprovalStatus}).`,
+      tone: "warning" as const,
+      actionLabel: "Open request",
+      targetView: "Employee Self-Service" as ViewKey
+    })),
     ...employees.filter((employee) => calculateRemainingDays(employee) < 0).slice(0, 4).map((employee) => ({
       title: `${employee.EmployeeCode} balance review`,
       detail: `${employee.FullName} has negative remaining days.`,
-      tone: "warning"
+      tone: "warning" as const
     })),
     ...allocations.filter((allocation) => (allocation.ExcessAmount || 0) > 0).slice(0, 4).map((allocation) => ({
       title: `${allocation.EmployeeCode} excess airfare`,
       detail: `${money.format(allocation.ExcessAmount || 0)} requires employee payment or loan follow-up.`,
-      tone: "warning"
+      tone: "warning" as const
     })),
     ...(companies.length && companies.some((company) => !company.LogoSize) ? [{
       title: "Company logo missing",
       detail: "Upload logos from Companies so printouts and the shell show company identity.",
-      tone: "info"
+      tone: "info" as const
     }] : []),
     {
       title: "System verification",
       detail: "Formula, import, loan, attachment, company, opening balance, and layout tests are available from the test suite.",
-      tone: "success"
+      tone: "success" as const
     }
   ];
   const notificationCount = notificationItems.filter((item) => item.tone !== "success").length || notificationItems.length;
@@ -4810,6 +4831,15 @@ export default function DashboardPage() {
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.detail}</p>
+                    {"targetView" in item && item.targetView ? (
+                      <button className="mini-soft" type="button" onClick={() => {
+                        const targetView = item.targetView;
+                        if (targetView) {
+                          setActiveView(targetView);
+                        }
+                        setShowNotifications(false);
+                      }}>{item.actionLabel || "Open"}</button>
+                    ) : null}
                   </div>
                 </div>
               ))}

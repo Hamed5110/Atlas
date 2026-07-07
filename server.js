@@ -2650,8 +2650,10 @@ app.get('/api/employee-self-service/requests', authenticateToken, async (req, re
         if (context.setupRequired || !context.EmployeeID) return res.json([]);
         const isAdmin = isPrivilegedSelfServiceUser(context, req.user);
         const employeeId = await resolveSelfServiceEmployeeId(db, context, req.user, req.query.employeeId);
+        const alertMode = isAdmin && String(req.query.alerts || '').toLowerCase() === 'pending';
         const result = await db.request()
             .input('EmployeeID', sql.Int, employeeId)
+            .input('AlertMode', sql.Bit, alertMode ? 1 : 0)
             .query(`
                 SELECT r.RequestID, r.RequestNo, r.EmployeeID, e.EmployeeCode, e.FullName,
                        r.TravelFromDate, r.TravelToDate, r.Origin, r.Destination, r.TripType,
@@ -2660,7 +2662,10 @@ app.get('/api/employee-self-service/requests', authenticateToken, async (req, re
                        r.LinkedAllocationID, r.SubmittedAt, r.CreatedAt, r.UpdatedAt
                 FROM dbo.ext_employee_allowance_requests r
                 INNER JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
-                WHERE r.EmployeeID = @EmployeeID
+                WHERE (
+                    (@AlertMode = 1 AND r.ApprovalStatus IN (N'Submitted', N'ManagerApproved', N'HRApproved'))
+                    OR (@AlertMode = 0 AND r.EmployeeID = @EmployeeID)
+                )
                 ORDER BY r.CreatedAt DESC, r.RequestID DESC
             `);
         res.json(result.recordset);
@@ -2709,13 +2714,13 @@ app.post('/api/employee-self-service/requests', authenticateToken, async (req, r
                 INSERT INTO dbo.ext_employee_allowance_requests (
                     EmployeeID, CreatedByUserID, TravelFromDate, TravelToDate, Origin, Destination,
                     TripType, CabinClass, EstimatedCostBHD, EntitlementAtRequestBHD, PayableAtRequestBHD,
-                    OverageToLoanBHD, PreferredAirline, Purpose
+                    OverageToLoanBHD, PreferredAirline, Purpose, ApprovalStatus, SubmittedAt
                 )
                 OUTPUT INSERTED.*
                 VALUES (
                     @EmployeeID, @CreatedByUserID, @TravelFromDate, @TravelToDate, @Origin, @Destination,
                     @TripType, @CabinClass, @EstimatedCostBHD, @EntitlementAtRequestBHD, @PayableAtRequestBHD,
-                    @OverageToLoanBHD, @PreferredAirline, @Purpose
+                    @OverageToLoanBHD, @PreferredAirline, @Purpose, N'Submitted', SYSUTCDATETIME()
                 )
             `);
         res.status(201).json(result.recordset[0]);
