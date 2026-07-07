@@ -791,6 +791,27 @@ function validateAllocationTicketForm(
   return errors;
 }
 
+const selfServiceApprovedStatuses = new Set(["ManagerApproved", "HRApproved", "FinanceApproved", "Issued"]);
+
+function formatSelfServiceStatus(status: string | undefined) {
+  const labels: Record<string, string> = {
+    Draft: "Draft",
+    Submitted: "Submitted",
+    ManagerApproved: "Manager approved",
+    HRApproved: "HR approved",
+    FinanceApproved: "Finance approved",
+    Issued: "Issued",
+    Rejected: "Rejected",
+    Cancelled: "Cancelled"
+  };
+  return labels[status || ""] || status || "-";
+}
+
+function buildAlreadyApprovedMessage(request: EmployeeAllowanceRequest) {
+  const allocationNote = request.LinkedAllocationID ? ` Allocation #${request.LinkedAllocationID} is linked.` : "";
+  return `Request is already ${formatSelfServiceStatus(request.ApprovalStatus).toLowerCase()}.${allocationNote}`;
+}
+
 export default function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>("Overview");
   const [session, setSession] = useState<AtlasSession | null>(null);
@@ -1687,7 +1708,7 @@ export default function DashboardPage() {
       await reloadSelfService(session, activeSelfServiceEmployeeId);
       setSelectedSelfServiceReviewId(Number(requestId));
       const allocationNote = updated.LinkedAllocationID ? ` Allocation #${updated.LinkedAllocationID} is linked.` : "";
-      setMessage(`Request ${toStatus.toLowerCase()}.${allocationNote}`);
+      setMessage(`Request ${formatSelfServiceStatus(toStatus).toLowerCase()}.${allocationNote}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Request update failed.");
     } finally {
@@ -1697,9 +1718,17 @@ export default function DashboardPage() {
 
   function reviewSelfServiceRequest(request: EmployeeAllowanceRequest, toStatus: "ManagerApproved" | "Rejected") {
     if (toStatus === "ManagerApproved") {
+      if (selfServiceApprovedStatuses.has(request.ApprovalStatus)) {
+        setMessage(buildAlreadyApprovedMessage(request));
+        return;
+      }
       const ok = window.confirm(`Approve airfare request ${request.RequestNo || request.RequestID} for ${request.FullName || request.EmployeeCode || "employee"}?`);
       if (!ok) return;
       void transitionSelfServiceRequest(request.RequestID, toStatus, "Approved from Employee Self-Service review.");
+      return;
+    }
+    if (selfServiceApprovedStatuses.has(request.ApprovalStatus)) {
+      setMessage(`Approved request cannot be rejected here. Open allocation #${request.LinkedAllocationID || "linked"} for follow-up.`);
       return;
     }
     const reason = window.prompt(`Reject airfare request ${request.RequestNo || request.RequestID}. Enter rejection reason:`, "");
@@ -5903,6 +5932,10 @@ export default function DashboardPage() {
             {activeSelfServiceReviewRequest ? (
               <div className="glass-panel self-service-review-panel">
                 <div className="card-title"><ShieldCheck size={18} /> Review employee airfare request</div>
+                <div className="review-process-note">
+                  <CheckCircle2 size={16} />
+                  <span>Process: approve the request, ATLAS creates or reuses the linked airfare allocation, then use Open allocation for ticket processing.</span>
+                </div>
                 <div className="review-request-layout">
                   <div>
                     <small>Employee</small>
@@ -5922,13 +5955,18 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <small>Status</small>
-                    <strong>{activeSelfServiceReviewRequest.ApprovalStatus}</strong>
+                    <strong>{formatSelfServiceStatus(activeSelfServiceReviewRequest.ApprovalStatus)}</strong>
                   </div>
                   <div className="button-row compact">
-                    <button className="shine-button" type="button" disabled={busy || !["Submitted", "ManagerApproved", "HRApproved"].includes(activeSelfServiceReviewRequest.ApprovalStatus)} onClick={() => reviewSelfServiceRequest(activeSelfServiceReviewRequest, "ManagerApproved")}>
-                      Approve request
+                    <button className={activeSelfServiceReviewRequest.ApprovalStatus === "Submitted" ? "shine-button" : "soft-button"} type="button" disabled={busy || !["Submitted", "ManagerApproved", "HRApproved", "FinanceApproved", "Issued"].includes(activeSelfServiceReviewRequest.ApprovalStatus)} onClick={() => reviewSelfServiceRequest(activeSelfServiceReviewRequest, "ManagerApproved")}>
+                      {activeSelfServiceReviewRequest.ApprovalStatus === "Submitted" ? "Approve request" : "Already approved"}
                     </button>
-                    <button className="mini-danger" type="button" disabled={busy || !["Submitted", "ManagerApproved", "HRApproved"].includes(activeSelfServiceReviewRequest.ApprovalStatus)} onClick={() => reviewSelfServiceRequest(activeSelfServiceReviewRequest, "Rejected")}>
+                    {activeSelfServiceReviewRequest.LinkedAllocationID ? (
+                      <button className="mini-soft review-allocation-link" type="button" disabled={busy} onClick={() => openSelfServiceAllocation(activeSelfServiceReviewRequest.LinkedAllocationID)}>
+                        Open allocation #{activeSelfServiceReviewRequest.LinkedAllocationID}
+                      </button>
+                    ) : null}
+                    <button className="mini-danger" type="button" disabled={busy || activeSelfServiceReviewRequest.ApprovalStatus !== "Submitted"} onClick={() => reviewSelfServiceRequest(activeSelfServiceReviewRequest, "Rejected")}>
                       Reject request
                     </button>
                   </div>
@@ -5961,7 +5999,7 @@ export default function DashboardPage() {
                         <td>{money.format(Number(request.EstimatedCostBHD || 0))}</td>
                         <td>{money.format(Number(request.PayableAtRequestBHD || 0))}</td>
                         <td>{money.format(Number(request.OverageToLoanBHD || 0))}</td>
-                        <td><span className="status-pill">{request.ApprovalStatus}</span></td>
+                        <td><span className="status-pill">{formatSelfServiceStatus(request.ApprovalStatus)}</span></td>
                         <td>
                           <div className="button-row compact request-actions">
                             {request.LinkedAllocationID ? (

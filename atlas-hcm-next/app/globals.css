@@ -421,17 +421,17 @@ input, select, button { max-width: 100%; }
 }
 .sidebar-toggle {
   position: absolute;
-  right: -12px;
-  top: 18px;
-  width: 28px;
+  right: 14px;
+  top: 22px;
+  width: 34px;
   height: 34px;
-  border: 1px solid rgba(21,94,239,.18);
+  border: 1px solid rgba(21,94,239,.28);
   border-radius: 8px;
-  background: #ffffff;
+  background: #eff6ff;
   color: var(--blue);
-  box-shadow: 0 10px 22px rgba(15,23,42,.12);
+  box-shadow: var(--shadow-extruded);
   font-weight: 900;
-  z-index: 4;
+  z-index: 12;
   display: grid;
   place-items: center;
 }
@@ -593,6 +593,10 @@ nav {
   min-height: 48px;
   padding: 12px;
   place-items: center;
+}
+.sidebar-collapsed .sidebar-toggle {
+  right: 50%;
+  transform: translateX(50%) translateZ(8px);
 }
 .right-panels-collapsed .table-grid,
 .right-panels-collapsed .calc-grid,
@@ -3044,6 +3048,32 @@ h3 { font-size: 20px; letter-spacing: 0; }
   order: 1;
 }
 
+.review-process-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(21,94,239,.16);
+  border-radius: 8px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  line-height: 1.45;
+  font-weight: 800;
+}
+
+.review-process-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--blue);
+}
+
+.theme-dark .review-process-note {
+  color: #bfdbfe;
+  background: rgba(30, 41, 59, .92);
+  border-color: rgba(147, 197, 253, .2);
+}
+
 .review-request-layout {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3072,6 +3102,12 @@ h3 { font-size: 20px; letter-spacing: 0; }
 .review-request-layout strong {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.review-allocation-link {
+  width: auto;
+  min-width: 148px;
+  padding: 0 12px;
 }
 
 .airport-search-field {
@@ -3201,8 +3237,13 @@ h3 { font-size: 20px; letter-spacing: 0; }
   transform: translateX(-2px);
 }
 [dir="rtl"] .sidebar-toggle {
-  left: -12px;
+  left: 14px;
   right: auto;
+}
+[dir="rtl"] .sidebar-collapsed .sidebar-toggle {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%) translateZ(8px);
 }
 [dir="rtl"] .airport-search-shell input {
   padding-left: 50px;

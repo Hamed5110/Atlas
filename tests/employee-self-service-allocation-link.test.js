@@ -15,6 +15,12 @@ assert.match(serverText, /ManagerApproved'.*HRApproved'.*FinanceApproved'.*Issue
 assert.match(pageText, /Open allocation/, 'self-service request table does not expose the linked allocation action');
 assert.match(pageText, /reviewSelfServiceRequest\(request, "ManagerApproved"\)/, 'manager approval review action is missing from self-service table');
 assert.match(pageText, /Review employee airfare request[\s\S]*Approve request[\s\S]*Reject request/, 'admin/HR review card should ask for approve or reject');
+assert.match(pageText, /function formatSelfServiceStatus[\s\S]*Manager approved/, 'self-service approval status should be rendered as readable text');
+assert.match(pageText, /function buildAlreadyApprovedMessage[\s\S]*Request is already/, 'already-approved self-service requests should show an explanatory message');
+assert.match(pageText, /review-process-note[\s\S]*ATLAS creates or reuses the linked airfare allocation/, 'review card should explain the approval-to-allocation process');
+assert.match(pageText, /Already approved/, 'approved review card action should change to already-approved state');
+assert.match(pageText, /review-allocation-link[\s\S]*Open allocation #/, 'review card should expose the linked allocation action');
+assert.match(pageText, /disabled=\{busy \|\| activeSelfServiceReviewRequest\.ApprovalStatus !== "Submitted"\}/, 'reject action should be disabled once a request has already been approved');
 assert.match(pageText, /className="self-service-grid"/, 'phase-2 self-service workspace is not rendered inside phase-1 app');
 assert.match(pageText, /New Ticket Request/, 'self-service form should be clearly labeled below the request workflow');
 assert.match(pageText, /self-service-summary-panel[^]*My Airfare Requests[^]*New Ticket Request/, 'self-service screen should show summary, then request workflow, then new request form');
@@ -56,7 +62,12 @@ assert.match(pageText, /id="recent-allocations-drawer"[\s\S]*aria-expanded=\{rec
 assert.match(pageText, /ess-link-chip[\s\S]*SelfServiceRequestNo/, 'recent allocation cards should show linked Employee Self-Service request metadata');
 assert.match(cssText, /\.self-service-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'self-service airport search results should stay in the form flow');
 assert.match(cssText, /\.allocation-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'allocation airport search results should stay in the form flow');
-assert.match(cssText, /\.airfare-layout\.recent-open[\s\S]*grid-template-columns:\s*minmax\(320px,\s*390px\) minmax\(0,\s*1fr\)/, 'recent allocations drawer should slide in on the left of the allocation form');
+assert.match(cssText, /\.review-process-note[\s\S]*background:\s*#eff6ff/, 'review workflow note should be visibly styled');
+assert.match(cssText, /\.review-allocation-link[\s\S]*min-width:\s*148px/, 'linked allocation action should have a stable touch target');
+assert.match(cssText, /\.sidebar-toggle\s*\{[\s\S]*right:\s*14px/, 'sidebar collapse icon should stay inside the sidebar rail');
+assert.match(cssText, /\[dir="rtl"\] \.sidebar-toggle\s*\{[\s\S]*left:\s*14px/, 'RTL sidebar collapse icon should stay inside the mirrored sidebar rail');
+assert.doesNotMatch(cssText, /\.sidebar-toggle\s*\{[\s\S]*right:\s*-12px/, 'sidebar collapse icon must not overlap the main workspace');
+assert.match(cssText, /\.airfare-layout\.recent-open[\s\S]*grid-template-columns:\s*minmax\(340px,\s*clamp\(380px,\s*24vw,\s*460px\)\) minmax\(0,\s*1fr\)/, 'recent allocations drawer should slide in on the left of the allocation form');
 assert.doesNotMatch(cssText, /right-panels-collapsed \.airfare-layout[^,{]*[,{\s]/, 'global right-panel collapse must not override the Airfare left drawer layout');
 assert.doesNotMatch(cssText, /right-panels-collapsed \.airfare-layout > \.recent-allocations-panel/, 'global right-panel collapse must not hide the open Airfare drawer');
 
