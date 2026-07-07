@@ -57,5 +57,7 @@ assert.match(pageText, /ess-link-chip[\s\S]*SelfServiceRequestNo/, 'recent alloc
 assert.match(cssText, /\.self-service-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'self-service airport search results should stay in the form flow');
 assert.match(cssText, /\.allocation-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'allocation airport search results should stay in the form flow');
 assert.match(cssText, /\.airfare-layout\.recent-open[\s\S]*grid-template-columns:\s*minmax\(320px,\s*390px\) minmax\(0,\s*1fr\)/, 'recent allocations drawer should slide in on the left of the allocation form');
+assert.doesNotMatch(cssText, /right-panels-collapsed \.airfare-layout[^,{]*[,{\s]/, 'global right-panel collapse must not override the Airfare left drawer layout');
+assert.doesNotMatch(cssText, /right-panels-collapsed \.airfare-layout > \.recent-allocations-panel/, 'global right-panel collapse must not hide the open Airfare drawer');
 
 console.log('Employee self-service allocation link source checks passed');

@@ -503,7 +503,6 @@ nav {
 }
 .right-panels-collapsed .table-grid,
 .right-panels-collapsed .calc-grid,
-.right-panels-collapsed .airfare-layout,
 .right-panels-collapsed .support-grid,
 .right-panels-collapsed .intelligence-layout,
 .right-panels-collapsed .preferences-page,
@@ -512,7 +511,6 @@ nav {
 }
 .right-panels-collapsed .table-grid > .form-card:not(.employee-form-panel),
 .right-panels-collapsed .preferences-page > .preferences-policy-card,
-.right-panels-collapsed .airfare-layout > .recent-allocations-panel,
 .right-panels-collapsed .support-grid > .hcm-card:not(:first-child),
 .right-panels-collapsed .intelligence-layout > .hcm-card,
 .right-panels-collapsed .intelligence-layout > .table-card:not(:first-child),
