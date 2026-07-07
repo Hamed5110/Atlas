@@ -208,6 +208,133 @@ function Invoke-ChecksumDiagnostic {
     return $report
 }
 
+function New-AtlasPatchDependencyReport {
+    param(
+        [string]$InstallPath,
+        [string]$DataPath,
+        [string]$Version,
+        [int]$PortNumber
+    )
+    $reportDir = Join-Path $DataPath "logs"
+    New-Item -ItemType Directory -Path $reportDir -Force -ErrorAction SilentlyContinue | Out-Null
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $jsonPath = Join-Path $reportDir "patch-dependency-map-$stamp.json"
+    $mdPath = Join-Path $reportDir "patch-dependency-map-$stamp.md"
+    $relationships = @(
+        [pscustomobject]@{ element = "ATLAS update EXE"; dependsOn = "WiX Burn chain"; reason = "Runs preflight, MSI file replacement, and finalize verification in order."; verification = "Burn chain exit code and update-finalize log" },
+        [pscustomobject]@{ element = "Patched application files"; dependsOn = "ATLAS application MSI"; reason = "MSI owns overwrite/repair semantics for installed payload files."; verification = "atlas-payload-manifest.json SHA256 audit" },
+        [pscustomobject]@{ element = "Backend service"; dependsOn = "server.js, package.json, node_modules, runtime node.exe"; reason = "Node process needs the packaged runtime and dependencies to serve APIs on the configured port."; verification = "http://127.0.0.1:$PortNumber/api/health" },
+        [pscustomobject]@{ element = "Frontend UI"; dependsOn = "atlas-hcm-next build output and static assets"; reason = "Express serves the built frontend through the existing port and route configuration."; verification = "root page 200 plus static CSS/JS asset checks" },
+        [pscustomobject]@{ element = "Database repair"; dependsOn = "existing .env, registry MSSQL settings, database SQL scripts"; reason = "Patch must preserve the installed database connection and apply only repair-safe objects."; verification = "database object repair log and health database=connected" },
+        [pscustomobject]@{ element = "Startup task"; dependsOn = "Install-ATLAS-StartupTask.ps1 and preserved install root"; reason = "Patch restarts ATLAS without changing ports or customer data."; verification = "startup task refresh and health endpoint" },
+        [pscustomobject]@{ element = "Rollback evidence"; dependsOn = "Backup folder and install_debug.log"; reason = "Support needs exact copied/replaced file evidence if a machine differs."; verification = "Backup path, checksum diagnostic, and payload audit CSV" }
+    )
+    [pscustomobject]@{
+        product = "ATLAS Airfare Allowance"
+        patchVersion = $Version
+        createdAt = (Get-Date).ToString("o")
+        installRoot = $InstallPath
+        dataRoot = $DataPath
+        port = $PortNumber
+        relationships = $relationships
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("# ATLAS Patch Dependency Map") | Out-Null
+    $lines.Add("") | Out-Null
+    $lines.Add("- Version: $Version") | Out-Null
+    $lines.Add("- Install root: $InstallPath") | Out-Null
+    $lines.Add("- Data root: $DataPath") | Out-Null
+    $lines.Add("- Port: $PortNumber") | Out-Null
+    $lines.Add("- Created: $((Get-Date).ToString("o"))") | Out-Null
+    $lines.Add("") | Out-Null
+    $lines.Add("| Element | Depends on | Relationship | Verification |") | Out-Null
+    $lines.Add("| --- | --- | --- | --- |") | Out-Null
+    foreach ($row in $relationships) {
+        $lines.Add("| $($row.element) | $($row.dependsOn) | $($row.reason) | $($row.verification) |") | Out-Null
+    }
+    $lines | Set-Content -LiteralPath $mdPath -Encoding UTF8
+    Write-Step "Dependency relationship report created: $mdPath"
+    return [pscustomobject]@{ MarkdownPath = $mdPath; JsonPath = $jsonPath; Count = @($relationships).Count }
+}
+
+function Invoke-PatchPayloadReplacementAudit {
+    param(
+        [string]$InstallPath,
+        [string]$DataPath,
+        [string]$ReportPath
+    )
+    $reportDir = Join-Path $DataPath "logs"
+    New-Item -ItemType Directory -Path $reportDir -Force -ErrorAction SilentlyContinue | Out-Null
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $csvPath = Join-Path $reportDir "patch-file-replacement-audit-$stamp.csv"
+    $jsonPath = Join-Path $reportDir "patch-file-replacement-audit-$stamp.json"
+    $manifestPath = Join-Path $InstallPath "atlas-payload-manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        "PatchPayloadAudit=Skipped; missing $manifestPath" | Add-Content -LiteralPath $ReportPath
+        Write-Step "Patch payload audit skipped because atlas-payload-manifest.json was not found."
+        return [pscustomobject]@{ CsvPath = $null; JsonPath = $null; Verified = 0; Missing = 0; Mismatch = 0; Total = 0 }
+    }
+
+    Write-Step "Auditing copied/replaced patch files against payload manifest."
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $rows = foreach ($file in @($manifest.files)) {
+        $relativePath = [string]$file.path
+        $target = Join-Path $InstallPath $relativePath
+        if (Test-Path -LiteralPath $target) {
+            $item = Get-Item -LiteralPath $target
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $target
+            $matchesHash = $hash.Hash -eq [string]$file.sha256
+            $matchesLength = $item.Length -eq [int64]$file.length
+            $status = if ($matchesHash -and $matchesLength) { "verified_after_copy_or_replace" } else { "hash_or_length_mismatch" }
+            [pscustomobject]@{
+                action = "copy_replace_verify"
+                relativePath = $relativePath
+                targetPath = $target
+                status = $status
+                expectedLength = [int64]$file.length
+                actualLength = $item.Length
+                expectedSha256 = [string]$file.sha256
+                actualSha256 = $hash.Hash
+            }
+        } else {
+            [pscustomobject]@{
+                action = "copy_replace_verify"
+                relativePath = $relativePath
+                targetPath = $target
+                status = "missing_after_patch"
+                expectedLength = [int64]$file.length
+                actualLength = 0
+                expectedSha256 = [string]$file.sha256
+                actualSha256 = ""
+            }
+        }
+    }
+    $rows | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+    $verified = @($rows | Where-Object { $_.status -eq "verified_after_copy_or_replace" }).Count
+    $missing = @($rows | Where-Object { $_.status -eq "missing_after_patch" }).Count
+    $mismatch = @($rows | Where-Object { $_.status -eq "hash_or_length_mismatch" }).Count
+    [pscustomobject]@{
+        createdAt = (Get-Date).ToString("o")
+        installRoot = $InstallPath
+        manifestPath = $manifestPath
+        csvPath = $csvPath
+        total = @($rows).Count
+        verified = $verified
+        missing = $missing
+        mismatch = $mismatch
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+
+    "PatchPayloadAuditCsv=$csvPath" | Add-Content -LiteralPath $ReportPath
+    "PatchPayloadAuditJson=$jsonPath" | Add-Content -LiteralPath $ReportPath
+    "PatchPayloadFilesTotal=$(@($rows).Count)" | Add-Content -LiteralPath $ReportPath
+    "PatchPayloadFilesVerified=$verified" | Add-Content -LiteralPath $ReportPath
+    "PatchPayloadFilesMissing=$missing" | Add-Content -LiteralPath $ReportPath
+    "PatchPayloadFilesMismatch=$mismatch" | Add-Content -LiteralPath $ReportPath
+    Write-Step "Patch file replacement audit: $verified verified, $missing missing, $mismatch mismatched. Details: $csvPath"
+    return [pscustomobject]@{ CsvPath = $csvPath; JsonPath = $jsonPath; Verified = $verified; Missing = $missing; Mismatch = $mismatch; Total = @($rows).Count }
+}
+
 function Assert-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]$identity
@@ -1659,6 +1786,8 @@ function Invoke-UpdateOnlyFinalize {
         "ATLAS update finalize $(Get-Date -Format o)" | Set-Content -Path $report -Encoding UTF8
         "InstallRoot=$InstallRoot" | Add-Content $report
         "DataRoot=$DataRoot" | Add-Content $report
+        "PatchVersion=$ProductVersion" | Add-Content $report
+        "PatchSource=verified codex/atlas-installer-2.2.8 history" | Add-Content $report
         "Step=Review existing installation and configuration" | Add-Content $report
 
         Write-InstallDebugEvent -CurrentStep "Preserve existing application and MSSQL configuration" -Status "STARTED" -Message "Reading installed .env, registry, and confirmed bootstrapper values." -DataPath $DataRoot
@@ -1669,9 +1798,22 @@ function Invoke-UpdateOnlyFinalize {
         $effectivePort = [int]$config.AppPort
         "AppPort=$effectivePort" | Add-Content $report
         "SqlPort=$($config.SqlPort)" | Add-Content $report
+        "Step=Build dependency relationship map" | Add-Content $report
+        Write-InstallDebugEvent -CurrentStep "Build dependency relationship map" -Status "STARTED" -Message "Writing dependency/support relationships for the installed patch." -DataPath $DataRoot
+        $dependencyReport = New-AtlasPatchDependencyReport -InstallPath $InstallRoot -DataPath $DataRoot -Version $ProductVersion -PortNumber $effectivePort
+        "DependencyReportMarkdown=$($dependencyReport.MarkdownPath)" | Add-Content $report
+        "DependencyReportJson=$($dependencyReport.JsonPath)" | Add-Content $report
+        Write-InstallDebugEvent -CurrentStep "Build dependency relationship map" -Status "OK" -Message "Dependency map contains $($dependencyReport.Count) relationships." -DataPath $DataRoot
         "Step=Review patched files and payload manifest" | Add-Content $report
         $checksumReport = Invoke-ChecksumDiagnostic -InstallPath $InstallRoot -DataPath $DataRoot
         "ChecksumReport=$checksumReport" | Add-Content $report
+        $replacementAudit = Invoke-PatchPayloadReplacementAudit -InstallPath $InstallRoot -DataPath $DataRoot -ReportPath $report
+        Write-InstallDebugEvent -CurrentStep "Verify copied and replaced files" -Status "OK" -Message "Payload audit verified $($replacementAudit.Verified) of $($replacementAudit.Total) files; missing=$($replacementAudit.Missing), mismatch=$($replacementAudit.Mismatch)." -DataPath $DataRoot
+        if ($replacementAudit.Missing -gt 0 -or $replacementAudit.Mismatch -gt 0) {
+            $warning = "PayloadAuditWarning=Patched files did not match manifest. Missing=$($replacementAudit.Missing); Mismatch=$($replacementAudit.Mismatch)."
+            $warnings.Add($warning) | Out-Null
+            $warning | Add-Content $report
+        }
 
         "Step=Repair database stored procedures and functions" | Add-Content $report
         Write-InstallDebugEvent -CurrentStep "Repair database stored procedures and functions" -Status "STARTED" -Message "Applying missing stored procedures, functions, and indexes using existing MSSQL settings." -DataPath $DataRoot
