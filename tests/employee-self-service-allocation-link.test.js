@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const serverText = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const pageText = fs.readFileSync(path.join(root, 'atlas-hcm-next', 'app', 'page.tsx'), 'utf8');
+const cssText = fs.readFileSync(path.join(root, 'atlas-hcm-next', 'app', 'globals.css'), 'utf8');
 const extensionSql = fs.readFileSync(path.join(root, 'extensions', 'employee-portal', 'sql', 'ATLAS_Employee_Portal_Extension.sql'), 'utf8');
 
 assert.match(serverText, /async function createAllocationFromSelfServiceRequest/, 'approval allocation link helper is missing');
@@ -48,5 +49,8 @@ assert.match(pageText, /selfServiceAlerts[\s\S]*\/employee-self-service\/request
 assert.match(pageText, /airports-world\.json/, 'self-service route fields should load the bundled world airport code dataset');
 assert.match(pageText, /function AirportSearchField[\s\S]*airport-search-menu[\s\S]*airport\.code/, 'self-service route fields should use the controlled airport-code search component');
 assert.match(pageText, /id="atlas-origin-airport"[\s\S]*id="atlas-destination-airport"/, 'self-service From and Destination fields should render airport search controls');
+assert.match(pageText, /id="atlas-allocation-route-airport"[\s\S]*label="Route \/ destination"/, 'airfare allocation route should use the same airport-code search control');
+assert.match(cssText, /\.self-service-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'self-service airport search results should stay in the form flow');
+assert.match(cssText, /\.allocation-ticket-form \.airport-search-menu[\s\S]*position:\s*static/, 'allocation airport search results should stay in the form flow');
 
 console.log('Employee self-service allocation link source checks passed');

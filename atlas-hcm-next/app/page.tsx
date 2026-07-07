@@ -5301,7 +5301,7 @@ export default function DashboardPage() {
                   <Eye size={16} /> {recentAllocationsOpen ? "Hide recent" : "Show recent"}
                 </button>
               </div>
-              <div className="form-grid two">
+              <div className="form-grid two allocation-ticket-form">
                 <Field label="Document No."><input value={editingAllocationId ? `AF-${editingAllocationId}` : "New after save"} readOnly /></Field>
                 <Field label="Employee type">
                   <select value={allocationEmployeeType} onChange={(event) => {
@@ -5360,7 +5360,15 @@ export default function DashboardPage() {
                 <input placeholder="Remarks" value={allocationForm.remarks} onChange={(e) => setAllocationForm({ ...allocationForm, remarks: e.target.value })} />
                 <Field label="Leave start"><input type="date" value={allocationForm.leaveStart} onChange={(e) => setAllocationForm({ ...allocationForm, leaveStart: e.target.value })} /></Field>
                 <Field label="Leave end"><input type="date" value={allocationForm.leaveEnd} onChange={(e) => setAllocationForm({ ...allocationForm, leaveEnd: e.target.value })} /></Field>
-                <Field label="Route / destination"><input placeholder="BAH - destination - BAH" value={allocationForm.route} onChange={(e) => setAllocationForm({ ...allocationForm, route: e.target.value })} /></Field>
+                <AirportSearchField
+                  id="atlas-allocation-route-airport"
+                  label="Route / destination"
+                  value={allocationForm.route}
+                  options={airportOptions}
+                  placeholder="Search airport, city, or code"
+                  className="span-2"
+                  onChange={(value) => setAllocationForm({ ...allocationForm, route: value })}
+                />
                 <Field label="Ticket number"><input placeholder="Ticket / PNR" value={allocationForm.ticketNo} onChange={(e) => setAllocationForm({ ...allocationForm, ticketNo: e.target.value })} /></Field>
                 <Field label="Supplier"><input placeholder="Travel agent / airline" value={allocationForm.supplier} onChange={(e) => setAllocationForm({ ...allocationForm, supplier: e.target.value })} /></Field>
                 <Field label="Invoice number"><input placeholder="Invoice / receipt no" value={allocationForm.invoiceNo} onChange={(e) => setAllocationForm({ ...allocationForm, invoiceNo: e.target.value })} /></Field>
@@ -5754,7 +5762,7 @@ export default function DashboardPage() {
                 <p className="muted">Request entry is available after this login is mapped to an employee profile.</p>
               ) : (
                 <>
-                  <form className="form-grid" onSubmit={submitSelfServiceRequest}>
+                  <form className="form-grid self-service-ticket-form" onSubmit={submitSelfServiceRequest}>
                     <label>Travel date <input type="date" value={selfServiceForm.travelFromDate} onChange={(event) => setSelfServiceForm({ ...selfServiceForm, travelFromDate: event.target.value })} required /></label>
                     {canSelectSelfServiceEmployee ? (
                       <label>Employee
@@ -5774,6 +5782,7 @@ export default function DashboardPage() {
                       value={selfServiceForm.origin}
                       options={airportOptions}
                       placeholder="Search airport, city, or code"
+                      className="span-2"
                       onChange={(value) => setSelfServiceForm({ ...selfServiceForm, origin: value })}
                     />
                     <AirportSearchField
@@ -5783,6 +5792,7 @@ export default function DashboardPage() {
                       options={airportOptions}
                       placeholder="Search airport, city, or code"
                       required
+                      className="span-2"
                       onChange={(value) => setSelfServiceForm({ ...selfServiceForm, destination: value })}
                     />
                     <label>Trip type
@@ -6903,6 +6913,7 @@ function AirportSearchField({
   options,
   placeholder,
   required,
+  className = "",
   onChange
 }: {
   id: string;
@@ -6911,6 +6922,7 @@ function AirportSearchField({
   options: AirportOption[];
   placeholder?: string;
   required?: boolean;
+  className?: string;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -6925,7 +6937,7 @@ function AirportSearchField({
   }
 
   return (
-    <label className="airport-search-field" htmlFor={id}>
+    <label className={`airport-search-field ${className}`.trim()} htmlFor={id}>
       {label}
       <div className="airport-search-shell">
         <input
