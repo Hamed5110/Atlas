@@ -6,6 +6,11 @@ const source = readFileSync(join(process.cwd(), "app", "page.tsx"), "utf8");
 
 assert.match(source, /Opening Balance/, "opening balance screen should be in navigation");
 assert.match(source, /handleSaveOpeningBalance/, "manual opening balance save should exist");
+assert.match(source, /prepareOpeningBalanceEdit/, "opening balance edit should load a row into update mode");
+assert.match(source, /handleDeleteOpeningBalance/, "opening balance delete action should exist");
+assert.match(source, /Update opening balance/, "opening balance edit mode should show a clear update action");
+assert.match(source, /Cancel edit/, "opening balance edit mode should support cancellation");
+assert.match(source, /\/opening-balances\/\$\{row\.EmployeeID\}\/\$\{year\}/, "opening balance delete should target the selected employee/year route");
 assert.match(source, /handleImportOpeningBalances/, "opening balance Excel import should exist");
 assert.match(source, /Opening days/, "opening balance screen should use opening days label");
 assert.match(source, /Opening amount BHD/, "opening balance screen should use opening amount label");

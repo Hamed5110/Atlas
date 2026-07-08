@@ -18,6 +18,8 @@ assert.match(serverText, /CREATE DATABASE/i, 'Company API should create company 
 assert.match(serverText, /POST \/api\/auth\/forgot-password/i, 'Forgot password API should exist');
 assert.match(serverText, /GET \/api\/opening-balances/i, 'Opening balance list API should exist');
 assert.match(serverText, /POST \/api\/opening-balances/i, 'Opening balance save API should exist');
+assert.match(serverText, /DELETE \/api\/opening-balances\/:employeeId\/:year/i, 'Opening balance employee/year delete API should exist');
+assert.match(serverText, /Deleted opening balance for employee/i, 'Opening balance delete should write an audit trail');
 assert.match(serverText, /POST \/api\/opening-balances\/import/i, 'Opening balance import API should exist');
 assert.match(serverText, /POST \/api\/admin\/backup/i, 'Backup API should exist');
 assert.match(serverText, /POST \/api\/admin\/restore/i, 'Restore API should exist');

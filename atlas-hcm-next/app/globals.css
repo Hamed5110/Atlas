@@ -1324,7 +1324,11 @@ h3 { font-size: 20px; letter-spacing: 0; }
   flex-wrap: nowrap;
   justify-content: flex-start;
 }
+.opening-balance-row .row-actions {
+  flex-wrap: wrap;
+}
 .opening-balance-row .mini-soft,
+.opening-balance-row .mini-danger,
 .company-row .mini-soft,
 .company-row .mini-danger {
   white-space: nowrap;
@@ -3246,7 +3250,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .table-row.employee-head { grid-template-columns: 1.7fr .9fr .8fr .55fr .8fr; }
 .table-row.employee-head.selectable-row { grid-template-columns: 0.45fr 1.9fr .85fr .75fr .65fr .9fr; }
-.table-row.opening-balance-row { grid-template-columns: minmax(220px, 1.35fr) minmax(120px, .62fr) minmax(130px, .72fr) minmax(110px, .58fr) minmax(188px, .82fr); }
+.table-row.opening-balance-row { grid-template-columns: minmax(220px, 1.2fr) minmax(120px, .56fr) minmax(130px, .64fr) minmax(110px, .52fr) minmax(292px, 1.05fr); }
 .table-row.loan-head { grid-template-columns: minmax(190px, 1.35fr) minmax(120px, .72fr) minmax(120px, .72fr) minmax(105px, .58fr) minmax(124px, .72fr); }
 .table-row.company-row { grid-template-columns: minmax(210px, 1.28fr) minmax(150px, .78fr) minmax(140px, .72fr) minmax(110px, .56fr) minmax(168px, .72fr); }
 .table-row.user-head { grid-template-columns: 1.45fr .55fr .75fr .55fr .55fr; }

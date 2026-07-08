@@ -241,6 +241,7 @@ type OpeningBalancePreview = {
   };
 };
 type OpeningBalanceRegisterRow = {
+  BalanceID?: number;
   OpeningBalanceID?: number;
   EmployeeID: number;
   EmployeeCode: string;
@@ -963,6 +964,7 @@ export default function DashboardPage() {
     openingBhd: "",
     maximumPayout: "150"
   });
+  const [editingOpeningBalanceKey, setEditingOpeningBalanceKey] = useState<string | null>(null);
   const [activeOpeningYear, setActiveOpeningYear] = useState(new Date().getFullYear().toString());
   const [openingBalanceRows, setOpeningBalanceRows] = useState<OpeningBalanceRegisterRow[]>([]);
   const [openingBalanceLoading, setOpeningBalanceLoading] = useState(false);
@@ -1696,6 +1698,7 @@ export default function DashboardPage() {
     setActiveFiscalYear(yearText);
     setActiveOpeningYear(yearText);
     setOpeningPreview(null);
+    setEditingOpeningBalanceKey(null);
     setYearEndPreview(null);
     setAllocationEligibilityReview(null);
     setMonthlyEmiRunPreview(null);
@@ -3308,7 +3311,7 @@ export default function DashboardPage() {
 
   async function handleSaveOpeningBalance() {
     if (!session) return setMessage("Please sign in before saving.");
-    const employee = employees.find((item) => item.EmployeeID === Number(openingForm.employeeId));
+    const employee = (employeeMasterAll.length ? employeeMasterAll : employees).find((item) => item.EmployeeID === Number(openingForm.employeeId));
     if (!employee) return setMessage("Select employee first.");
     if (openingForm.openingDays.trim() === "" || openingForm.openingBhd.trim() === "") {
       return setMessage("Enter opening days and opening amount before saving.");
@@ -3333,9 +3336,51 @@ export default function DashboardPage() {
       await loadLiveData(session, openingYear);
       await reloadOpeningBalances(session, openingYear);
       setOpeningForm({ ...openingForm, employeeId: "", year: String(openingYear), openingDays: "", openingBhd: "", maximumPayout: "150" });
-      setMessage(`Opening balance saved for ${openingYear} and employee airfare balance updated.`);
+      setEditingOpeningBalanceKey(null);
+      setMessage(`Opening balance ${editingOpeningBalanceKey ? "updated" : "saved"} for ${openingYear} and employee airfare balance updated.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Opening balance save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetOpeningBalanceForm(yearValue: string | number = activeOpeningYear) {
+    const year = normalizeOpeningYear(yearValue);
+    setEditingOpeningBalanceKey(null);
+    setOpeningForm({ employeeId: "", year: String(year), openingDays: "", openingBhd: "", maximumPayout: "150" });
+  }
+
+  function prepareOpeningBalanceEdit(row: OpeningBalanceRegisterRow) {
+    const employee = employeeMasterAll.find((item) => item.EmployeeID === Number(row.EmployeeID)) || employees.find((item) => item.EmployeeID === Number(row.EmployeeID));
+    const year = normalizeOpeningYear(row.BalanceYear || activeOpeningYearNumber);
+    setEditingOpeningBalanceKey(`${row.EmployeeID}-${year}`);
+    setOpeningForm({
+      employeeId: String(row.EmployeeID),
+      year: String(year),
+      openingDays: String(Number(row.OpeningDays || 0)),
+      openingBhd: String(Number(row.OpeningBHD || 0)),
+      maximumPayout: String(row.MaximumPayout || employee?.MaximumPayout || 150)
+    });
+    setMessage(`Editing ${row.EmployeeCode} opening balance for ${year}. Review values, then Update opening balance.`);
+  }
+
+  async function handleDeleteOpeningBalance(row: OpeningBalanceRegisterRow) {
+    if (!session) return setMessage("Please sign in before deleting opening balances.");
+    if (!["admin", "manager", "hr"].includes(session.user.role)) return setMessage("Only admin, manager, or HR can delete opening balances.");
+    const year = normalizeOpeningYear(row.BalanceYear || activeOpeningYearNumber);
+    const ok = window.confirm(`Delete opening balance for ${row.EmployeeCode} in ${year}? This removes only this employee/year opening balance.`);
+    if (!ok) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await atlasMutation(`/opening-balances/${row.EmployeeID}/${year}`, session.token, session.sessionId, "DELETE");
+      if (editingOpeningBalanceKey === `${row.EmployeeID}-${year}`) resetOpeningBalanceForm(year);
+      await loadLiveData(session, year);
+      await reloadOpeningBalances(session, year);
+      setMessage(`Deleted ${row.EmployeeCode} opening balance for ${year}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Opening balance delete failed");
     } finally {
       setBusy(false);
     }
@@ -4665,6 +4710,8 @@ export default function DashboardPage() {
     const text = `${row.EmployeeCode} ${row.FullName} ${row.Department || ""} ${row.Branch || ""}`.toLowerCase();
     return text.includes(searchText);
   });
+  const openingFormKey = openingForm.employeeId ? `${openingForm.employeeId}-${normalizeOpeningYear(openingForm.year)}` : null;
+  const openingFormIsUpdate = Boolean(editingOpeningBalanceKey && openingFormKey === editingOpeningBalanceKey);
   const openingBalanceTotalAmount = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningBHD || 0), 0);
   const openingBalanceTotalDays = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningDays || 0), 0);
   const filteredEmployees = employees.filter((employee) => {
@@ -5872,32 +5919,29 @@ export default function DashboardPage() {
                     <span>{money.format(Number(row.OpeningBHD || 0))}</span>
                     <span className="pill">{row.IsActive === false ? "Inactive" : "Active"}</span>
                     <span className="row-actions">
-                      {(() => {
-                        const employee = employeeMasterAll.find((item) => item.EmployeeID === Number(row.EmployeeID)) || employees.find((item) => item.EmployeeID === Number(row.EmployeeID));
-                        return (
-                          <>
-                      <button className="mini-soft" onClick={() => setOpeningForm({
-                        employeeId: String(row.EmployeeID),
-                        year: String(row.BalanceYear || activeOpeningYearNumber),
-                        openingDays: String(Number(row.OpeningDays || 0)),
-                        openingBhd: String(Number(row.OpeningBHD || 0)),
-                        maximumPayout: String(row.MaximumPayout || employee?.MaximumPayout || 150)
-                      })}>Edit</button>
+                      <button className="mini-soft" onClick={() => prepareOpeningBalanceEdit(row)}>Edit</button>
                       <button className="mini-soft" onClick={() => void prepareNextYearOpeningUpdate(row)}>Update next year</button>
-                          </>
-                        );
-                      })()}
+                      <button className="mini-danger" disabled={busy} onClick={() => void handleDeleteOpeningBalance(row)}><Trash2 size={14} /> Delete</button>
                     </span>
                   </div>
                 ))}
               </div>
             </div>
             <div className="glass-panel form-card preferences-policy-card">
-              <div className="card-title"><Plus size={18} /> Add opening balance</div>
+              <div className="card-title">{openingFormIsUpdate ? <Pencil size={18} /> : <Plus size={18} />} {openingFormIsUpdate ? "Update opening balance" : "Add opening balance"}</div>
+              {openingFormIsUpdate && (
+                <div className="notice compact update-mode-notice">
+                  <span />
+                  <div>
+                    <strong>Editing selected row</strong>
+                    <p>Change days or amount, then press Update opening balance. Use Cancel to return to add mode.</p>
+                  </div>
+                </div>
+              )}
               <div className="form-grid one">
                 <Field label="Employee">
-                  <select value={openingForm.employeeId} onChange={(event) => {
-                    const employee = employees.find((item) => item.EmployeeID === Number(event.target.value));
+                  <select value={openingForm.employeeId} disabled={openingFormIsUpdate} onChange={(event) => {
+                    const employee = (employeeMasterAll.length ? employeeMasterAll : employees).find((item) => item.EmployeeID === Number(event.target.value));
                     setOpeningForm({
                       ...openingForm,
                       employeeId: event.target.value,
@@ -5910,7 +5954,7 @@ export default function DashboardPage() {
                     {(employeeMasterAll.length ? employeeMasterAll : employees).map((employee) => <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}{isAirfareEligibleEmployeeStatus(employee.Status) ? "" : " (inactive)"}</option>)}
                   </select>
                 </Field>
-                <Field label="Opening year"><input type="number" min="2000" max="2100" value={openingForm.year} onChange={(event) => {
+                <Field label="Opening year"><input type="number" min="2000" max="2100" value={openingForm.year} disabled={openingFormIsUpdate} onChange={(event) => {
                   const value = event.target.value;
                   setOpeningForm({ ...openingForm, year: value });
                   setActiveOpeningYear(value);
@@ -5933,7 +5977,8 @@ export default function DashboardPage() {
                 <span><small>Per day</small><strong>{money.format(toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS)}</strong></span>
               </div>
               <div className="button-row">
-                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>Save opening balance</button>
+                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>{openingFormIsUpdate ? "Update opening balance" : "Save opening balance"}</button>
+                {openingFormIsUpdate && <button className="soft-button" disabled={busy} onClick={() => resetOpeningBalanceForm(openingForm.year)}>Cancel edit</button>}
               </div>
               <p className="muted">Opening balance is the approved carry-forward balance used by Airfare Allocation.</p>
             </div>

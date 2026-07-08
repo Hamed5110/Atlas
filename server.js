@@ -3068,6 +3068,78 @@ app.post('/api/opening-balances', authenticateToken, requireRole('admin', 'manag
     }
 });
 
+// DELETE /api/opening-balances/:employeeId/:year
+app.delete('/api/opening-balances/:employeeId(\\d+)/:year(\\d+)', authenticateToken, requireRole('admin', 'manager', 'hr'), async (req, res) => {
+    try {
+        const employeeId = parseInt(req.params.employeeId, 10);
+        const year = parseInt(req.params.year, 10);
+        if (!Number.isInteger(employeeId) || !Number.isInteger(year) || year < 2000 || year > 2100) {
+            return res.status(400).json({ error: 'Invalid opening balance employee or year' });
+        }
+
+        const db = await getConnection();
+        const oldResult = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('BalanceYear', sql.Int, year)
+            .query(`
+                SELECT ob.*, e.EmployeeCode, e.FullName
+                FROM OpeningBalances ob
+                JOIN Employees e ON e.EmployeeID = ob.EmployeeID
+                WHERE ob.EmployeeID = @EmployeeID AND ob.BalanceYear = @BalanceYear
+            `);
+        const oldValues = oldResult.recordset[0];
+        if (!oldValues) return res.status(404).json({ error: 'Opening balance not found' });
+
+        const tx = new sql.Transaction(db);
+        await tx.begin();
+        try {
+            await new sql.Request(tx)
+                .input('EmployeeID', sql.Int, employeeId)
+                .input('BalanceYear', sql.Int, year)
+                .input('UpdatedBy', sql.Int, req.user.userId)
+                .query(`
+                    DELETE FROM OpeningBalances
+                    WHERE EmployeeID = @EmployeeID AND BalanceYear = @BalanceYear;
+
+                    DECLARE @FallbackOpeningDays DECIMAL(10,2) = 0;
+                    DECLARE @FallbackOpeningBHD DECIMAL(10,2) = 0;
+
+                    SELECT TOP 1
+                        @FallbackOpeningDays = OpeningDays,
+                        @FallbackOpeningBHD = OpeningBHD
+                    FROM OpeningBalances
+                    WHERE EmployeeID = @EmployeeID
+                    ORDER BY BalanceYear DESC;
+
+                    UPDATE Employees
+                    SET OpeningDays = @FallbackOpeningDays,
+                        OpeningBHD = @FallbackOpeningBHD,
+                        RemainingBalance = @FallbackOpeningDays,
+                        TotalAirfare = @FallbackOpeningBHD,
+                        UpdatedAt = GETDATE(),
+                        UpdatedBy = @UpdatedBy
+                    WHERE EmployeeID = @EmployeeID;
+                `);
+            await tx.commit();
+        } catch (deleteErr) {
+            try {
+                await tx.rollback();
+            } catch (rollbackErr) {
+                logger.warn('Opening balance delete rollback issue:', rollbackErr);
+            }
+            throw deleteErr;
+        }
+
+        await logAudit(req.user.userId, req.user.username, 'DELETE', 'OpeningBalance', employeeId, oldValues, null,
+            `Deleted opening balance for employee ${employeeId} year ${year}`, req);
+
+        res.json({ message: 'Opening balance deleted', deleted: oldValues });
+    } catch (err) {
+        logger.error('Delete opening balance error:', err);
+        res.status(500).json({ error: err.message || 'Opening balance delete failed' });
+    }
+});
+
 // POST /api/opening-balances/import
 app.post('/api/opening-balances/import', authenticateToken, requireRole('admin', 'manager', 'hr'), async (req, res) => {
     try {
