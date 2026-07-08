@@ -169,6 +169,7 @@ assert.doesNotMatch(source, /AIRFARE_MAX_PAYOUT\s*=\s*150/, "airfare UI should n
 assert.match(source, /selectedEntitlement\s*=\s*roundMoney\(allocationEligibilityReview\?\.AirfareEntitlementAmount \?\? 0\)/, "airfare entitlement should come from the SQL eligibility review only");
 assert.match(source, /currentYearSpending\s*=\s*roundMoney\(allocationEligibilityReview\?\.CurrentYearSpending \?\? 0\)/, "airfare current-year spending should come from the SQL eligibility review only");
 assert.doesNotMatch(source, /localTotalEntitlement|localSelectedEntitlement|selectedCurrentWorkingDays|localCurrentYearSpending/, "airfare allocation screen must not keep local entitlement fallback calculations");
+assert.doesNotMatch(source, /CalculationLab|Airfare Calculation Lab|Total = Max Payout \/ 60 x Remaining Days/, "frontend should not expose a local airfare formula lab");
 assert.match(source, /allocations\/eligibility-review/, "airfare eligibility review should come from the SQL-backed API");
 assert.match(source, /reviewCurrentYearAmount/, "eligibility panel should render SQL-backed current-year earned amount");
 assert.match(source, /reviewPaidAmount/, "eligibility panel should render SQL-backed already-paid amount");

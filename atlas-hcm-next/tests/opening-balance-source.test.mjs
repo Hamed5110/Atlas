@@ -41,6 +41,8 @@ assert.match(source, /openingBalanceRows/, "opening balance register should rend
 assert.match(source, /Opening balance SQL preview ready/, "opening balance screen should show SQL preview confirmation");
 assert.match(source, /toggleOpeningPreviewRow/, "opening balance preview should support row selection");
 assert.match(source, /removeOpeningPreviewRow/, "opening balance preview should support removing rows");
+assert.doesNotMatch(source, /openingBhd:\s*importedTotalAirfare\s*\?\?\s*roundMoney\(\(maximumPayout\s*\/\s*60\)\s*\*\s*openingDays\)/, "employee import mapping must not calculate opening balance fallback in the browser");
+assert.doesNotMatch(source, /openingBhd:\s*roundMoney\(\(maximumPayout\s*\/\s*60\)\s*\*\s*openingDays\)/, "opening balance import mapping must not calculate opening amount in the browser");
 assert.match(source, /Opening balance is the approved carry-forward balance/, "screen should explain the process");
 assert.match(source, /Opening balance is controlled separately/, "employee master should point to separate opening balance process");
 assert.match(source, /ATLAS_Opening_Balance_Register\.xlsx/, "opening balance register export should exist");

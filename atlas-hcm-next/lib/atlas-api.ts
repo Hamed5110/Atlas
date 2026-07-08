@@ -1,5 +1,3 @@
-import { calculateAirfare } from "./airfare-engine";
-
 export type Employee = {
   EmployeeID: number;
   EmployeeCode: string;
@@ -380,12 +378,7 @@ export function calculateRemainingDays(employee: Employee) {
   if (typeof employee.OpeningDays === "number" && Number.isFinite(employee.OpeningDays)) {
     return employee.OpeningDays;
   }
-  return calculateAirfare({
-    openingDays: 0,
-    currentWorkingDays: employee.TotalWorkingDays || 360,
-    paidDays: employee.AirfarePaidDays || 0,
-    maximumPayout: employee.MaximumPayout || 150
-  }).remainingDays;
+  return 0;
 }
 
 export function closingBalanceDays(employee: Employee) {

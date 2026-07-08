@@ -83,7 +83,6 @@ import {
   LoanSummary,
   YearSummary
 } from "../lib/atlas-api";
-import { calculateAirfare } from "../lib/airfare-engine";
 
 type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
@@ -964,12 +963,6 @@ export default function DashboardPage() {
   const openingImportRef = useRef<HTMLInputElement | null>(null);
   const [loginForm, setLoginForm] = useState({ company: "ATLAS", username: "", password: "", remember: true });
   const [busy, setBusy] = useState(false);
-  const [calcInput, setCalcInput] = useState({
-    openingDays: 28.4167,
-    currentWorkingDays: 360,
-    paidDays: 33.417,
-    maximumPayout: 150
-  });
   const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
   const [quickAddOptions, setQuickAddOptions] = useState<QuickAddOptions>(emptyQuickAddOptions);
   const [whatsappForm, setWhatsappForm] = useState({
@@ -1139,7 +1132,6 @@ export default function DashboardPage() {
   });
   const [yearEndPreview, setYearEndPreview] = useState<YearEndPreview | null>(null);
 
-  const calcResult = calculateAirfare(calcInput);
   const selectedEmployee = employees.find((item) => item.EmployeeID === Number(allocationForm.employeeId));
   const canSelectSelfServiceEmployee = Boolean(selfServiceSummary?.canSelectEmployee || ["admin", "manager", "hr"].includes(session?.user.role || ""));
   const selfServiceEmployees = employees.length ? employees : employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
@@ -2191,12 +2183,6 @@ export default function DashboardPage() {
       const maximumPayout = toNumber(employeeForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT);
       const totalWorkingDays = toNumber(employeeForm.totalWorkingDays, 360);
       const paidDays = toNumber(employeeForm.paidDays);
-      const calculated = calculateAirfare({
-        openingDays: 0,
-        currentWorkingDays: totalWorkingDays,
-        paidDays,
-        maximumPayout
-      });
       const monthDays = totalWorkingDays / 12;
       const payload = {
         code: employeeForm.code.trim(),
@@ -2235,7 +2221,7 @@ export default function DashboardPage() {
         serialNo: toNullableNumber(employeeForm.serialNo),
         lastWorkingDate: employeeForm.lastWorkingDate || null,
         airfarePaidDays: paidDays,
-        currentAirfare2024: calculated.currentAirfareDays,
+        currentAirfare2024: 0,
         maximumPayout,
         jan: monthDays,
         feb: monthDays,
@@ -5723,7 +5709,6 @@ export default function DashboardPage() {
               </summary>
               <Analytics trendData={trendData} pieData={pieData} />
             </details>
-            <CalculationLab calcInput={calcInput} setCalcInput={setCalcInput} calcResult={calcResult} />
           </>
         )}
 
@@ -7965,43 +7950,6 @@ export default function DashboardPage() {
   );
 }
 
-function CalculationLab({ calcInput, setCalcInput, calcResult }: {
-  calcInput: { openingDays: number; currentWorkingDays: number; paidDays: number; maximumPayout: number };
-  setCalcInput: (value: { openingDays: number; currentWorkingDays: number; paidDays: number; maximumPayout: number }) => void;
-  calcResult: { currentAirfareDays: number; remainingDays: number; payableBhd: number };
-}) {
-  return (
-    <section className="calc-grid">
-      <div className="glass-panel calc-card">
-        <div className="card-title"><Sparkles size={18} /> Airfare Calculation Lab</div>
-        <div className="formula-strip">
-          <span>Remaining Days = Opening Days + Current Airfare Days - Paid Days</span>
-          <span>Total = Max Payout / 60 x Remaining Days</span>
-        </div>
-        <div className="calc-fields">
-          <label>Opening Days<input type="number" step="0.0001" value={calcInput.openingDays} onChange={(e) => setCalcInput({ ...calcInput, openingDays: Number(e.target.value) })} /></label>
-          <label>Working Days<input type="number" step="0.01" value={calcInput.currentWorkingDays} onChange={(e) => setCalcInput({ ...calcInput, currentWorkingDays: Number(e.target.value) })} /></label>
-          <label>Paid Days<input type="number" step="0.001" value={calcInput.paidDays} onChange={(e) => setCalcInput({ ...calcInput, paidDays: Number(e.target.value) })} /></label>
-          <label>Max Payout<input type="number" step="0.01" min="0" max="150" value={calcInput.maximumPayout} onChange={(e) => setCalcInput({ ...calcInput, maximumPayout: Number(e.target.value) })} /></label>
-        </div>
-        <div className="calc-result">
-          <span><small>Current Airfare Days</small><strong>{calcResult.currentAirfareDays.toFixed(4)}</strong></span>
-          <span><small>Remaining Days</small><strong>{calcResult.remainingDays.toFixed(4)}</strong></span>
-          <span><small>Total Payable</small><strong>{money.format(calcResult.payableBhd)}</strong></span>
-        </div>
-      </div>
-      <div className="glass-panel hcm-card">
-        <div className="card-title"><ShieldCheck size={18} /> Formula control</div>
-        <ul>
-          <li>Every 60 airfare days equals the maximum payout.</li>
-          <li>Every 30 working days earns 2.5 airfare days.</li>
-          <li>150 BHD / 60 days makes the Excel result 62.50 BHD.</li>
-        </ul>
-      </div>
-    </section>
-  );
-}
-
 function MetricGrid({ metrics }: { metrics: { totalAirfare: number; opening: number; currentYearEarned: number; entitlementAmount: number; employeeCount: number; loanBalance: number } }) {
   return (
     <section className="metric-grid">
@@ -8719,7 +8667,7 @@ function mapEmployeeExcelRow(headers: string[], row: unknown[]) {
     email: cellText(findCell(headers, row, ["emailcontactdetails", "email"])),
     branch: cellText(findCell(headers, row, ["branch"])) || cellText(findCell(headers, row, ["locationgeneral", "location"])),
     openingDays,
-    openingBhd: importedTotalAirfare ?? roundMoney((maximumPayout / 60) * openingDays),
+    openingBhd: importedTotalAirfare ?? 0,
     airfarePaidDays: paidDays,
     maximumPayout,
     jan: 30,
@@ -8752,7 +8700,7 @@ function mapOpeningBalanceExcelRow(headers: string[], row: unknown[], defaultYea
     year: cellNumber(findCell(headers, row, ["year", "balance year", "opening year"])) ?? defaultYear,
     openingDays,
     importedOpeningBhd,
-    openingBhd: roundMoney((maximumPayout / 60) * openingDays),
+    openingBhd: importedOpeningBhd ?? 0,
     maximumPayout
   };
 }
