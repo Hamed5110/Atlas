@@ -3,6 +3,7 @@
 import { readSheet } from "read-excel-file/browser";
 import writeXlsxFile from "write-excel-file/browser";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   Area,
@@ -6105,7 +6106,7 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {openingEditModalOpen && openingFormIsUpdate && activeView === "Opening Balance" && (
+        {typeof document !== "undefined" && openingEditModalOpen && openingFormIsUpdate && activeView === "Opening Balance" && createPortal((
           <div className="modal-backdrop" role="presentation">
             <section className="glass-panel opening-edit-modal" role="dialog" aria-modal="true" aria-labelledby="opening-edit-title">
               <div className="modal-head">
@@ -6138,7 +6139,7 @@ export default function DashboardPage() {
               </div>
             </section>
           </div>
-        )}
+        ), document.body)}
 
         {activeView === "Airfare" && (
           <section className={`calc-grid airfare-layout ${recentAllocationsOpen ? "recent-open" : "recent-closed"}`}>

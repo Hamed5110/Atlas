@@ -8,6 +8,7 @@ assert.match(source, /Opening Balance/, "opening balance screen should be in nav
 assert.match(source, /handleSaveOpeningBalance/, "manual opening balance save should exist");
 assert.match(source, /prepareOpeningBalanceEdit/, "opening balance edit should load a row into update mode");
 assert.match(source, /openingEditModalOpen/, "opening balance edit should open a popup dialog");
+assert.match(source, /createPortal/, "opening balance edit popup should render outside the transformed app shell");
 assert.match(source, /role="dialog" aria-modal="true"/, "opening balance edit popup should be a modal dialog");
 assert.match(source, /handleDeleteOpeningBalance/, "opening balance delete action should exist");
 assert.match(source, /handleBulkDeleteOpeningBalances/, "opening balance bulk delete should exist");

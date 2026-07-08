@@ -129,6 +129,9 @@ assert.match(css, /\.fiscal-context-chip/, "topbar should show selected fiscal y
 assert.match(css, /\.table-row\.opening-balance-row\s*{[\s\S]*minmax\(292px,\s*1\.05fr\)/, "opening balance action column should prevent edit/update/delete text clipping");
 assert.match(css, /\.modal-backdrop/, "opening balance edit popup should have an overlay");
 assert.match(css, /\.opening-edit-modal/, "opening balance edit popup should be styled");
+assert.match(source, /createPortal\(\(/, "opening balance modal should be portaled to the document body");
+assert.match(css, /\.modal-backdrop\s*{[\s\S]*align-items:\s*start/, "opening balance modal should start near the top of the viewport");
+assert.match(css, /\.opening-edit-modal \.button-row\s*{[\s\S]*position:\s*sticky/, "opening balance modal actions should remain visible");
 assert.match(css, /\.opening-register-toolbar\s*{[\s\S]*grid-template-columns:\s*minmax\(260px,\s*340px\)\s*minmax\(0,\s*1fr\)/, "opening balance compact toolbar should align year control and facts");
 assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
@@ -153,7 +156,7 @@ assert.match(source, /PendingLoanAmount/, "year end employee preview should incl
 assert.match(css, /\.preview-row\.year-end-head\s*{[\s\S]*grid-template-columns/, "year end preview should use dedicated readable columns");
 assert.match(css, /--page-gap:\s*10px/, "standard application density should remove excess page spacing");
 assert.match(css, /--topbar-h:\s*60px/, "topbar should use a compact HD height");
-assert.match(css, /\.modal-backdrop\s*{[\s\S]*backdrop-filter:\s*blur\(5px\)/, "modal overlay should not over-blur the whole workspace");
+assert.match(css, /\.modal-backdrop\s*{[\s\S]*backdrop-filter:\s*blur\(4px\)/, "modal overlay should not over-blur the whole workspace");
 assert.match(css, /\.metric\s*{[\s\S]*min-height:\s*84px/, "dashboard metric cards should be compact enough for HD data density");
 assert.match(css, /\.table-row\s*{[\s\S]*padding:\s*9px 11px/, "table rows should use compact enterprise spacing");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.top-actions\s*{[\s\S]*display:\s*flex[\s\S]*overflow-x:\s*auto/, "mobile topbar actions should use one compact horizontal command strip");
