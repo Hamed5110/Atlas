@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const source = readFileSync(join(process.cwd(), "app", "page.tsx"), "utf8");
+const apiSource = readFileSync(join(process.cwd(), "lib", "atlas-api.ts"), "utf8");
 
 assert.match(source, /Opening Balance/, "opening balance screen should be in navigation");
 assert.match(source, /handleSaveOpeningBalance/, "manual opening balance save should exist");
@@ -26,6 +27,7 @@ assert.match(source, /openingDays: ""/, "opening balance form should start with 
 assert.match(source, /openingBhd: ""/, "opening balance form should start with empty amount");
 assert.match(source, /Opening amount is calculated by MSSQL/, "opening balance save should not require manual amount entry");
 assert.match(source, /readOnly/, "opening balance amount should be read-only in the frontend");
+assert.doesNotMatch(apiSource, /MaximumPayout\s*\|\|\s*150\)\s*\/\s*60/, "shared opening balance helper must not calculate airfare amount outside MSSQL");
 assert.match(source, /\/opening-balances\/import-preview/, "opening balance import should create SQL validation preview batch");
 assert.match(source, /\/opening-balances\/import-confirm/, "opening balance import should confirm selected SQL preview rows only");
 assert.match(source, /activeOpeningYear/, "opening balance screen should keep an explicit selected year state");

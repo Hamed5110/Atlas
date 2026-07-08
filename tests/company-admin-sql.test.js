@@ -24,6 +24,7 @@ assert.match(serverText, /DELETE \/api\/opening-balances\/:employeeId\/:year/i, 
 assert.match(serverText, /POST \/api\/opening-balances\/bulk-delete/i, 'Opening balance selected-row bulk delete API should exist');
 assert.match(serverText, /GET \/api\/opening-balances\/calculate/i, 'Opening balance SQL calculation API should exist');
 assert.match(serverText, /dbo\.fn_ATLAS_AirfareAmount\(@OpeningDays, @MaximumPayout\)/i, 'Opening balance calculations should use the MSSQL function');
+assert.doesNotMatch(serverText, /BalanceDays\s*\|\|\s*0\)\s*\*\s*Number\(row\.PerDayRate/i, 'Server airfare reports must not calculate payable fallback in JavaScript');
 assert.match(hcmSqlText, /CREATE OR ALTER FUNCTION dbo\.fn_ATLAS_AirfareAmount/i, 'Airfare amount SQL function should exist');
 assert.match(hcmSqlText, /CREATE TABLE dbo\.OpeningLoanBalances/i, 'Opening loan balance carry-forward table should exist');
 assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_UpsertOpeningLoanBalance/i, 'Opening loan balance upsert procedure should exist');

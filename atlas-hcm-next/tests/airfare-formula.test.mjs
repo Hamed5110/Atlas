@@ -9,7 +9,8 @@ function closingBalanceDays(employee) {
 }
 
 function calculateExcelTotal(employee) {
-  return Math.round(((employee.MaximumPayout || 150) / 60) * Math.min(60, Math.max(0, closingBalanceDays(employee))) * 100) / 100;
+  const sqlClosingAmount = Number(employee.ClosingBalanceBHD);
+  return Number.isFinite(sqlClosingAmount) ? Math.round(sqlClosingAmount * 100) / 100 : 0;
 }
 
 const excelCase = calculateAirfare({
@@ -81,6 +82,7 @@ assert.equal(partialOneWayCase.payableBhd, 30);
 
 const employeeFromExcelBalance = {
   ClosingBalanceDays: 25,
+  ClosingBalanceBHD: 62.5,
   RemainingBalance: 55,
   OpeningDays: 25,
   MaximumPayout: 150
@@ -90,8 +92,15 @@ assert.equal(calculateExcelTotal(employeeFromExcelBalance), 62.5);
 
 const importedWorkbookCase = {
   ClosingBalanceDays: 24.99966666666667,
+  ClosingBalanceBHD: 62.5,
   MaximumPayout: 150
 };
 assert.equal(calculateExcelTotal(importedWorkbookCase), 62.5);
+
+const missingSqlClosingAmount = {
+  ClosingBalanceDays: 25,
+  MaximumPayout: 150
+};
+assert.equal(calculateExcelTotal(missingSqlClosingAmount), 0);
 
 console.log("Airfare formula tests passed");

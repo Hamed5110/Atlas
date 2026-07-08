@@ -1186,11 +1186,11 @@ export default function DashboardPage() {
       if (rightPriority !== leftPriority) return rightPriority - leftPriority;
       return new Date(String(right.EffectiveFrom)).getTime() - new Date(String(left.EffectiveFrom)).getTime();
     })[0];
-  const selectedMaximumPayout = selectedEffectivePolicyRate?.MaxPayoutAmount || allocationEligibilityReview?.MaximumPayout || selectedEmployee?.MaximumPayout || AIRFARE_DEFAULT_PAYOUT;
+  const selectedMaximumPayout = allocationEligibilityReview?.MaximumPayout ?? selectedEffectivePolicyRate?.MaxPayoutAmount ?? selectedEmployee?.MaximumPayout ?? 0;
   const selectedCompanyMaxPayout = selectedMaximumPayout;
   const selectedAllocationYear = normalizeOpeningYear(allocationForm.year || activeFiscalYear);
   const selectedOpeningDays = selectedEmployee?.OpeningDays ?? 0;
-  const selectedOpeningAmount = roundMoney(selectedEmployee?.OpeningBHD ?? ((selectedMaximumPayout / 60) * Math.max(0, selectedOpeningDays)));
+  const selectedOpeningAmount = roundMoney(selectedEmployee?.OpeningBHD ?? 0);
   const selectedEmployeeAllocations = allocations.filter((allocation) => {
     if (!selectedEmployee) return false;
     if (allocation.EmployeeID !== selectedEmployee.EmployeeID) return false;
@@ -1204,11 +1204,6 @@ export default function DashboardPage() {
   });
   const firstAllocationThisYear = sortedEmployeeAllocations[0];
   const currentYearAllocationCount = sortedEmployeeAllocations.length;
-  const localCurrentYearSpending = roundMoney(sortedEmployeeAllocations.reduce((sum, allocation) => (
-    String(allocation.PaymentMode || "").toLowerCase() === "employee_full"
-      ? sum
-      : sum + (Number(allocation.Entitlement) || 0)
-  ), 0));
   const requiresAllocationReview = currentYearAllocationCount >= 1;
   const requiresLoanManagerApproval = allocationForm.paymentMode === "loan";
   const requiresManagerApproval = requiresAllocationReview || requiresLoanManagerApproval;
@@ -1218,36 +1213,16 @@ export default function DashboardPage() {
   const firstAllocationTicketNo = firstAllocationThisYear ? extractRemarkValue(firstAllocationThisYear.Remarks, "Ticket") : "";
   const firstAllocationDate = firstAllocationThisYear ? formatExportDate(firstAllocationThisYear.AllocationDate) : "";
   const firstAllocationAmount = roundMoney(firstAllocationThisYear?.TicketCost || 0);
-  const previousAllocationForEarning = findPreviousAllocationForEarning(sortedEmployeeAllocations, allocationForm.date);
-  const selectedCurrentWorkingDays = workingDaysFromYearStart(
-    allocationForm.date,
-    selectedEmployee?.JoinDate,
-    previousAllocationForEarning?.AllocationDate
-  );
-  const selectedPerDayRate = selectedMaximumPayout / 60;
-  const selectedCurrentAirfare = calculateAirfare({
-    openingDays: 0,
-    currentWorkingDays: selectedCurrentWorkingDays,
-    paidDays: 0,
-    maximumPayout: selectedMaximumPayout
-  });
-  const selectedCurrentAmount = roundMoney(selectedCurrentAirfare.payableBhd);
-  const selectedCurrentDays = selectedCurrentAirfare.currentAirfareDays;
-  const selectedPaidDays = toNumber(
-    selectedEmployeeAllocations.reduce((sum, allocation) => {
-      const perDayRate = Math.max(0.0000001, selectedPerDayRate);
-      return sum + ((Number(allocation.Entitlement) || 0) / perDayRate);
-    }, 0),
-    0
-  );
-  const selectedPaidAmount = roundMoney(selectedPaidDays * selectedPerDayRate);
+  const selectedPerDayRate = Number(allocationEligibilityReview?.PerDayRate ?? selectedEffectivePolicyRate?.PerDayRate ?? 0);
+  const selectedCurrentAmount = roundMoney(allocationEligibilityReview?.CurrentYearEarnedAmount ?? 0);
+  const selectedCurrentDays = allocationEligibilityReview?.CurrentYearEarnedDays ?? 0;
+  const selectedPaidDays = allocationEligibilityReview?.AlreadyPaidDays ?? 0;
+  const selectedPaidAmount = roundMoney(allocationEligibilityReview?.AlreadyPaidAmount ?? 0);
   const selectedClosingDays = Math.max(0, roundTo(selectedOpeningDays + selectedCurrentDays - selectedPaidDays, 4));
   const selectedRawEntitlement = selectedCurrentAmount;
-  const localTotalEntitlement = roundMoney(Math.min(selectedMaximumPayout, Math.max(0, selectedOpeningAmount + selectedCurrentAmount)));
-  const localSelectedEntitlement = roundMoney(Math.max(0, localTotalEntitlement - selectedPaidAmount));
-  const currentYearSpending = roundMoney(allocationEligibilityReview?.CurrentYearSpending ?? localCurrentYearSpending);
-  const currentYearRemaining = roundMoney(allocationEligibilityReview?.CurrentYearRemaining ?? ((selectedMaximumPayout || 150) - currentYearSpending));
-  const totalAvailableFunds = roundMoney(allocationEligibilityReview?.TotalAvailableFunds ?? ((selectedOpeningAmount || 0) + currentYearRemaining));
+  const currentYearSpending = roundMoney(allocationEligibilityReview?.CurrentYearSpending ?? 0);
+  const currentYearRemaining = roundMoney(allocationEligibilityReview?.CurrentYearRemaining ?? 0);
+  const totalAvailableFunds = roundMoney(allocationEligibilityReview?.TotalAvailableFunds ?? 0);
   const reviewOpeningAmount = roundMoney(allocationEligibilityReview?.OpeningBalanceAmount ?? selectedOpeningAmount);
   const reviewCurrentYearAmount = roundMoney(allocationEligibilityReview?.CurrentYearEarnedAmount ?? selectedCurrentAmount);
   const reviewCurrentYearDays = roundTo(allocationEligibilityReview?.CurrentYearEarnedDays ?? selectedCurrentDays, 4);
@@ -1255,7 +1230,7 @@ export default function DashboardPage() {
   const reviewPaidDays = roundTo(allocationEligibilityReview?.AlreadyPaidDays ?? selectedPaidDays, 4);
   const reviewClosingDays = roundTo(allocationEligibilityReview?.EligibleBalanceDays ?? selectedClosingDays, 4);
   const reviewEntitlementBasis = roundMoney(allocationEligibilityReview?.CurrentYearEntitlementBasis ?? selectedRawEntitlement);
-  const selectedEntitlement = roundMoney(Math.min(selectedMaximumPayout, allocationEligibilityReview?.AirfareEntitlementAmount ?? localSelectedEntitlement));
+  const selectedEntitlement = roundMoney(allocationEligibilityReview?.AirfareEntitlementAmount ?? 0);
   const ticketCost = toNumber(allocationForm.ticketCost);
   const hasTicketAmount = ticketCost > 0;
   const entitlementFullyCoversTicket = hasTicketAmount && selectedEntitlement >= ticketCost;
@@ -3668,7 +3643,7 @@ export default function DashboardPage() {
 
   async function handleExportAirfareReport() {
     const resolveAirfareEntitlementAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.AirfareEntitlementAmount ?? 0)).toFixed(2));
-    const resolveAirfarePayableAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.PayableBHD ?? (Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5)))).toFixed(2));
+    const resolveAirfarePayableAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.PayableBHD ?? 0)).toFixed(2));
     const sourceRows = session ? await refreshAirfarePayableReport(session, activeFiscalYear) : airfarePayableReport;
     const rows = sourceRows.map((row) => ({
       "Employee Code": row.EmployeeCode,
@@ -3780,7 +3755,7 @@ export default function DashboardPage() {
 
   function printAirfarePayableReport() {
     const resolveAirfareEntitlementAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.AirfareEntitlementAmount ?? 0)).toFixed(2));
-    const resolveAirfarePayableAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.PayableBHD ?? (Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5)))).toFixed(2));
+    const resolveAirfarePayableAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.PayableBHD ?? 0)).toFixed(2));
     const rows = airfarePayableReport.map((row) => ({
       Code: row.EmployeeCode,
       Name: row.FullName,
@@ -3936,7 +3911,7 @@ export default function DashboardPage() {
           "Company Paid Amount": Number(row.CompanyPaidCurrentYear || 0).toFixed(2),
           "Balance Days": Number(row.BalanceDays || 0).toFixed(2),
           "Airfare Entitlement Amount": Number(row.AirfareEntitlementAmount ?? row.PayableBHD ?? 0).toFixed(2),
-          "Payable Amount": Number(row.PayableBHD ?? (Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5))).toFixed(2),
+          "Payable Amount": Number(row.PayableBHD ?? 0).toFixed(2),
           Status: row.VerificationNote || "-",
           Count: 1,
           __recordType: "employee",
@@ -3952,7 +3927,7 @@ export default function DashboardPage() {
         totalColumns: ["Airfare Entitlement Amount", "Payable Amount"],
         rows: airfarePayableReport.map((row) => {
           const entitlementAmount = Number((row.AirfareEntitlementAmount ?? 0).toFixed(2));
-          const payableAmount = Number((row.PayableBHD ?? (Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5))).toFixed(2));
+          const payableAmount = Number((row.PayableBHD ?? 0).toFixed(2));
           return {
             Code: row.EmployeeCode,
             Name: row.FullName,
@@ -3982,7 +3957,7 @@ export default function DashboardPage() {
           })
           .map((row) => {
             const entitlementAmount = Number((row.AirfareEntitlementAmount ?? 0).toFixed(2));
-            const payableAmount = Number((row.PayableBHD ?? (Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5))).toFixed(2));
+            const payableAmount = Number((row.PayableBHD ?? 0).toFixed(2));
             return {
               Code: row.EmployeeCode,
               Name: row.FullName,
@@ -4031,8 +4006,8 @@ export default function DashboardPage() {
           "Effective From": formatExportDate(rate.EffectiveFrom),
           "Effective To": rate.EffectiveTo ? formatExportDate(rate.EffectiveTo) : "Current",
           Amount: Number(rate.MaxPayoutAmount || 0).toFixed(2),
-          "Cycle Days": Number(rate.CycleDays || 60).toFixed(0),
-          "Per Day": Number(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60))).toFixed(2),
+          "Cycle Days": Number(rate.CycleDays || 0).toFixed(0),
+          "Per Day": Number(rate.PerDayRate || 0).toFixed(2),
           Status: rate.IsActive ? "Active" : "Inactive",
           Priority: getPolicyPriority(rate),
           Count: 1
@@ -4346,8 +4321,8 @@ export default function DashboardPage() {
         "Effective From": formatExportDate(rate.EffectiveFrom),
         "Effective To": rate.EffectiveTo ? formatExportDate(rate.EffectiveTo) : "Current",
         Amount: money.format(rate.MaxPayoutAmount || 0),
-        Cycle: `${Number(rate.CycleDays || 60).toFixed(0)} days`,
-        "Per Day": money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))
+        Cycle: `${Number(rate.CycleDays || 0).toFixed(0)} days`,
+        "Per Day": money.format(rate.PerDayRate || 0)
       }));
     } else if (activeView === "AI Insights") {
       title = "AI Validation Insights";
@@ -5568,7 +5543,7 @@ export default function DashboardPage() {
         {!isEmployeePortalSession ? <div className="sidebar-card">
           <Sparkles size={18} />
           <strong className="sidebar-text">Excel formula locked</strong>
-          <span className="sidebar-text">Max payout / 60 x remaining days</span>
+          <span className="sidebar-text">SQL policy formula locked</span>
         </div> : null}
       </aside>
 
@@ -6095,7 +6070,7 @@ export default function DashboardPage() {
               <div className="calc-result">
                 <span><small>Formula source</small><strong>dbo.fn_ATLAS_AirfareAmount</strong></span>
                 <span><small>SQL amount</small><strong>{money.format(toNumber(openingForm.openingBhd))}</strong></span>
-                <span><small>Per day</small><strong>{money.format(toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS)}</strong></span>
+                <span><small>Rate source</small><strong>MSSQL</strong></span>
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>{openingFormIsUpdate ? "Update opening balance" : "Save opening balance"}</button>
@@ -6131,7 +6106,7 @@ export default function DashboardPage() {
               <div className="calc-result">
                 <span><small>Formula source</small><strong>dbo.fn_ATLAS_AirfareAmount</strong></span>
                 <span><small>SQL amount</small><strong>{money.format(toNumber(openingForm.openingBhd))}</strong></span>
-                <span><small>Per day</small><strong>{money.format(toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS)}</strong></span>
+                <span><small>Rate source</small><strong>MSSQL</strong></span>
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>Update opening balance</button>
@@ -6435,7 +6410,7 @@ export default function DashboardPage() {
                   <span><small>Current year entitlement basis</small><strong>{money.format(reviewEntitlementBasis)}</strong></span>
                   <span><small>Current year earned days</small><strong>{selectedEmployee ? Number(reviewCurrentYearDays || 0).toFixed(2) : "0.00"}</strong></span>
                   <span><small>Already paid days</small><strong>{selectedEmployee ? Number(reviewPaidDays || 0).toFixed(2) : "0.00"}</strong></span>
-                  <span><small>Max payout / 60</small><strong>{money.format((selectedMaximumPayout || 150) / 60)} per day</strong></span>
+                  <span><small>SQL per-day rate</small><strong>{money.format(selectedPerDayRate)} per day</strong></span>
                   <span><small>Max payout cap</small><strong>{money.format(selectedMaximumPayout)}</strong></span>
                   <span><small>Ticket cost</small><strong>{money.format(ticketCost)}</strong></span>
                   <span><small>Entitlement applied</small><strong>{money.format(entitlementAppliedAmount)}</strong></span>
@@ -7390,7 +7365,7 @@ export default function DashboardPage() {
               <div className="metric-grid">
                 <Metric title="Current Policies" value={String(currentAirfarePolicyRates.length)} icon={<Database />} tone="blue" />
                 <Metric title="Latest Current Amount" value={money.format(currentAirfarePolicyRates[0]?.MaxPayoutAmount || 150)} icon={<WalletCards />} tone="cyan" />
-                <Metric title="Latest Per Day Rate" value={money.format(currentAirfarePolicyRates[0]?.PerDayRate || ((currentAirfarePolicyRates[0]?.MaxPayoutAmount || 150) / 60))} icon={<CalendarClock />} tone="violet" />
+                <Metric title="Latest Per Day Rate" value={money.format(currentAirfarePolicyRates[0]?.PerDayRate || 0)} icon={<CalendarClock />} tone="violet" />
                 <Metric title="History Safe" value="Locked" icon={<ShieldCheck />} tone="rose" />
               </div>
               <div className="appearance-panel">
@@ -7435,8 +7410,8 @@ export default function DashboardPage() {
                     </span>
                     <span><strong>{formatExportDate(rate.EffectiveFrom)}</strong><small>to {rate.EffectiveTo ? formatExportDate(rate.EffectiveTo) : "Current"}</small></span>
                     <span><strong>{money.format(rate.MaxPayoutAmount)}</strong><small>Stored as policy #{rate.PolicyRateID}</small></span>
-                    <span><strong>{Number(rate.CycleDays || 60).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 30).toFixed(0)} working days / month</small></span>
-                    <span><strong>{money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))}</strong><small>Amount / cycle days</small></span>
+                    <span><strong>{Number(rate.CycleDays || 0).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 0).toFixed(0)} working days / month</small></span>
+                    <span><strong>{money.format(rate.PerDayRate || 0)}</strong><small>SQL per-day rate</small></span>
                     <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
                     <span className="row-actions preference-row-actions">
                       <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit preference as draft"><Pencil size={14} /> Edit</button>
@@ -7568,7 +7543,7 @@ export default function DashboardPage() {
               <div className="calc-result">
                 <span><small>Rule</small><strong>{policyForm.ruleType === "payGroup" ? "Pay group" : policyForm.ruleType === "department" ? "Department" : policyForm.ruleType === "employee" ? "Employee" : policyForm.ruleType === "company" ? "Company" : "Global"}</strong></span>
                 <span><small>New amount</small><strong>{money.format(toNumber(policyForm.maxPayoutAmount))}</strong></span>
-                <span><small>Per day</small><strong>{money.format(toNumber(policyForm.maxPayoutAmount, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS)}</strong></span>
+                <span><small>Rate source</small><strong>MSSQL generated</strong></span>
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={handleSaveAirfarePolicyRate}>Save preference value</button>
@@ -7605,8 +7580,8 @@ export default function DashboardPage() {
                       </span>
                       <span><strong>{formatExportDate(rate.EffectiveFrom)}</strong><small>to {rate.EffectiveTo ? formatExportDate(rate.EffectiveTo) : "Current"}</small></span>
                       <span><strong>{money.format(rate.MaxPayoutAmount)}</strong><small>Policy #{rate.PolicyRateID}</small></span>
-                      <span><strong>{Number(rate.CycleDays || 60).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 30).toFixed(0)} working days / month</small></span>
-                      <span><strong>{money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))}</strong><small>Amount / cycle days</small></span>
+                      <span><strong>{Number(rate.CycleDays || 0).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 0).toFixed(0)} working days / month</small></span>
+                      <span><strong>{money.format(rate.PerDayRate || 0)}</strong><small>SQL per-day rate</small></span>
                       <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
                       <span className="row-actions">
                         <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit as draft"><Pencil size={14} /></button>
@@ -7966,7 +7941,7 @@ export default function DashboardPage() {
             <div className="glass-panel hcm-card support-validation-panel">
               <div className="card-title"><CheckCircle2 size={18} /> Testing and validation</div>
               <ul>
-                <li>Formula test validates Max payout / 60 x eligible days.</li>
+                <li>Formula test validates SQL-owned airfare amount outputs.</li>
                 <li>Import test validates employee Excel preview and mapping.</li>
                 <li>Dropdown test validates master-data selection fields.</li>
                 <li>Loan test validates loan dashboard and loan actions source.</li>

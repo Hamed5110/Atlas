@@ -405,8 +405,7 @@ export function calculateExcelTotal(employee: Employee) {
   if (typeof employee.ClosingBalanceBHD === "number" && Number.isFinite(employee.ClosingBalanceBHD)) {
     return Math.round(employee.ClosingBalanceBHD * 100) / 100;
   }
-  const balanceDays = closingBalanceDays(employee);
-  return Math.round(((employee.MaximumPayout || 150) / 60) * Math.max(0, balanceDays) * 100) / 100;
+  return 0;
 }
 
 
