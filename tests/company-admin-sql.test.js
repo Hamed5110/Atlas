@@ -52,9 +52,7 @@ assert.match(serverText, /sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy del
 assert.match(serverText, /ensureAtlasSafeDeleteProcedure/i, 'Airfare policy delete should verify the safe-delete procedure before use');
 assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the safe-delete procedure is missing');
 assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime soft-delete if database repair is blocked');
-assert.match(serverText, /Only current deletable preference rules can be deleted from current preferences/i, 'Airfare policy delete should block historical or protected rows');
-assert.match(serverText, /System default preference cannot be deleted/i, 'Airfare policy delete should protect system default rules');
-assert.match(serverText, /History locked - actively used by/i, 'Airfare policy delete should report active reference locks');
+assert.match(serverText, /sp_Preference_DeleteSoft/i, 'Airfare policy delete should call the SQL-owned soft-delete procedure');
 assert.doesNotMatch(serverText, /Installed delete procedure returned a non-purge state/i, 'Airfare policy delete should not override a valid soft-delete result with a purge flow');
 assert.doesNotMatch(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should not hard-delete the policy row');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
@@ -63,6 +61,11 @@ assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should norma
 const phase1PolicyRepairText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_Phase1_PolicyRate_Repair.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
+assert.match(hcmSqlText, /CREATE OR ALTER FUNCTION dbo\.fn_Preference_CanDelete/i, 'Airfare policy delete eligibility should live in a named MSSQL function');
+assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_Preference_DeleteSoft/i, 'Airfare policy soft delete should live in a named MSSQL procedure');
+assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_Preference_RefreshLockState/i, 'Airfare policy lock refresh should live in a named MSSQL procedure');
+assert.match(hcmSqlText, /CREATE OR ALTER TRIGGER dbo\.trg_PreferenceLock_Employees_Delete/i, 'Employee deletion should trigger preference lock refresh');
+assert.match(hcmSqlText, /CREATE OR ALTER TRIGGER dbo\.trg_PreferenceLock_Allocations_Refresh/i, 'Allocation changes should trigger preference lock refresh');
 assert.match(hcmSqlText, /ATLAS_CompanyResetLog/i, 'Company reset should write reset history');
 assert.match(hcmSqlText, /sp_ATLAS_ResetCompanyState/i, 'Company reset stored procedure should exist');
 assert.match(hcmSqlText, /NOCHECK CONSTRAINT/i, 'Company reset should disable foreign key constraints during purge');

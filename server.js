@@ -4359,9 +4359,13 @@ app.post('/api/allocations', authenticateToken, requireRole('admin', 'manager', 
             .input('PolicyCycleDays', sql.Decimal(10,2), effectivePolicy.cycleDays)
             .input('PolicyPerDayRate', sql.Decimal(12,6), effectivePolicy.perDayRate)
             .input('CreatedBy', sql.Int, req.user.userId)
-            .query(`INSERT INTO Allocations (EmployeeID, AllocationDate, AllocYear, TicketCost, Entitlement, CompanyPaid, ExcessAmount, PaymentMode, LoanAmount, EmployeePaid, CompanyExtra, EMI, Tenure, LeaveStart, LeaveEnd, Remarks, PolicyRateID, PolicyEffectiveFrom, PolicyMaxPayoutAmount, PolicyCycleDays, PolicyPerDayRate, CreatedBy)
-                    OUTPUT INSERTED.*
-                    VALUES (@EmployeeID, @AllocationDate, @AllocYear, @TicketCost, @Entitlement, @CompanyPaid, @ExcessAmount, @PaymentMode, @LoanAmount, @EmployeePaid, @CompanyExtra, @EMI, @Tenure, @LeaveStart, @LeaveEnd, @Remarks, @PolicyRateID, @PolicyEffectiveFrom, @PolicyMaxPayoutAmount, @PolicyCycleDays, @PolicyPerDayRate, @CreatedBy)`);
+            .query(`DECLARE @InsertedAllocations TABLE (AllocationID BIGINT);
+                    INSERT INTO Allocations (EmployeeID, AllocationDate, AllocYear, TicketCost, Entitlement, CompanyPaid, ExcessAmount, PaymentMode, LoanAmount, EmployeePaid, CompanyExtra, EMI, Tenure, LeaveStart, LeaveEnd, Remarks, PolicyRateID, PolicyEffectiveFrom, PolicyMaxPayoutAmount, PolicyCycleDays, PolicyPerDayRate, CreatedBy)
+                    OUTPUT INSERTED.AllocationID INTO @InsertedAllocations(AllocationID)
+                    VALUES (@EmployeeID, @AllocationDate, @AllocYear, @TicketCost, @Entitlement, @CompanyPaid, @ExcessAmount, @PaymentMode, @LoanAmount, @EmployeePaid, @CompanyExtra, @EMI, @Tenure, @LeaveStart, @LeaveEnd, @Remarks, @PolicyRateID, @PolicyEffectiveFrom, @PolicyMaxPayoutAmount, @PolicyCycleDays, @PolicyPerDayRate, @CreatedBy);
+                    SELECT a.*
+                    FROM dbo.Allocations a
+                    INNER JOIN @InsertedAllocations i ON i.AllocationID = a.AllocationID;`);
 
         const newAlloc = result.recordset[0];
 
@@ -4381,12 +4385,17 @@ app.post('/api/allocations', authenticateToken, requireRole('admin', 'manager', 
         }
 
         // Update employee last allocation year
-        await new sql.Request(tx)
-            .input('EmployeeID', sql.Int, alloc.employeeId)
-            .input('LastYear', sql.Int, allocYear)
-            .query('UPDATE Employees SET LastAllocationYear = @LastYear WHERE EmployeeID = @EmployeeID');
+            await new sql.Request(tx)
+                .input('EmployeeID', sql.Int, alloc.employeeId)
+                .input('LastYear', sql.Int, allocYear)
+                .query('UPDATE Employees SET LastAllocationYear = @LastYear WHERE EmployeeID = @EmployeeID');
 
             await tx.commit();
+        if (newAlloc.PolicyRateID) {
+            await db.request()
+                .input('PreferenceID', sql.BigInt, newAlloc.PolicyRateID)
+                .execute('dbo.sp_Preference_RefreshLockState');
+        }
         await logAudit(req.user.userId, req.user.username, 'CREATE', 'Allocation', newAlloc.AllocationID, null, newAlloc,
             `Created allocation for employee ${alloc.employeeId}`, req);
 
@@ -4523,7 +4532,8 @@ app.put('/api/allocations/:id(\\d+)', authenticateToken, requireRole('admin', 'm
             .input('PolicyMaxPayoutAmount', sql.Decimal(12,2), effectivePolicy.maxPayoutAmount)
             .input('PolicyCycleDays', sql.Decimal(10,2), effectivePolicy.cycleDays)
             .input('PolicyPerDayRate', sql.Decimal(12,6), effectivePolicy.perDayRate)
-            .query(`UPDATE Allocations SET
+            .query(`DECLARE @UpdatedAllocations TABLE (AllocationID BIGINT);
+                    UPDATE Allocations SET
                     EmployeeID = @EmployeeID,
                     AllocationDate = @AllocationDate,
                     AllocYear = @AllocYear,
@@ -4545,8 +4555,11 @@ app.put('/api/allocations/:id(\\d+)', authenticateToken, requireRole('admin', 'm
                     PolicyMaxPayoutAmount = @PolicyMaxPayoutAmount,
                     PolicyCycleDays = @PolicyCycleDays,
                     PolicyPerDayRate = @PolicyPerDayRate
-                    OUTPUT INSERTED.*
-                    WHERE AllocationID = @AllocationID`);
+                    OUTPUT INSERTED.AllocationID INTO @UpdatedAllocations(AllocationID)
+                    WHERE AllocationID = @AllocationID;
+                    SELECT a.*
+                    FROM dbo.Allocations a
+                    INNER JOIN @UpdatedAllocations u ON u.AllocationID = a.AllocationID;`);
 
         const updatedAlloc = result.recordset[0];
 
@@ -4576,6 +4589,12 @@ app.put('/api/allocations/:id(\\d+)', authenticateToken, requireRole('admin', 'm
             .input('LastYear', sql.Int, allocYear)
             .query('UPDATE Employees SET LastAllocationYear = @LastYear WHERE EmployeeID = @EmployeeID');
         await tx.commit();
+        const policyIdsToRefresh = Array.from(new Set([oldValues.PolicyRateID, updatedAlloc.PolicyRateID].filter((value) => Number.isInteger(Number(value)) && Number(value) > 0)));
+        for (const policyId of policyIdsToRefresh) {
+            await db.request()
+                .input('PreferenceID', sql.BigInt, Number(policyId))
+                .execute('dbo.sp_Preference_RefreshLockState');
+        }
 
         await logAudit(req.user.userId, req.user.username, 'UPDATE', 'Allocation', allocationId, oldValues, updatedAlloc,
             `Updated allocation #${allocationId}`, req);
@@ -4730,6 +4749,11 @@ app.delete('/api/allocations/:id(\\d+)', authenticateToken, requireRole('admin',
         } catch (deleteErr) {
             await tx.rollback();
             throw deleteErr;
+        }
+        if (oldValues.PolicyRateID) {
+            await db.request()
+                .input('PreferenceID', sql.BigInt, oldValues.PolicyRateID)
+                .execute('dbo.sp_Preference_RefreshLockState');
         }
 
         await logAudit(req.user.userId, req.user.username, 'DELETE', 'Allocation', allocationId, oldValues, null,
@@ -5350,14 +5374,6 @@ app.get('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'ma
     try {
         const db = await getConnection();
         await ensureAtlasSqlObjects(db);
-        const hasTravelExpensePolicyRate = await hasSqlObject(db, 'dbo.travel_expenses', 'U') && await hasSqlColumn(db, 'dbo.travel_expenses', 'PolicyRateID');
-        const hasEmployeeAllowancePolicyRate = await hasSqlObject(db, 'dbo.employee_allowances', 'U') && await hasSqlColumn(db, 'dbo.employee_allowances', 'PolicyRateID');
-        const travelExpenseCountSql = hasTravelExpensePolicyRate
-            ? `(SELECT COUNT_BIG(*) FROM dbo.travel_expenses te WHERE te.PolicyRateID = r.PolicyRateID)`
-            : 'CAST(0 AS BIGINT)';
-        const employeeAllowanceCountSql = hasEmployeeAllowancePolicyRate
-            ? `(SELECT COUNT_BIG(*) FROM dbo.employee_allowances ea WHERE ea.PolicyRateID = r.PolicyRateID)`
-            : 'CAST(0 AS BIGINT)';
         const result = await withSqlRetry(() => db.request().query(`
             SELECT
                 r.PolicyRateID,
@@ -5384,6 +5400,12 @@ app.get('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'ma
                 r.ArchivedAt,
                 r.DependencySnapshotJson,
                 r.PolicyStatus,
+                r.IsHistoryLocked,
+                r.LockReason,
+                r.LockEvaluatedAt,
+                r.LockReleasedAt,
+                CAST(CASE WHEN dbo.fn_Preference_CanDelete(r.PolicyRateID) = 1 THEN 0 ELSE 1 END AS BIT) AS IsHistoryLockedComputed,
+                CAST(dbo.fn_Preference_CanDelete(r.PolicyRateID) AS BIT) AS CanDelete,
                 CAST(CASE
                     WHEN r.CompanyID IS NULL
                      AND r.EmployeeID IS NULL
@@ -5393,30 +5415,13 @@ app.get('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'ma
                     THEN 1 ELSE 0
                 END AS BIT) AS IsSystem,
                 CAST((SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID) AS BIGINT) AS AllocationUsageCount,
-                CAST(${travelExpenseCountSql} AS BIGINT) AS TravelExpenseUsageCount,
-                CAST(${employeeAllowanceCountSql} AS BIGINT) AS EmployeeAllowanceUsageCount,
                 CAST(
+                    CASE WHEN r.EmployeeID IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.Employees e2 WHERE e2.EmployeeID = r.EmployeeID) THEN 1 ELSE 0 END
+                    +
                     (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
-                    + ${travelExpenseCountSql}
-                    + ${employeeAllowanceCountSql}
                 AS BIGINT) AS ActiveReferenceCount,
-                CAST(CASE
-                    WHEN r.IsActive = 1
-                     AND r.EffectiveTo IS NULL
-                     AND NOT (
-                        r.CompanyID IS NULL
-                        AND r.EmployeeID IS NULL
-                        AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
-                        AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
-                        AND r.EffectiveFrom IN ('19000101', '20260618')
-                     )
-                     AND (
-                        (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
-                        + ${travelExpenseCountSql}
-                        + ${employeeAllowanceCountSql}
-                     ) = 0
-                    THEN 1 ELSE 0
-                END AS BIT) AS CanDelete
+                CAST(0 AS BIGINT) AS TravelExpenseUsageCount,
+                CAST(0 AS BIGINT) AS EmployeeAllowanceUsageCount
             FROM dbo.AirfarePolicyRates r
             LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
             LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
@@ -5481,71 +5486,6 @@ async function deactivateAirfarePolicyRate(req, res) {
 
     try {
         const db = await getConnection();
-        const hasTravelExpensePolicyRate = await hasSqlObject(db, 'dbo.travel_expenses', 'U') && await hasSqlColumn(db, 'dbo.travel_expenses', 'PolicyRateID');
-        const hasEmployeeAllowancePolicyRate = await hasSqlObject(db, 'dbo.employee_allowances', 'U') && await hasSqlColumn(db, 'dbo.employee_allowances', 'PolicyRateID');
-        const travelExpenseCountSql = hasTravelExpensePolicyRate
-            ? `(SELECT COUNT_BIG(*) FROM dbo.travel_expenses te WHERE te.PolicyRateID = r.PolicyRateID)`
-            : 'CAST(0 AS BIGINT)';
-        const employeeAllowanceCountSql = hasEmployeeAllowancePolicyRate
-            ? `(SELECT COUNT_BIG(*) FROM dbo.employee_allowances ea WHERE ea.PolicyRateID = r.PolicyRateID)`
-            : 'CAST(0 AS BIGINT)';
-        const policyState = await withSqlRetry(() => db.request()
-            .input('PolicyRateID', sql.BigInt, policyRateId)
-            .query(`
-                SELECT TOP (1)
-                    r.PolicyRateID,
-                    r.IsActive,
-                    r.EffectiveTo,
-                    CAST(CASE
-                        WHEN r.CompanyID IS NULL
-                         AND r.EmployeeID IS NULL
-                         AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
-                         AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
-                         AND r.EffectiveFrom IN ('19000101', '20260618')
-                        THEN 1 ELSE 0
-                    END AS BIT) AS IsSystem,
-                    CAST(
-                        (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
-                        + ${travelExpenseCountSql}
-                        + ${employeeAllowanceCountSql}
-                    AS BIGINT) AS ActiveReferenceCount,
-                    CAST(CASE
-                        WHEN r.IsActive = 1
-                         AND r.EffectiveTo IS NULL
-                         AND NOT (
-                            r.CompanyID IS NULL
-                            AND r.EmployeeID IS NULL
-                            AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
-                            AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
-                            AND r.EffectiveFrom IN ('19000101', '20260618')
-                         )
-                         AND (
-                            (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
-                            + ${travelExpenseCountSql}
-                            + ${employeeAllowanceCountSql}
-                         ) = 0
-                        THEN 1 ELSE 0
-                    END AS BIT) AS CanDelete
-                FROM dbo.AirfarePolicyRates r
-                WHERE r.PolicyRateID = @PolicyRateID;
-            `), 'check airfare policy delete state');
-        const state = policyState.recordset?.[0];
-        if (!state) {
-            return res.json({
-                status: 'success',
-                action: 'soft_delete',
-                message: 'Airfare policy rule is not present in SQL.',
-                policyRate: null,
-                deleted: true
-            });
-        }
-        if (!state.CanDelete) {
-            if (state.IsSystem) return res.status(409).json({ error: 'System default preference cannot be deleted.' });
-            if (Number(state.ActiveReferenceCount || 0) > 0) {
-                return res.status(409).json({ error: `History locked - actively used by ${Number(state.ActiveReferenceCount)} live record(s).` });
-            }
-            return res.status(409).json({ error: 'Only current deletable preference rules can be deleted from current preferences.' });
-        }
         try {
             await ensureAtlasSqlObjects(db);
         } catch (sqlObjectErr) {
@@ -5553,21 +5493,20 @@ async function deactivateAirfarePolicyRate(req, res) {
         }
         let result;
         try {
-            result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
-                db,
-                policyRateId,
-                req.user.userId,
-                `Preference delete requested by ${req.user.username || 'system'}`
-            ), 'soft delete airfare policy rate');
+            result = await withSqlRetry(() => db.request()
+                .input('PreferenceID', sql.BigInt, policyRateId)
+                .input('DeletedBy', sql.Int, req.user.userId)
+                .input('AuditReason', sql.NVarChar(400), `Preference delete requested by ${req.user.username || 'system'}`)
+                .execute('dbo.sp_Preference_DeleteSoft'), 'soft delete airfare policy rate');
         } catch (err) {
-            logger.warn('Soft-delete SQL batch failed during request; repairing SQL objects and retrying runtime fallback.', err);
+            logger.warn('Soft-delete SQL procedure failed during request; repairing SQL objects and retrying runtime fallback.', err);
             await ensureAtlasSqlObjects(db, { force: true });
             result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
                 db,
                 policyRateId,
                 req.user.userId,
                 `Preference delete requested by ${req.user.username || 'system'}`
-            ), 'runtime fallback deactivate airfare policy rate after repair');
+                ), 'runtime fallback deactivate airfare policy rate after repair');
         }
         let deletedPolicy = result.recordset?.[0] || null;
         if (!deletedPolicy) {
@@ -5578,6 +5517,9 @@ async function deactivateAirfarePolicyRate(req, res) {
                 policyRate: null,
                 deleted: true
             });
+        }
+        if (String(deletedPolicy.ApiStatus || '').toLowerCase() === 'blocked') {
+            return res.status(409).json({ error: deletedPolicy.LockReason || 'Preference is locked and cannot be deleted.' });
         }
 
         const action = deletedPolicy.DeleteAction || 'soft_delete';

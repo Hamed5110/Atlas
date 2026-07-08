@@ -872,8 +872,13 @@ IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeletedAt') IS NULL ALTER TABLE dbo.Air
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeletedBy') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DeletedBy INT NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'DeleteReason') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DeleteReason NVARCHAR(400) NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'ArchivedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD ArchivedAt DATETIME2(0) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'CreatedBy') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD CreatedBy INT NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'DependencySnapshotJson') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD DependencySnapshotJson NVARCHAR(MAX) NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyStatus') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD PolicyStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_AirfarePolicyRates_PolicyStatus DEFAULT (N'active');
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'IsHistoryLocked') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD IsHistoryLocked BIT NOT NULL CONSTRAINT DF_AirfarePolicyRates_IsHistoryLocked DEFAULT (0);
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'LockReason') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD LockReason NVARCHAR(400) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'LockEvaluatedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD LockEvaluatedAt DATETIME2(0) NULL;
+IF COL_LENGTH('dbo.AirfarePolicyRates', 'LockReleasedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD LockReleasedAt DATETIME2(0) NULL;
 GO
 
 IF OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NOT NULL
@@ -937,6 +942,156 @@ WHERE PolicyStatus IS NULL
    END;
 GO
 
+CREATE OR ALTER FUNCTION dbo.fn_Preference_CanDelete
+(
+    @PreferenceID BIGINT
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @canDelete BIT = 0;
+    DECLARE @employeeId INT = NULL;
+    DECLARE @companyId INT = NULL;
+    DECLARE @effectiveFrom DATE = NULL;
+    DECLARE @department NVARCHAR(100) = NULL;
+    DECLARE @empGroup NVARCHAR(100) = NULL;
+    DECLARE @isActive BIT = 0;
+    DECLARE @effectiveTo DATE = NULL;
+    DECLARE @isDeleted BIT = 0;
+
+    SELECT TOP (1)
+        @employeeId = r.EmployeeID,
+        @companyId = r.CompanyID,
+        @effectiveFrom = r.EffectiveFrom,
+        @department = NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N''),
+        @empGroup = NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N''),
+        @isActive = ISNULL(r.IsActive, 0),
+        @effectiveTo = r.EffectiveTo,
+        @isDeleted = ISNULL(r.IsDeleted, 0)
+    FROM dbo.AirfarePolicyRates r
+    WHERE r.PolicyRateID = @PreferenceID;
+
+    IF @effectiveFrom IS NULL RETURN 0;
+    IF @isDeleted = 1 OR @isActive = 0 OR @effectiveTo IS NOT NULL RETURN 0;
+
+    IF @companyId IS NULL
+       AND @employeeId IS NULL
+       AND @department IS NULL
+       AND @empGroup IS NULL
+       AND @effectiveFrom IN ('19000101', '20260618')
+        RETURN 0;
+
+    IF @employeeId IS NOT NULL
+       AND EXISTS (SELECT 1 FROM dbo.Employees e WHERE e.EmployeeID = @employeeId)
+        RETURN 0;
+
+    IF EXISTS (SELECT 1 FROM dbo.Allocations a WHERE a.PolicyRateID = @PreferenceID)
+        RETURN 0;
+
+    IF EXISTS (
+        SELECT 1
+        FROM dbo.Loans l
+        INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
+        WHERE a.PolicyRateID = @PreferenceID
+    )
+        RETURN 0;
+
+    SET @canDelete = 1;
+    RETURN @canDelete;
+END;
+GO
+
+CREATE OR ALTER FUNCTION dbo.fn_Preference_LockReason
+(
+    @PreferenceID BIGINT
+)
+RETURNS NVARCHAR(400)
+AS
+BEGIN
+    DECLARE @reason NVARCHAR(400) = N'History locked';
+    DECLARE @employeeId INT = NULL;
+    DECLARE @companyId INT = NULL;
+    DECLARE @effectiveFrom DATE = NULL;
+    DECLARE @department NVARCHAR(100) = NULL;
+    DECLARE @empGroup NVARCHAR(100) = NULL;
+    DECLARE @isActive BIT = 0;
+    DECLARE @effectiveTo DATE = NULL;
+    DECLARE @isDeleted BIT = 0;
+    DECLARE @employeeCode NVARCHAR(50) = NULL;
+    DECLARE @allocationCount INT = 0;
+    DECLARE @loanCount INT = 0;
+
+    SELECT TOP (1)
+        @employeeId = r.EmployeeID,
+        @companyId = r.CompanyID,
+        @effectiveFrom = r.EffectiveFrom,
+        @department = NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N''),
+        @empGroup = NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N''),
+        @isActive = ISNULL(r.IsActive, 0),
+        @effectiveTo = r.EffectiveTo,
+        @isDeleted = ISNULL(r.IsDeleted, 0)
+    FROM dbo.AirfarePolicyRates r
+    WHERE r.PolicyRateID = @PreferenceID;
+
+    IF @effectiveFrom IS NULL RETURN N'Preference not found';
+    IF @isDeleted = 1 RETURN N'Historical policy version. Open History to review the audit trail.';
+    IF @isActive = 0 OR @effectiveTo IS NOT NULL RETURN N'Historical policy version. Open History to review the audit trail.';
+
+    IF @companyId IS NULL
+       AND @employeeId IS NULL
+       AND @department IS NULL
+       AND @empGroup IS NULL
+       AND @effectiveFrom IN ('19000101', '20260618')
+        RETURN N'History locked - system default policy. This rule stays protected even when unused.';
+
+    IF @employeeId IS NOT NULL
+    BEGIN
+        SELECT TOP (1) @employeeCode = e.EmployeeCode
+        FROM dbo.Employees e
+        WHERE e.EmployeeID = @employeeId;
+
+        IF @employeeCode IS NOT NULL
+            RETURN N'History locked - used by Employee ' + @employeeCode + N'. Delete the employee from Employee Master to unlock.';
+    END;
+
+    SELECT @allocationCount = COUNT(*)
+    FROM dbo.Allocations a
+    WHERE a.PolicyRateID = @PreferenceID;
+
+    IF @allocationCount > 0
+        RETURN N'History locked - used by ' + CONVERT(NVARCHAR(20), @allocationCount) + N' active allocation record(s). Delete source data to unlock.';
+
+    SELECT @loanCount = COUNT(*)
+    FROM dbo.Loans l
+    INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
+    WHERE a.PolicyRateID = @PreferenceID;
+
+    IF @loanCount > 0
+        RETURN N'History locked - used by ' + CONVERT(NVARCHAR(20), @loanCount) + N' linked loan record(s). Delete source data to unlock.';
+
+    RETURN N'Safe to delete - no active references found.';
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_Preference_RefreshLockState
+    @PreferenceID BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE r
+       SET IsHistoryLocked = CASE WHEN dbo.fn_Preference_CanDelete(r.PolicyRateID) = 1 THEN 0 ELSE 1 END,
+           LockReason = dbo.fn_Preference_LockReason(r.PolicyRateID),
+           LockEvaluatedAt = SYSUTCDATETIME(),
+           LockReleasedAt = CASE
+               WHEN dbo.fn_Preference_CanDelete(r.PolicyRateID) = 1 THEN COALESCE(r.LockReleasedAt, SYSUTCDATETIME())
+               ELSE NULL
+           END
+    FROM dbo.AirfarePolicyRates r
+    WHERE @PreferenceID IS NULL OR r.PolicyRateID = @PreferenceID;
+END;
+GO
+
 IF OBJECT_ID('dbo.AirfarePolicyRateArchive', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.AirfarePolicyRateArchive
@@ -958,9 +1113,19 @@ BEGIN
         ArchivedAt DATETIME2(0) NOT NULL CONSTRAINT DF_AirfarePolicyRateArchive_ArchivedAt DEFAULT (SYSUTCDATETIME()),
         ArchivedBy INT NULL,
         ArchiveReason NVARCHAR(400) NULL,
-        DependencySnapshotJson NVARCHAR(MAX) NULL
+        DependencySnapshotJson NVARCHAR(MAX) NULL,
+        PolicySnapshotJson NVARCHAR(MAX) NOT NULL CONSTRAINT DF_AirfarePolicyRateArchive_PolicySnapshotJson DEFAULT (N'{}'),
+        DeleteAction NVARCHAR(40) NOT NULL CONSTRAINT DF_AirfarePolicyRateArchive_DeleteAction DEFAULT (N'soft_delete')
     );
 END;
+GO
+
+IF COL_LENGTH('dbo.AirfarePolicyRateArchive', 'PolicySnapshotJson') IS NULL
+    ALTER TABLE dbo.AirfarePolicyRateArchive ADD PolicySnapshotJson NVARCHAR(MAX) NOT NULL CONSTRAINT DF_AirfarePolicyRateArchive_PolicySnapshotJson DEFAULT (N'{}');
+GO
+
+IF COL_LENGTH('dbo.AirfarePolicyRateArchive', 'DeleteAction') IS NULL
+    ALTER TABLE dbo.AirfarePolicyRateArchive ADD DeleteAction NVARCHAR(40) NOT NULL CONSTRAINT DF_AirfarePolicyRateArchive_DeleteAction DEFAULT (N'soft_delete');
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AirfarePolicyRateArchive_PolicyRateID' AND object_id = OBJECT_ID('dbo.AirfarePolicyRateArchive'))
@@ -1185,26 +1350,161 @@ BEGIN
     INSERT INTO dbo.AirfarePolicyRates (CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom, EffectiveTo, MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth, IsActive, CreatedBy)
     VALUES (@CompanyID, @EmployeeID, @Department, @EmpGroup, @EffectiveFrom, NULL, @MaxPayoutAmount, 60, 30, 2.5, 1, @CreatedBy);
 
+    DECLARE @NewPolicyRateID BIGINT = SCOPE_IDENTITY();
+    EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @NewPolicyRateID;
     EXEC dbo.sp_ATLAS_GetEffectiveAirfarePolicy @AllocationDate = @EffectiveFrom, @CompanyID = @CompanyID, @EmployeeID = @EmployeeID;
 END;
 GO
 
-CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_DeactivateAirfarePolicyRate
-    @PolicyRateID BIGINT,
+CREATE OR ALTER TRIGGER dbo.trg_PreferenceLock_AirfarePolicyRates_Refresh
+ON dbo.AirfarePolicyRates
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
+
+    DECLARE @ids TABLE (PolicyRateID BIGINT PRIMARY KEY);
+
+    INSERT INTO @ids (PolicyRateID)
+    SELECT DISTINCT PolicyRateID
+    FROM inserted
+    WHERE PolicyRateID IS NOT NULL;
+
+    DECLARE @policyRateId BIGINT;
+    DECLARE refresh_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT PolicyRateID FROM @ids;
+
+    OPEN refresh_cursor;
+    FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @policyRateId;
+        FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    END
+    CLOSE refresh_cursor;
+    DEALLOCATE refresh_cursor;
+END;
+GO
+
+CREATE OR ALTER TRIGGER dbo.trg_PreferenceLock_Employees_Delete
+ON dbo.Employees
+AFTER DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @ids TABLE (PolicyRateID BIGINT PRIMARY KEY);
+
+    INSERT INTO @ids (PolicyRateID)
+    SELECT DISTINCT r.PolicyRateID
+    FROM dbo.AirfarePolicyRates r
+    INNER JOIN deleted d ON d.EmployeeID = r.EmployeeID
+    WHERE r.PolicyRateID IS NOT NULL;
+
+    DECLARE @policyRateId BIGINT;
+    DECLARE refresh_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT PolicyRateID FROM @ids;
+
+    OPEN refresh_cursor;
+    FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @policyRateId;
+        FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    END
+    CLOSE refresh_cursor;
+    DEALLOCATE refresh_cursor;
+END;
+GO
+
+CREATE OR ALTER TRIGGER dbo.trg_PreferenceLock_Allocations_Refresh
+ON dbo.Allocations
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @ids TABLE (PolicyRateID BIGINT PRIMARY KEY);
+
+    INSERT INTO @ids (PolicyRateID)
+    SELECT DISTINCT PolicyRateID
+    FROM (
+        SELECT PolicyRateID FROM inserted
+        UNION
+        SELECT PolicyRateID FROM deleted
+    ) refs
+    WHERE PolicyRateID IS NOT NULL;
+
+    DECLARE @policyRateId BIGINT;
+    DECLARE refresh_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT PolicyRateID FROM @ids;
+
+    OPEN refresh_cursor;
+    FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @policyRateId;
+        FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    END
+    CLOSE refresh_cursor;
+    DEALLOCATE refresh_cursor;
+END;
+GO
+
+CREATE OR ALTER TRIGGER dbo.trg_PreferenceLock_Loans_Refresh
+ON dbo.Loans
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @ids TABLE (PolicyRateID BIGINT PRIMARY KEY);
+
+    INSERT INTO @ids (PolicyRateID)
+    SELECT DISTINCT a.PolicyRateID
+    FROM dbo.Allocations a
+    INNER JOIN (
+        SELECT AllocationID FROM inserted
+        UNION
+        SELECT AllocationID FROM deleted
+    ) loanRefs ON loanRefs.AllocationID = a.AllocationID
+    WHERE a.PolicyRateID IS NOT NULL;
+
+    DECLARE @policyRateId BIGINT;
+    DECLARE refresh_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT PolicyRateID FROM @ids;
+
+    OPEN refresh_cursor;
+    FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @policyRateId;
+        FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+    END
+    CLOSE refresh_cursor;
+    DEALLOCATE refresh_cursor;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_Preference_DeleteSoft
+    @PreferenceID BIGINT,
     @DeletedBy INT = NULL,
-    @DeleteReason NVARCHAR(400) = NULL
+    @AuditReason NVARCHAR(400) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 
-    IF @PolicyRateID IS NULL OR @PolicyRateID <= 0
-        THROW 52011, 'Valid policy rate is required.', 1;
+    IF @PreferenceID IS NULL OR @PreferenceID <= 0
+        THROW 52041, 'Valid preference ID is required.', 1;
 
     BEGIN TRY
         BEGIN TRANSACTION;
 
+        DECLARE @canDelete BIT = dbo.fn_Preference_CanDelete(@PreferenceID);
+        DECLARE @lockReason NVARCHAR(400) = dbo.fn_Preference_LockReason(@PreferenceID);
         DECLARE @policy TABLE
         (
             PolicyRateID BIGINT NULL,
@@ -1222,71 +1522,18 @@ BEGIN
             WorkingDaysPerMonth DECIMAL(10,2) NULL,
             AirfareDaysPerMonth DECIMAL(10,2) NULL,
             PerDayRate DECIMAL(12,6) NULL,
-        IsActive BIT NULL,
-        CreatedAt DATETIME2(0) NULL,
-        IsDeleted BIT NULL,
-        DeletedAt DATETIME2(0) NULL,
-        DeletedBy INT NULL,
-        DeleteReason NVARCHAR(400) NULL,
-        ArchivedAt DATETIME2(0) NULL,
+            IsActive BIT NULL,
+            CreatedAt DATETIME2(0) NULL,
+            CreatedBy INT NULL,
+            IsDeleted BIT NULL,
+            DeletedAt DATETIME2(0) NULL,
+            DeletedBy INT NULL,
+            DeleteReason NVARCHAR(400) NULL,
+            ArchivedAt DATETIME2(0) NULL,
             DependencySnapshotJson NVARCHAR(MAX) NULL,
-            PolicyStatus NVARCHAR(30) NULL
-        );
-
-        DECLARE @allocationUsageCount INT = 0;
-        DECLARE @auditUsageCount INT = 0;
-        DECLARE @activeAllocationUsageCount INT = 0;
-        DECLARE @travelExpenseUsageCount INT = 0;
-        DECLARE @employeeAllowanceUsageCount INT = 0;
-        DECLARE @historyUsageCount INT = 0;
-        DECLARE @totalDependencyCount INT = 0;
-        DECLARE @dependencySnapshot NVARCHAR(MAX);
-
-        SELECT @allocationUsageCount = COUNT_BIG(*)
-        FROM dbo.Allocations WITH (HOLDLOCK)
-        WHERE PolicyRateID = @PolicyRateID;
-
-        SELECT @activeAllocationUsageCount = COUNT_BIG(*)
-        FROM dbo.Allocations WITH (HOLDLOCK)
-        WHERE PolicyRateID = @PolicyRateID
-          AND AllocationDate >= DATEADD(YEAR, -2, CAST(SYSUTCDATETIME() AS DATE));
-
-        IF OBJECT_ID('dbo.AuditLog', 'U') IS NOT NULL
-        BEGIN
-            SELECT @auditUsageCount = COUNT_BIG(*)
-            FROM dbo.AuditLog WITH (HOLDLOCK)
-            WHERE EntityType = 'AirfarePolicyRate'
-              AND EntityID = @PolicyRateID;
-        END;
-
-        IF OBJECT_ID('dbo.travel_expenses', 'U') IS NOT NULL AND COL_LENGTH('dbo.travel_expenses', 'PolicyRateID') IS NOT NULL
-            EXEC sp_executesql N'SELECT @count = COUNT_BIG(*) FROM dbo.travel_expenses WITH (HOLDLOCK) WHERE PolicyRateID = @policyRateId;',
-                N'@policyRateId BIGINT, @count INT OUTPUT', @policyRateId = @PolicyRateID, @count = @travelExpenseUsageCount OUTPUT;
-
-        IF OBJECT_ID('dbo.employee_allowances', 'U') IS NOT NULL AND COL_LENGTH('dbo.employee_allowances', 'PolicyRateID') IS NOT NULL
-            EXEC sp_executesql N'SELECT @count = COUNT_BIG(*) FROM dbo.employee_allowances WITH (HOLDLOCK) WHERE PolicyRateID = @policyRateId;',
-                N'@policyRateId BIGINT, @count INT OUTPUT', @policyRateId = @PolicyRateID, @count = @employeeAllowanceUsageCount OUTPUT;
-
-        IF OBJECT_ID('dbo.AirfarePolicyRateHistory', 'U') IS NOT NULL AND COL_LENGTH('dbo.AirfarePolicyRateHistory', 'PolicyRateID') IS NOT NULL
-            EXEC sp_executesql N'SELECT @count = COUNT_BIG(*) FROM dbo.AirfarePolicyRateHistory WITH (HOLDLOCK) WHERE PolicyRateID = @policyRateId;',
-                N'@policyRateId BIGINT, @count INT OUTPUT', @policyRateId = @PolicyRateID, @count = @historyUsageCount OUTPUT;
-
-        SET @totalDependencyCount =
-            ISNULL(@allocationUsageCount, 0)
-            + ISNULL(@auditUsageCount, 0)
-            + ISNULL(@travelExpenseUsageCount, 0)
-            + ISNULL(@employeeAllowanceUsageCount, 0)
-            + ISNULL(@historyUsageCount, 0);
-
-        SET @dependencySnapshot = CONCAT(
-            N'{"allocations":', @allocationUsageCount,
-            N',"recentAllocations":', @activeAllocationUsageCount,
-            N',"auditLog":', @auditUsageCount,
-            N',"travelExpenses":', @travelExpenseUsageCount,
-            N',"employeeAllowances":', @employeeAllowanceUsageCount,
-            N',"history":', @historyUsageCount,
-            N',"totalDependencies":', @totalDependencyCount,
-            N',"strategy":"soft_delete_archive"}'
+            PolicyStatus NVARCHAR(30) NULL,
+            IsHistoryLocked BIT NULL,
+            LockReason NVARCHAR(400) NULL
         );
 
         INSERT INTO @policy
@@ -1308,128 +1555,43 @@ BEGIN
             CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
             r.IsActive,
             r.CreatedAt,
+            r.CreatedBy,
             r.IsDeleted,
             r.DeletedAt,
             r.DeletedBy,
             r.DeleteReason,
             r.ArchivedAt,
             r.DependencySnapshotJson,
-            r.PolicyStatus
+            r.PolicyStatus,
+            r.IsHistoryLocked,
+            r.LockReason
         FROM dbo.AirfarePolicyRates r WITH (UPDLOCK, HOLDLOCK)
         LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
         LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
-        WHERE r.PolicyRateID = @PolicyRateID;
+        WHERE r.PolicyRateID = @PreferenceID;
 
         IF NOT EXISTS (SELECT 1 FROM @policy)
         BEGIN
             COMMIT TRANSACTION;
             SELECT
-                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-                CAST('none' AS NVARCHAR(40)) AS DeleteAction,
-                CAST('already_removed' AS NVARCHAR(40)) AS DeleteStatus,
-                CAST(1 AS BIT) AS AlreadyRemoved,
-                CAST(0 AS BIT) AS AlreadyHistorical,
-                CAST(0 AS BIT) AS Deactivated,
+                CAST(N'failed' AS NVARCHAR(40)) AS ApiStatus,
+                CAST(N'not_found' AS NVARCHAR(40)) AS DeleteStatus,
+                CAST(0 AS BIT) AS CanDelete,
                 CAST(NULL AS BIGINT) AS PolicyRateID,
-                CAST(NULL AS INT) AS CompanyID,
-                CAST(NULL AS NVARCHAR(200)) AS CompanyName,
-                CAST(NULL AS INT) AS EmployeeID,
-                CAST(NULL AS NVARCHAR(50)) AS EmployeeCode,
-                CAST(NULL AS NVARCHAR(200)) AS FullName,
-                CAST(NULL AS NVARCHAR(100)) AS Department,
-                CAST(NULL AS NVARCHAR(100)) AS EmpGroup,
-                CAST(NULL AS DATE) AS EffectiveFrom,
-                CAST(NULL AS DATE) AS EffectiveTo,
-                CAST(NULL AS DECIMAL(12,2)) AS MaxPayoutAmount,
-                CAST(NULL AS DECIMAL(10,2)) AS CycleDays,
-                CAST(NULL AS DECIMAL(10,2)) AS WorkingDaysPerMonth,
-                CAST(NULL AS DECIMAL(10,2)) AS AirfareDaysPerMonth,
-                CAST(NULL AS DECIMAL(12,6)) AS PerDayRate,
-                CAST(NULL AS BIT) AS IsActive,
-                CAST(NULL AS DATETIME2(0)) AS CreatedAt;
+                CAST(N'Preference not found' AS NVARCHAR(400)) AS LockReason;
             RETURN;
         END;
 
-        IF EXISTS (SELECT 1 FROM @policy WHERE IsActive = 0 OR EffectiveTo IS NOT NULL OR IsDeleted = 1)
+        IF @canDelete = 0
         BEGIN
-            UPDATE dbo.AirfarePolicyRates
-               SET IsDeleted = 1,
-                   DeletedAt = COALESCE(DeletedAt, SYSUTCDATETIME()),
-                   DeletedBy = COALESCE(DeletedBy, @DeletedBy),
-                   DeleteReason = COALESCE(DeleteReason, @DeleteReason, N'Already historical; archive marker confirmed.'),
-                   ArchivedAt = COALESCE(ArchivedAt, SYSUTCDATETIME()),
-                   DependencySnapshotJson = COALESCE(DependencySnapshotJson, @dependencySnapshot),
-                   PolicyStatus = N'archived'
-             WHERE PolicyRateID = @PolicyRateID;
-
-            INSERT INTO dbo.AirfarePolicyRateArchive
-            (
-                PolicyRateID, CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom, EffectiveTo,
-                MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth, CreatedAt, CreatedBy,
-                ArchivedBy, ArchiveReason, DependencySnapshotJson
-            )
-            SELECT
-                r.PolicyRateID, r.CompanyID, r.EmployeeID, r.Department, r.EmpGroup, r.EffectiveFrom, r.EffectiveTo,
-                r.MaxPayoutAmount, r.CycleDays, r.WorkingDaysPerMonth, r.AirfareDaysPerMonth, r.CreatedAt, r.CreatedBy,
-                @DeletedBy, COALESCE(@DeleteReason, N'Already historical; archive marker confirmed.'), @dependencySnapshot
-            FROM dbo.AirfarePolicyRates r
-            WHERE r.PolicyRateID = @PolicyRateID
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM dbo.AirfarePolicyRateArchive a
-                  WHERE a.PolicyRateID = r.PolicyRateID
-                    AND a.ArchiveReason = COALESCE(@DeleteReason, N'Already historical; archive marker confirmed.')
-              );
-
-            DELETE FROM @policy;
-            INSERT INTO @policy
-            SELECT TOP (1)
-                r.PolicyRateID,
-                r.CompanyID,
-                c.CompanyName,
-                r.EmployeeID,
-                e.EmployeeCode,
-                e.FullName,
-                r.Department,
-                r.EmpGroup,
-                r.EffectiveFrom,
-                r.EffectiveTo,
-                r.MaxPayoutAmount,
-                r.CycleDays,
-                r.WorkingDaysPerMonth,
-                r.AirfareDaysPerMonth,
-                CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
-                r.IsActive,
-                r.CreatedAt,
-                r.IsDeleted,
-                r.DeletedAt,
-                r.DeletedBy,
-                r.DeleteReason,
-                r.ArchivedAt,
-                r.DependencySnapshotJson,
-                r.PolicyStatus
-            FROM dbo.AirfarePolicyRates r
-            LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
-            LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
-            WHERE r.PolicyRateID = @PolicyRateID;
-
+            EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @PreferenceID;
             COMMIT TRANSACTION;
             SELECT
-                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-                CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
-                CAST('already_historical' AS NVARCHAR(40)) AS DeleteStatus,
-                CAST(0 AS BIT) AS AlreadyRemoved,
-                CAST(1 AS BIT) AS AlreadyHistorical,
-                CAST(0 AS BIT) AS Deactivated,
-                CAST(0 AS BIT) AS HardDeleted,
-                @allocationUsageCount AS AllocationUsageCount,
-                @activeAllocationUsageCount AS RecentAllocationUsageCount,
-                @auditUsageCount AS AuditUsageCount,
-                @travelExpenseUsageCount AS TravelExpenseUsageCount,
-                @employeeAllowanceUsageCount AS EmployeeAllowanceUsageCount,
-                @historyUsageCount AS HistoryUsageCount,
-                *
-            FROM @policy;
+                CAST(N'blocked' AS NVARCHAR(40)) AS ApiStatus,
+                CAST(N'locked' AS NVARCHAR(40)) AS DeleteStatus,
+                CAST(0 AS BIT) AS CanDelete,
+                @PreferenceID AS PolicyRateID,
+                @lockReason AS LockReason;
             RETURN;
         END;
 
@@ -1443,25 +1605,72 @@ BEGIN
                END,
                DeletedAt = SYSUTCDATETIME(),
                DeletedBy = @DeletedBy,
-               DeleteReason = COALESCE(@DeleteReason, N'Policy removed from current preferences. Historical transactions preserved.'),
+               DeleteReason = COALESCE(@AuditReason, N'Preference removed from current preferences. Historical transactions preserved.'),
                ArchivedAt = SYSUTCDATETIME(),
-               DependencySnapshotJson = @dependencySnapshot,
+               DependencySnapshotJson = COALESCE(r.DependencySnapshotJson, N'{"strategy":"sql_soft_delete"}'),
                PolicyStatus = N'archived'
-        FROM dbo.AirfarePolicyRates r WITH (UPDLOCK, HOLDLOCK)
-        WHERE r.PolicyRateID = @PolicyRateID;
+        FROM dbo.AirfarePolicyRates r
+        WHERE r.PolicyRateID = @PreferenceID;
+
+        DECLARE @policySnapshotJson NVARCHAR(MAX) = (
+            SELECT TOP (1)
+                r.PolicyRateID,
+                r.CompanyID,
+                r.EmployeeID,
+                r.Department,
+                r.EmpGroup,
+                r.EffectiveFrom,
+                r.EffectiveTo,
+                r.MaxPayoutAmount,
+                r.CycleDays,
+                r.WorkingDaysPerMonth,
+                r.AirfareDaysPerMonth,
+                r.IsActive,
+                r.IsDeleted,
+                r.PolicyStatus,
+                r.LockReason
+            FROM dbo.AirfarePolicyRates r
+            WHERE r.PolicyRateID = @PreferenceID
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        );
 
         INSERT INTO dbo.AirfarePolicyRateArchive
         (
             PolicyRateID, CompanyID, EmployeeID, Department, EmpGroup, EffectiveFrom, EffectiveTo,
             MaxPayoutAmount, CycleDays, WorkingDaysPerMonth, AirfareDaysPerMonth, CreatedAt, CreatedBy,
-            ArchivedBy, ArchiveReason, DependencySnapshotJson
+            ArchivedBy, ArchiveReason, DependencySnapshotJson, PolicySnapshotJson, DeleteAction
         )
         SELECT
-            r.PolicyRateID, r.CompanyID, r.EmployeeID, r.Department, r.EmpGroup, r.EffectiveFrom, r.EffectiveTo,
-            r.MaxPayoutAmount, r.CycleDays, r.WorkingDaysPerMonth, r.AirfareDaysPerMonth, r.CreatedAt, r.CreatedBy,
-            @DeletedBy, COALESCE(@DeleteReason, N'Policy removed from current preferences. Historical transactions preserved.'), @dependencySnapshot
-        FROM dbo.AirfarePolicyRates r
-        WHERE r.PolicyRateID = @PolicyRateID;
+            p.PolicyRateID, p.CompanyID, p.EmployeeID, p.Department, p.EmpGroup, p.EffectiveFrom, p.EffectiveTo,
+            p.MaxPayoutAmount, p.CycleDays, p.WorkingDaysPerMonth, p.AirfareDaysPerMonth, p.CreatedAt, p.CreatedBy,
+            @DeletedBy, COALESCE(@AuditReason, N'Preference removed from current preferences. Historical transactions preserved.'),
+            COALESCE(p.DependencySnapshotJson, N'{"strategy":"sql_soft_delete"}'),
+            COALESCE(@policySnapshotJson, N'{}'),
+            N'soft_delete'
+        FROM @policy p;
+
+        IF OBJECT_ID(N'dbo.AuditLog', N'U') IS NOT NULL
+        BEGIN
+            INSERT INTO dbo.AuditLog
+            (
+                UserID, Username, Action, EntityType, EntityID, OldValues, NewValues, Description,
+                IPAddress, UserAgent, SessionID, Status, ErrorMessage
+            )
+            SELECT
+                @DeletedBy,
+                COALESCE(CAST(@DeletedBy AS NVARCHAR(50)), N'system'),
+                N'DELETE',
+                N'AirfarePolicyRate',
+                @PreferenceID,
+                NULL,
+                (SELECT r.PolicyRateID, r.PolicyStatus, r.IsDeleted, r.DeletedAt, r.DeleteReason FROM dbo.AirfarePolicyRates r WHERE r.PolicyRateID = @PreferenceID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
+                COALESCE(@AuditReason, N'Preference deleted through MSSQL soft-delete procedure.'),
+                NULL, NULL, NULL,
+                N'success',
+                NULL;
+        END;
+
+        EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @PreferenceID;
 
         DELETE FROM @policy;
         INSERT INTO @policy
@@ -1483,42 +1692,52 @@ BEGIN
             CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
             r.IsActive,
             r.CreatedAt,
+            r.CreatedBy,
             r.IsDeleted,
             r.DeletedAt,
             r.DeletedBy,
             r.DeleteReason,
             r.ArchivedAt,
             r.DependencySnapshotJson,
-            r.PolicyStatus
+            r.PolicyStatus,
+            r.IsHistoryLocked,
+            r.LockReason
         FROM dbo.AirfarePolicyRates r
         LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
         LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
-        WHERE r.PolicyRateID = @PolicyRateID;
+        WHERE r.PolicyRateID = @PreferenceID;
 
         COMMIT TRANSACTION;
 
         SELECT
-            CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-            CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
-            CAST('deactivated' AS NVARCHAR(40)) AS DeleteStatus,
-            CAST(0 AS BIT) AS AlreadyRemoved,
-            CAST(0 AS BIT) AS AlreadyHistorical,
-            CAST(1 AS BIT) AS Deactivated,
-            CAST(0 AS BIT) AS HardDeleted,
-            @allocationUsageCount AS AllocationUsageCount,
-            @activeAllocationUsageCount AS RecentAllocationUsageCount,
-            @auditUsageCount AS AuditUsageCount,
-            @travelExpenseUsageCount AS TravelExpenseUsageCount,
-            @employeeAllowanceUsageCount AS EmployeeAllowanceUsageCount,
-            @historyUsageCount AS HistoryUsageCount,
+            CAST(N'success' AS NVARCHAR(40)) AS ApiStatus,
+            CAST(N'soft_delete' AS NVARCHAR(40)) AS DeleteAction,
+            CAST(N'deactivated' AS NVARCHAR(40)) AS DeleteStatus,
+            CAST(1 AS BIT) AS CanDelete,
             *
         FROM @policy;
     END TRY
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         DECLARE @message NVARCHAR(2048) = ERROR_MESSAGE();
-        THROW 52012, @message, 1;
+        THROW 52042, @message, 1;
     END CATCH
+END;
+GO
+
+EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = NULL;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_DeactivateAirfarePolicyRate
+    @PolicyRateID BIGINT,
+    @DeletedBy INT = NULL,
+    @DeleteReason NVARCHAR(400) = NULL
+AS
+BEGIN
+    EXEC dbo.sp_Preference_DeleteSoft
+        @PreferenceID = @PolicyRateID,
+        @DeletedBy = @DeletedBy,
+        @AuditReason = @DeleteReason;
 END;
 GO
 

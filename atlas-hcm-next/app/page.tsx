@@ -2371,6 +2371,7 @@ export default function DashboardPage() {
   }
 
   function getAirfarePolicyLockMessage(rate: AirfarePolicyRate) {
+    if (rate.LockReason) return rate.LockReason;
     if (rate.IsSystem) return "History locked - system default policy. This rule stays protected even when unused.";
     const activeReferenceCount = Number(rate.ActiveReferenceCount || 0);
     if (activeReferenceCount > 0) return `History locked - used by ${activeReferenceCount} active record${activeReferenceCount === 1 ? "" : "s"}. Delete source data to unlock.`;

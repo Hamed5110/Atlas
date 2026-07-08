@@ -169,6 +169,10 @@ export type AirfarePolicyRate = {
   CreatedAt?: string;
   IsDeleted?: boolean;
   PolicyStatus?: string;
+  IsHistoryLocked?: boolean;
+  LockReason?: string;
+  LockEvaluatedAt?: string;
+  LockReleasedAt?: string;
   DeletedAt?: string;
   DeletedBy?: number;
   DeleteReason?: string;

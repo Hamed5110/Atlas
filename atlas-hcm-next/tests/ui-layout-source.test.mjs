@@ -254,9 +254,9 @@ assert.match(source, /fallbackError[\s\S]*\/airfare-policy-rates\/\$\{policyRate
 assert.match(source, /function isCurrentAirfarePolicyRate[\s\S]*rate\.IsActive && !rate\.EffectiveTo/, "preferences should only delete current policy rules");
 assert.match(source, /function canDeleteAirfarePolicyRate[\s\S]*rate\.CanDelete/, "preferences delete actions should follow the backend can-delete contract");
 assert.match(source, /function getAirfarePolicyLockBadge[\s\S]*System locked[\s\S]*Locked/, "preferences should show short horizontal lock badges on protected rows");
-assert.match(source, /function getAirfarePolicyLockMessage[\s\S]*system default policy[\s\S]*Delete source data to unlock/, "preferences should explain whether a policy is protected by active references or system scope");
+assert.match(source, /function getAirfarePolicyLockMessage[\s\S]*rate\.LockReason[\s\S]*system default policy[\s\S]*Delete source data to unlock/, "preferences should explain whether a policy is protected by SQL lock reasons or fallback scope messages");
 assert.match(server, /AS ActiveReferenceCount/, "airfare policy API should expose active reference counts for delete safety");
-assert.match(server, /AS CanDelete/, "airfare policy API should expose can-delete state for the frontend");
+assert.match(server, /fn_Preference_CanDelete\(r\.PolicyRateID\).*AS CanDelete/, "airfare policy API should expose can-delete state from the named MSSQL function");
 assert.match(source, /preference-lock-pill/, "protected policy rows should render a dedicated lock pill instead of vertical text");
 assert.match(source, /title=\{getAirfarePolicyLockMessage\(rate\)\}/, "protected policy rows should explain lock reasons through hover text");
 assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
@@ -410,7 +410,7 @@ assert.match(server, /DEFAULT_AIRFARE_POLICY_AMOUNT\s*=\s*150/, "backend may kee
 assert.match(server, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "backend should enforce the fixed 360-day standard year");
 assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.required\(\)/, "backend should accept configured airfare policy values above BHD 150");
 assert.doesNotMatch(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should allow configured airfare values above BHD 150");
-assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*CanDelete[\s\S]*fallbackDeactivateAirfarePolicyRate[\s\S]*Airfare policy rule deleted from current preferences\. Historical transactions remain unchanged\.[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should guard delete eligibility and soft-delete airfare policy rules without hard-deleting the row");
+assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*sp_Preference_DeleteSoft[\s\S]*fallbackDeactivateAirfarePolicyRate[\s\S]*Airfare policy rule deleted from current preferences\. Historical transactions remain unchanged\.[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should call the named SQL soft-delete procedure and keep runtime fallback protection");
 assert.doesNotMatch(server, /Installed delete procedure returned a non-purge state[\s\S]*force purge airfare policy rate after soft-delete response/, "backend should not override a valid soft-delete result with a purge flow");
 assert.doesNotMatch(server, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/, "backend fallback should not remove the airfare policy row");
 assert.match(source, /formatAirfarePolicyDeleteMessage[\s\S]*deleted from current preferences\. Historical transactions remain unchanged\.[\s\S]*Airfare policy delete failed/, "preferences should format policy soft-delete responses as readable notifications");
