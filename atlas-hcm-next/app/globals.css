@@ -1375,11 +1375,20 @@ h3 { font-size: 20px; letter-spacing: 0; }
   border-color: rgba(5,150,105,.18);
   background: linear-gradient(135deg, rgba(236,253,245,.92), rgba(248,251,255,.96));
 }
+.year-end-year-switcher {
+  margin: 0 0 16px;
+  border-color: rgba(37,99,235,.2);
+  background: linear-gradient(135deg, rgba(239,246,255,.96), rgba(240,253,250,.94));
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .08);
+}
 .year-switcher-controls {
   display: grid;
   grid-template-columns: auto minmax(150px, 220px) auto minmax(220px, 1fr);
   gap: 10px;
   align-items: end;
+}
+.year-end-switcher-controls {
+  grid-template-columns: minmax(160px, auto) minmax(150px, 210px) minmax(140px, auto) minmax(220px, 1fr);
 }
 .year-switcher-controls .field {
   min-width: 0;
@@ -1392,6 +1401,13 @@ h3 { font-size: 20px; letter-spacing: 0; }
   border-color: rgba(5,150,105,.38);
   color: #047857;
   background: #ecfdf5;
+}
+.year-command-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.year-command-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 .voucher-template-engine {
   margin: 14px 0;

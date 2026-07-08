@@ -110,10 +110,15 @@ assert.match(source, /employee exception, pay group matrix, department matrix, c
 assert.match(source, /handleYearEndPreview/, "year end screen should support preview before closing");
 assert.match(source, /handleYearEndClose/, "year end screen should support controlled final close");
 assert.match(source, /Year End readiness gate/, "year end screen should show readiness checks before closing");
+assert.match(source, /Fiscal year switch/, "year end should expose a visible fiscal year switcher above the process metrics");
+assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
+assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
+assert.match(source, /Run preview first/, "year end should show a clear confirmation message before closing");
 assert.match(source, /Company-wise and year-wise shifting matrix/, "year end should show company/year matrix boundaries");
 assert.match(source, /yearEndMatrixRows/, "year end should generate company-year isolation matrix rows");
 assert.match(source, /Company-wise year switcher/, "opening balance should expose a year switching matrix");
 assert.match(css, /\.year-switcher-controls\s*{[\s\S]*grid-template-columns/, "opening balance year switcher should use a responsive grid");
+assert.match(css, /\.year-end-year-switcher\s*{[\s\S]*box-shadow/, "year end fiscal switcher should be visually prominent");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.year-switcher-controls[\s\S]*grid-template-columns:\s*1fr/, "opening balance year switcher should collapse cleanly on mobile");
 assert.match(source, /yearEndReadinessChecks/, "year end readiness checks should be generated from live preview state");
 assert.match(source, /Pending loans/, "year end preview should show pending loans before final close");
