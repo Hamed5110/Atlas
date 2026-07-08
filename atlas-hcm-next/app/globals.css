@@ -1831,7 +1831,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   min-width: 1120px;
 }
 .table-row.preference-current-row {
-  grid-template-columns: minmax(220px, 1.1fr) minmax(150px, .75fr) minmax(130px, .65fr) minmax(120px, .58fr) minmax(120px, .58fr) minmax(130px, .58fr) minmax(184px, .78fr);
+  grid-template-columns: minmax(220px, 1.1fr) minmax(150px, .75fr) minmax(130px, .65fr) minmax(120px, .58fr) minmax(120px, .58fr) minmax(130px, .58fr) minmax(236px, .95fr);
   min-width: 1160px;
 }
 .policy-rule-label {
@@ -2962,10 +2962,16 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .preference-row-actions {
   flex-wrap: nowrap;
+  justify-content: flex-start;
 }
 .preference-row-actions .mini-soft,
 .preference-row-actions .mini-danger {
   white-space: nowrap;
+}
+.preference-lock-pill {
+  white-space: nowrap;
+  align-self: center;
+  max-width: 100%;
 }
 .loan-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .metric { padding: 11px 12px; min-height: 84px; display: grid; align-content: space-between; }
@@ -4393,6 +4399,12 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .row-actions .mini-soft,
   .row-actions .mini-danger {
     width: 100%;
+  }
+  .preference-row-actions {
+    flex-wrap: wrap;
+  }
+  .preference-lock-pill {
+    width: auto;
   }
   .attachment-row small {
     min-width: 0;
