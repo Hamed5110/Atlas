@@ -5700,38 +5700,91 @@ app.put('/api/companies/:id', authenticateToken, requireRole('admin'), async (re
     }
 });
 
+async function getCompanyCleanupPreview(db, keepCompanyId) {
+    const keepId = Number.isFinite(Number(keepCompanyId)) ? Number(keepCompanyId) : null;
+    const result = await db.request()
+        .input('KeepCompanyID', sql.Int, keepId)
+        .query(`
+            SELECT
+                c.CompanyID,
+                c.CompanyCode,
+                c.CompanyName,
+                c.DatabaseName,
+                CAST(CASE
+                    WHEN UPPER(ISNULL(c.CompanyCode, '')) = 'ATLAS'
+                      OR UPPER(ISNULL(c.CompanyName, '')) = 'ATLAS'
+                      OR (@KeepCompanyID IS NOT NULL AND c.CompanyID = @KeepCompanyID)
+                    THEN 1 ELSE 0
+                END AS BIT) AS IsProtected,
+                (
+                    SELECT COUNT(1)
+                    FROM dbo.Employees e
+                    WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, '')))) IN (
+                        UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, '')))),
+                        UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, '')))),
+                        UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, ''))))
+                    )
+                ) AS EmployeeUsageCount,
+                (
+                    SELECT COUNT(1)
+                    FROM dbo.AirfarePolicyRates r
+                    WHERE r.CompanyID = c.CompanyID
+                ) AS PolicyUsageCount
+            FROM dbo.Companies c
+            ORDER BY
+                CASE WHEN UPPER(ISNULL(c.CompanyCode, '')) = 'ATLAS' THEN 0 ELSE 1 END,
+                c.CompanyName
+        `);
+    const rows = (result.recordset || []).map((row) => {
+        const employeeUsage = Number(row.EmployeeUsageCount || 0);
+        const policyUsage = Number(row.PolicyUsageCount || 0);
+        const isProtected = Boolean(row.IsProtected);
+        const isBlocked = employeeUsage > 0 || policyUsage > 0;
+        const cleanupStatus = isProtected ? 'Protected' : isBlocked ? 'Blocked' : 'Ready';
+        const cleanupReason = isProtected
+            ? 'ATLAS or currently selected company is protected.'
+            : isBlocked
+                ? `Linked usage found: ${employeeUsage} employee row(s), ${policyUsage} policy value(s).`
+                : 'No employee usage or company-specific policy values found.';
+        return {
+            ...row,
+            IsProtected: isProtected,
+            EmployeeUsageCount: employeeUsage,
+            PolicyUsageCount: policyUsage,
+            CleanupStatus: cleanupStatus,
+            CleanupReason: cleanupReason
+        };
+    });
+    return {
+        total: rows.length,
+        ready: rows.filter((row) => row.CleanupStatus === 'Ready').length,
+        protected: rows.filter((row) => row.CleanupStatus === 'Protected').length,
+        blocked: rows.filter((row) => row.CleanupStatus === 'Blocked').length,
+        rows
+    };
+}
+
+// GET /api/companies/cleanup-preview
+app.get('/api/companies/cleanup-preview', authenticateToken, requireRole('admin'), async (req, res) => {
+    try {
+        const db = await getConnection();
+        const preview = await getCompanyCleanupPreview(db, req.query.keepCompanyId);
+        res.json(preview);
+    } catch (err) {
+        logger.error('Company cleanup preview error:', err);
+        res.status(500).json({ error: err.message || 'Company cleanup preview failed' });
+    }
+});
+
 // DELETE /api/companies/empty
 app.delete('/api/companies/empty', authenticateToken, requireRole('admin'), async (req, res) => {
     try {
         const keepCompanyId = req.body?.keepCompanyId ? Number(req.body.keepCompanyId) : null;
         const db = await getConnection();
-        const candidates = await db.request()
-            .input('KeepCompanyID', sql.Int, Number.isFinite(keepCompanyId) ? keepCompanyId : null)
-            .query(`
-                SELECT c.CompanyID, c.CompanyCode, c.CompanyName, c.DatabaseName
-                FROM dbo.Companies c
-                WHERE UPPER(ISNULL(c.CompanyCode, '')) <> 'ATLAS'
-                  AND UPPER(ISNULL(c.CompanyName, '')) <> 'ATLAS'
-                  AND (@KeepCompanyID IS NULL OR c.CompanyID <> @KeepCompanyID)
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM dbo.Employees e
-                      WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, '')))) IN (
-                          UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, '')))),
-                          UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, '')))),
-                          UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, ''))))
-                      )
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM dbo.AirfarePolicyRates r
-                      WHERE r.CompanyID = c.CompanyID
-                  )
-                ORDER BY c.CompanyID
-            `);
+        const preview = await getCompanyCleanupPreview(db, keepCompanyId);
+        const rows = preview.rows.filter((row) => row.CleanupStatus === 'Ready');
 
-        const rows = candidates.recordset || [];
-        if (!rows.length) return res.json({ deleted: 0, companies: [] });
+        if (!rows.length) return res.json({ deleted: 0, companies: [], preview });
 
         const ids = rows.map((row) => Number(row.CompanyID)).filter(Number.isFinite);
         const idList = ids.join(',');
@@ -5740,7 +5793,7 @@ app.delete('/api/companies/empty', authenticateToken, requireRole('admin'), asyn
         await logAudit(req.user.userId, req.user.username, 'DELETE_EMPTY', 'Company', null, rows, null,
             `Deleted ${rows.length} empty company record(s)`, req);
 
-        res.json({ deleted: rows.length, companies: rows });
+        res.json({ deleted: rows.length, companies: rows, preview: { ...preview, ready: 0, rows: preview.rows.filter((row) => row.CleanupStatus !== 'Ready') } });
     } catch (err) {
         logger.error('Delete empty companies error:', err);
         res.status(500).json({ error: err.message || 'Delete empty companies failed' });

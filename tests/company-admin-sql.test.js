@@ -22,6 +22,9 @@ assert.match(serverText, /POST \/api\/opening-balances\/import/i, 'Opening balan
 assert.match(serverText, /POST \/api\/admin\/backup/i, 'Backup API should exist');
 assert.match(serverText, /POST \/api\/admin\/restore/i, 'Restore API should exist');
 assert.match(serverText, /app\.post\('\/api\/admin\/company-reset'/i, 'Company reset API should exist');
+assert.match(serverText, /app\.get\('\/api\/companies\/cleanup-preview'/i, 'Company cleanup preview API should exist');
+assert.match(serverText, /CleanupStatus[\s\S]*Protected[\s\S]*Blocked[\s\S]*Ready/, 'Company cleanup should classify protected, blocked, and ready records');
+assert.match(serverText, /EmployeeUsageCount[\s\S]*PolicyUsageCount/, 'Company cleanup should explain linked employee and policy blockers');
 assert.match(serverText, /sp_ATLAS_ResetCompanyState/i, 'Company reset API should execute SQL reset procedure');
 assert.match(serverText, /RESET_COMPANY_DATA/i, 'Company reset API should require explicit confirmation');
 assert.match(serverText, /confirm !== 'RESTORE'/, 'Restore API should require explicit confirmation');

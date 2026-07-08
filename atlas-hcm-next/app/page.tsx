@@ -111,6 +111,20 @@ type UpdateCheckStatus = {
   detail: string;
   source: string;
 };
+type CompanyCleanupPreviewRow = Company & {
+  IsProtected: boolean;
+  EmployeeUsageCount: number;
+  PolicyUsageCount: number;
+  CleanupStatus: "Protected" | "Blocked" | "Ready";
+  CleanupReason: string;
+};
+type CompanyCleanupPreview = {
+  total: number;
+  ready: number;
+  protected: number;
+  blocked: number;
+  rows: CompanyCleanupPreviewRow[];
+};
 type EmployeeSelfServiceSummary = {
   setupRequired: boolean;
   canSelectEmployee?: boolean;
@@ -868,6 +882,7 @@ export default function DashboardPage() {
   const [allocationAttachments, setAllocationAttachments] = useState<Record<number, AllocationAttachment[]>>({});
   const [users, setUsers] = useState<AtlasUser[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [companyCleanupPreview, setCompanyCleanupPreview] = useState<CompanyCleanupPreview | null>(null);
   const [summary, setSummary] = useState<YearSummary | null>(null);
   const [intelligence, setIntelligence] = useState<IntelligenceControlCenter | null>(null);
   const [verification, setVerification] = useState<SystemVerification | null>(null);
@@ -4334,21 +4349,44 @@ export default function DashboardPage() {
     setActiveView("Companies");
   }
 
+  async function handlePreviewCompanyCleanup() {
+    if (!session) return setMessage("Please sign in as admin first.");
+    if (session.user.role !== "admin") return setMessage("Only administrators can preview company cleanup.");
+    setBusy(true);
+    setMessage("");
+    try {
+      const keepCompanyQuery = selectedCompanyId ? `?keepCompanyId=${encodeURIComponent(selectedCompanyId)}` : "";
+      const preview = await atlasFetch<CompanyCleanupPreview>(`/companies/cleanup-preview${keepCompanyQuery}`, session.token, session.sessionId);
+      setCompanyCleanupPreview(preview);
+      setMessage(preview.ready
+        ? `Cleanup preview ready: ${preview.ready} empty compan${preview.ready === 1 ? "y" : "ies"} can be deleted.`
+        : `Cleanup preview complete: no deletable company found. Protected ${preview.protected}, blocked ${preview.blocked}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Company cleanup preview failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDeleteEmptyCompanies() {
     if (!session) return setMessage("Please sign in as admin first.");
     if (session.user.role !== "admin") return setMessage("Only administrators can delete empty companies.");
-    const ok = window.confirm("Delete all empty company records? ATLAS and the selected company are protected. SQL databases and backups will not be dropped.");
+    const readyCount = companyCleanupPreview?.ready ?? 0;
+    const ok = window.confirm(readyCount
+      ? `Delete ${readyCount} empty company record(s)? ATLAS, the selected company, linked employees, and company policy values are protected. SQL databases and backups will not be dropped.`
+      : "Run cleanup anyway? ATLAS will preview protected and linked companies first. Only truly empty companies can be deleted.");
     if (!ok) return;
     setBusy(true);
     setMessage("");
     try {
-      const result = await atlasMutation<{ deleted: number; companies: Company[] }>("/companies/empty", session.token, session.sessionId, "DELETE", {
+      const result = await atlasMutation<{ deleted: number; companies: Company[]; preview?: CompanyCleanupPreview }>("/companies/empty", session.token, session.sessionId, "DELETE", {
         keepCompanyId: selectedCompanyId ? Number(selectedCompanyId) : null
       });
       await loadLiveData();
+      if (result.preview) setCompanyCleanupPreview(result.preview);
       setMessage(result.deleted
         ? `System confirmation: ${result.deleted} empty compan${result.deleted === 1 ? "y" : "ies"} deleted.`
-        : "No empty company records found for deletion.");
+        : `No deletable company found. Protected ${result.preview?.protected ?? 0}, blocked ${result.preview?.blocked ?? 0}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Delete empty companies failed");
     } finally {
@@ -5827,7 +5865,7 @@ export default function DashboardPage() {
                 </div>
               )}
               <div className="premium-table">
-                <div className="table-row employee-head table-head"><span>Employee</span><span>Opening Days</span><span>Opening Amount</span><span>Status</span><span>Action</span></div>
+                <div className="table-row employee-head opening-balance-row table-head"><span>Employee</span><span>Opening Days</span><span>Opening Amount</span><span>Status</span><span>Action</span></div>
                 {filteredOpeningBalanceRows.length === 0 && (
                   <div className="notice">
                     <span />
@@ -5838,7 +5876,7 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {filteredOpeningBalanceRows.map((row) => (
-                  <div className="table-row employee-head" key={`${row.EmployeeID}-${row.BalanceYear}`}>
+                  <div className="table-row employee-head opening-balance-row" key={`${row.EmployeeID}-${row.BalanceYear}`}>
                     <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / {row.Department || "-"}</small></span>
                     <span>{Number(row.OpeningDays || 0).toFixed(2)}</span>
                     <span>{money.format(Number(row.OpeningBHD || 0))}</span>
@@ -7036,7 +7074,7 @@ export default function DashboardPage() {
                 <div className="table-row loan-head"><span>Company</span><span>Database</span><span>Contact</span><span>Status</span><span>Action</span></div>
                 {filteredCompanies.length === 0 && <p className="muted">No companies found.</p>}
                 {filteredCompanies.map((company) => (
-                  <div className="table-row loan-head" key={company.CompanyID}>
+                  <div className="table-row loan-head company-row" key={company.CompanyID}>
                     <span><strong>{company.CompanyName}</strong><small>{company.CompanyCode}{String(company.CompanyID) === selectedCompanyId ? " / selected" : ""}</small></span>
                     <span><strong>{company.DatabaseName}</strong><small>{company.LogoSize ? `${Math.ceil(company.LogoSize / 1024)} KB logo` : "No logo"}</small></span>
                     <span><strong>{company.ContactPerson || "-"}</strong><small>{company.Email || company.Phone || "-"}</small></span>
@@ -7058,12 +7096,34 @@ export default function DashboardPage() {
               <div className="standard-note company-cleanup-note">
                 <div>
                   <strong>Empty company cleanup</strong>
-                  <span>Deletes company records with no employee usage and no company-specific policy values. Databases and backups are not dropped.</span>
+                  <span>Preview first, then delete only records with no employee usage and no company-specific policy values. Databases and backups are not dropped.</span>
                 </div>
-                <button className="danger-button" disabled={busy || session?.user.role !== "admin"} onClick={handleDeleteEmptyCompanies}>
-                  <Trash2 size={16} /> Delete empty companies
-                </button>
+                <div className="company-cleanup-actions">
+                  <button className="soft-button" disabled={busy || session?.user.role !== "admin"} onClick={handlePreviewCompanyCleanup}>
+                    <Eye size={16} /> Preview cleanup
+                  </button>
+                  <button className="danger-button" disabled={busy || session?.user.role !== "admin"} onClick={handleDeleteEmptyCompanies}>
+                    <Trash2 size={16} /> Delete empty companies
+                  </button>
+                </div>
               </div>
+              {companyCleanupPreview && (
+                <div className="company-cleanup-preview">
+                  <span><small>Ready</small><strong>{companyCleanupPreview.ready}</strong></span>
+                  <span><small>Protected</small><strong>{companyCleanupPreview.protected}</strong></span>
+                  <span><small>Blocked</small><strong>{companyCleanupPreview.blocked}</strong></span>
+                  <span><small>Total checked</small><strong>{companyCleanupPreview.total}</strong></span>
+                  <div className="cleanup-preview-list">
+                    {companyCleanupPreview.rows.slice(0, 4).map((row) => (
+                      <div className={`cleanup-preview-row status-${row.CleanupStatus.toLowerCase()}`} key={`cleanup-${row.CompanyID}`}>
+                        <strong>{row.CompanyName}</strong>
+                        <span>{row.CleanupStatus}</span>
+                        <small>{row.CleanupReason}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="backup-panel">
                 <div className="card-title"><Database size={18} /> Backup and restore</div>
                 <div className="form-grid two">

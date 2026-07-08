@@ -118,8 +118,10 @@ assert.match(source, /aria-label="Global fiscal year"/, "global fiscal year shou
 assert.match(source, /Previous fiscal year/, "global fiscal selector should provide previous-year navigation");
 assert.match(source, /Next fiscal year/, "global fiscal selector should provide next-year navigation");
 assert.match(source, /Update next year/, "opening balance rows should offer next-year update preparation");
+assert.match(source, /opening-balance-row/, "opening balance rows should use a dedicated action-safe layout");
 assert.match(css, /\.fiscal-context-switcher/, "global fiscal switcher should be styled");
 assert.match(css, /\.fiscal-context-chip/, "topbar should show selected fiscal year");
+assert.match(css, /\.table-row\.opening-balance-row\s*{[\s\S]*minmax\(188px,\s*\.82fr\)/, "opening balance action column should prevent Update next year text clipping");
 assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
 assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
@@ -400,6 +402,9 @@ assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/de
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
 assert.match(server, /imgSrc:\s*\[[\s\S]*"blob:"/, "security policy should allow fetched company logos rendered through blob URLs");
+assert.match(source, /Preview cleanup/, "companies screen should preview cleanup before delete");
+assert.match(source, /companyCleanupPreview/, "companies screen should show protected, blocked, and ready cleanup evidence");
+assert.match(css, /\.company-cleanup-preview/, "company cleanup evidence panel should be styled");
 assert.match(source, /How to use ATLAS/, "support help document should be available inside the app");
 
 console.log("UI layout source test passed");
