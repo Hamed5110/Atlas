@@ -151,6 +151,12 @@ assert.match(source, /Closing amount/, "year end preview should show closing amo
 assert.match(source, /CurrentYearEarnedDays/, "year end employee preview should include earned days up to closing date");
 assert.match(source, /PendingLoanAmount/, "year end employee preview should include pending loan amount separately");
 assert.match(css, /\.preview-row\.year-end-head\s*{[\s\S]*grid-template-columns/, "year end preview should use dedicated readable columns");
+assert.match(css, /--page-gap:\s*10px/, "standard application density should remove excess page spacing");
+assert.match(css, /--topbar-h:\s*60px/, "topbar should use a compact HD height");
+assert.match(css, /\.modal-backdrop\s*{[\s\S]*backdrop-filter:\s*blur\(5px\)/, "modal overlay should not over-blur the whole workspace");
+assert.match(css, /\.metric\s*{[\s\S]*min-height:\s*84px/, "dashboard metric cards should be compact enough for HD data density");
+assert.match(css, /\.table-row\s*{[\s\S]*padding:\s*9px 11px/, "table rows should use compact enterprise spacing");
+assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.top-actions\s*{[\s\S]*display:\s*flex[\s\S]*overflow-x:\s*auto/, "mobile topbar actions should use one compact horizontal command strip");
 assert.match(source, /workingDaysFromYearStart/, "airfare allocation should earn current-year entitlement up to allocation date");
 assert.match(source, /date\.getMonth\(\) \* 30 \+ date\.getDate\(\)/, "current-year earning should use 30-day month policy");
 assert.match(source, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "airfare UI should document the fixed 360-day standard year");
