@@ -583,7 +583,7 @@ BEGIN
         NULLIF(LTRIM(RTRIM(x.employeeName)), ''),
         x.[year],
         x.openingDays,
-        ROUND((COALESCE(NULLIF(x.maximumPayout, 0), 150) / 60.0) * COALESCE(x.openingDays, 0), 2),
+        dbo.fn_ATLAS_AirfareAmount(x.openingDays, COALESCE(NULLIF(x.maximumPayout, 0), 150)),
         x.maximumPayout,
         'READY',
         NULL,

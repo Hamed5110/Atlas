@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const sqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_Company_Admin.sql'), 'utf8');
+const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
 const serverText = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
 assert.match(sqlText, /CREATE TABLE dbo\.Companies/i, 'Companies table should be defined');
@@ -19,6 +20,11 @@ assert.match(serverText, /POST \/api\/auth\/forgot-password/i, 'Forgot password 
 assert.match(serverText, /GET \/api\/opening-balances/i, 'Opening balance list API should exist');
 assert.match(serverText, /POST \/api\/opening-balances/i, 'Opening balance save API should exist');
 assert.match(serverText, /DELETE \/api\/opening-balances\/:employeeId\/:year/i, 'Opening balance employee/year delete API should exist');
+assert.match(serverText, /POST \/api\/opening-balances\/bulk-delete/i, 'Opening balance selected-row bulk delete API should exist');
+assert.match(serverText, /GET \/api\/opening-balances\/calculate/i, 'Opening balance SQL calculation API should exist');
+assert.match(serverText, /dbo\.fn_ATLAS_AirfareAmount\(@OpeningDays, @MaximumPayout\)/i, 'Opening balance calculations should use the MSSQL function');
+assert.match(hcmSqlText, /CREATE OR ALTER FUNCTION dbo\.fn_ATLAS_AirfareAmount/i, 'Airfare amount SQL function should exist');
+assert.match(hcmSqlText, /dbo\.fn_ATLAS_AirfareAmount\(x\.openingDays/i, 'Opening balance import preview should use the SQL formula function');
 assert.match(serverText, /Deleted opening balance for employee/i, 'Opening balance delete should write an audit trail');
 assert.match(serverText, /POST \/api\/opening-balances\/import/i, 'Opening balance import API should exist');
 assert.match(serverText, /POST \/api\/admin\/backup/i, 'Backup API should exist');
@@ -47,7 +53,6 @@ assert.match(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
 assert.match(serverText, /Airfare policy rule purged from preferences/i, 'Airfare policy delete should report purge success');
 assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should normalize named SQL instances to explicit TCP port connections');
-const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
 const phase1PolicyRepairText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_Phase1_PolicyRate_Repair.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');

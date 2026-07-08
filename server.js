@@ -2940,8 +2940,12 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
 // OPENING BALANCE ROUTES
 // =====================================================
 
-function amountFromDays(days, maxPayout) {
-    return Math.round((clampAirfareMaximumPayout(maxPayout) / 60) * clampAirfareDays(days) * 100) / 100;
+async function calculateOpeningBalanceAmount(db, days, maxPayout) {
+    const result = await db.request()
+        .input('OpeningDays', sql.Decimal(10, 4), clampAirfareDays(days))
+        .input('MaximumPayout', sql.Decimal(10, 2), clampAirfareMaximumPayout(maxPayout))
+        .query('SELECT dbo.fn_ATLAS_AirfareAmount(@OpeningDays, @MaximumPayout) AS OpeningBHD');
+    return Number(result.recordset[0]?.OpeningBHD || 0);
 }
 
 async function applyOpeningBalance(db, item, userId) {
@@ -2949,9 +2953,7 @@ async function applyOpeningBalance(db, item, userId) {
     const employeeId = Number(item.employeeId);
     const openingDays = clampAirfareDays(item.openingDays || item.days || 0);
     const maximumPayout = clampAirfareMaximumPayout(item.maximumPayout);
-    const openingBhd = Number.isFinite(Number(item.openingBhd ?? item.amount))
-        ? Number(item.openingBhd ?? item.amount)
-        : amountFromDays(openingDays, maximumPayout);
+    const openingBhd = await calculateOpeningBalanceAmount(db, openingDays, maximumPayout);
 
     if (!employeeId || !Number.isFinite(openingDays)) {
         throw new Error('Employee and opening days are required');
@@ -3010,7 +3012,7 @@ const openingBalanceImportSchema = Joi.object({
         employeeCode: Joi.string().required(),
         year: Joi.number().integer().min(2000).max(2100).required(),
         openingDays: Joi.number().min(0).required(),
-        openingBhd: Joi.number().min(0).required(),
+        openingBhd: Joi.number().min(0).allow(null),
         maximumPayout: Joi.number().min(0).default(150)
     })).min(1).required()
 });
@@ -3065,6 +3067,25 @@ app.post('/api/opening-balances', authenticateToken, requireRole('admin', 'manag
     } catch (err) {
         logger.error('Save opening balance error:', err);
         res.status(500).json({ error: err.message || 'Opening balance save failed' });
+    }
+});
+
+// GET /api/opening-balances/calculate
+app.get('/api/opening-balances/calculate', authenticateToken, requireRole('admin', 'manager', 'hr'), async (req, res) => {
+    try {
+        const openingDays = clampAirfareDays(req.query.openingDays || req.query.days || 0);
+        const maximumPayout = clampAirfareMaximumPayout(req.query.maximumPayout);
+        const db = await getConnection();
+        const openingBhd = await calculateOpeningBalanceAmount(db, openingDays, maximumPayout);
+        res.json({
+            openingDays,
+            maximumPayout,
+            openingBhd,
+            formulaSource: 'dbo.fn_ATLAS_AirfareAmount'
+        });
+    } catch (err) {
+        logger.error('Calculate opening balance error:', err);
+        res.status(500).json({ error: err.message || 'Opening balance calculation failed' });
     }
 });
 
@@ -3140,6 +3161,80 @@ app.delete('/api/opening-balances/:employeeId(\\d+)/:year(\\d+)', authenticateTo
     }
 });
 
+// POST /api/opening-balances/bulk-delete
+app.post('/api/opening-balances/bulk-delete', authenticateToken, requireRole('admin', 'manager', 'hr'), async (req, res) => {
+    const { error, value } = Joi.object({
+        year: Joi.number().integer().min(2000).max(2100).required(),
+        employeeIds: Joi.array().items(Joi.number().integer().min(1)).min(1).max(500).required()
+    }).validate(req.body || {});
+    if (error) return res.status(400).json(toApiValidationError(error));
+
+    try {
+        const db = await getConnection();
+        const employeeIdsJson = JSON.stringify([...new Set(value.employeeIds.map(Number))]);
+        const tx = new sql.Transaction(db);
+        let oldRows = [];
+        await tx.begin();
+        try {
+            const result = await new sql.Request(tx)
+                .input('BalanceYear', sql.Int, value.year)
+                .input('EmployeeIDsJson', sql.NVarChar(sql.MAX), employeeIdsJson)
+                .input('UpdatedBy', sql.Int, req.user.userId)
+                .query(`
+                    DECLARE @Selected TABLE (EmployeeID INT PRIMARY KEY);
+                    INSERT INTO @Selected (EmployeeID)
+                    SELECT TRY_CONVERT(INT, value)
+                    FROM OPENJSON(@EmployeeIDsJson)
+                    WHERE TRY_CONVERT(INT, value) IS NOT NULL;
+
+                    SELECT ob.*, e.EmployeeCode, e.FullName
+                    FROM OpeningBalances ob
+                    JOIN Employees e ON e.EmployeeID = ob.EmployeeID
+                    JOIN @Selected s ON s.EmployeeID = ob.EmployeeID
+                    WHERE ob.BalanceYear = @BalanceYear;
+
+                    DELETE ob
+                    FROM OpeningBalances ob
+                    JOIN @Selected s ON s.EmployeeID = ob.EmployeeID
+                    WHERE ob.BalanceYear = @BalanceYear;
+
+                    UPDATE e
+                    SET OpeningDays = COALESCE(f.OpeningDays, 0),
+                        OpeningBHD = COALESCE(f.OpeningBHD, 0),
+                        RemainingBalance = COALESCE(f.OpeningDays, 0),
+                        TotalAirfare = COALESCE(f.OpeningBHD, 0),
+                        UpdatedAt = GETDATE(),
+                        UpdatedBy = @UpdatedBy
+                    FROM Employees e
+                    JOIN @Selected s ON s.EmployeeID = e.EmployeeID
+                    OUTER APPLY (
+                        SELECT TOP 1 ob.OpeningDays, ob.OpeningBHD
+                        FROM OpeningBalances ob
+                        WHERE ob.EmployeeID = e.EmployeeID
+                        ORDER BY ob.BalanceYear DESC
+                    ) f;
+                `);
+            oldRows = result.recordsets?.[0] || [];
+            await tx.commit();
+        } catch (deleteErr) {
+            try {
+                await tx.rollback();
+            } catch (rollbackErr) {
+                logger.warn('Opening balance bulk delete rollback issue:', rollbackErr);
+            }
+            throw deleteErr;
+        }
+
+        await logAudit(req.user.userId, req.user.username, 'BULK_DELETE', 'OpeningBalance', null, oldRows, null,
+            `Deleted ${oldRows.length} opening balance row(s) for year ${value.year}`, req);
+
+        res.json({ message: 'Opening balances deleted', deleted: oldRows.length, year: value.year });
+    } catch (err) {
+        logger.error('Bulk delete opening balances error:', err);
+        res.status(500).json({ error: err.message || 'Opening balance bulk delete failed' });
+    }
+});
+
 // POST /api/opening-balances/import
 app.post('/api/opening-balances/import', authenticateToken, requireRole('admin', 'manager', 'hr'), async (req, res) => {
     try {
@@ -3186,8 +3281,7 @@ app.post('/api/opening-balances/import-preview', authenticateToken, requireRole(
         const rowsForPreview = value.rows
             .filter((row) => String(row.employeeCode || '').trim() || Number(row.openingDays || 0) > 0)
             .map((row) => ({
-                ...row,
-                openingBhd: Math.round(((Number(row.maximumPayout || 150) / 60) * Number(row.openingDays || 0) + Number.EPSILON) * 100) / 100
+                ...row
             }));
         if (!rowsForPreview.length) return res.status(400).json({ error: 'No opening balance rows found after skipping blank lines.' });
         const result = await db.request()

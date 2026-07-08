@@ -2695,6 +2695,41 @@ h3 { font-size: 20px; letter-spacing: 0; }
 .theme-dark .employee-form-overlay {
   background: rgba(2, 6, 23, .72);
 }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: clamp(14px, 2vw, 28px);
+  background: rgba(15, 23, 42, .32);
+  backdrop-filter: blur(12px);
+}
+.opening-edit-modal {
+  width: min(860px, 100%);
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  padding: clamp(18px, 2vw, 26px);
+  box-shadow: 0 30px 80px rgba(15,23,42,.24), inset 0 1px 0 rgba(255,255,255,.86);
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.modal-head strong {
+  display: block;
+  color: var(--ink);
+  font-size: 22px;
+}
+.modal-head span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
 .table-grid > .form-card {
   position: sticky;
   top: 128px;
@@ -3250,7 +3285,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .table-row.employee-head { grid-template-columns: 1.7fr .9fr .8fr .55fr .8fr; }
 .table-row.employee-head.selectable-row { grid-template-columns: 0.45fr 1.9fr .85fr .75fr .65fr .9fr; }
-.table-row.opening-balance-row { grid-template-columns: minmax(220px, 1.2fr) minmax(120px, .56fr) minmax(130px, .64fr) minmax(110px, .52fr) minmax(292px, 1.05fr); }
+.table-row.opening-balance-row { grid-template-columns: minmax(36px, .18fr) minmax(220px, 1.18fr) minmax(120px, .52fr) minmax(130px, .6fr) minmax(110px, .48fr) minmax(292px, 1.05fr); }
 .table-row.loan-head { grid-template-columns: minmax(190px, 1.35fr) minmax(120px, .72fr) minmax(120px, .72fr) minmax(105px, .58fr) minmax(124px, .72fr); }
 .table-row.company-row { grid-template-columns: minmax(210px, 1.28fr) minmax(150px, .78fr) minmax(140px, .72fr) minmax(110px, .56fr) minmax(168px, .72fr); }
 .table-row.user-head { grid-template-columns: 1.45fr .55fr .75fr .55fr .55fr; }

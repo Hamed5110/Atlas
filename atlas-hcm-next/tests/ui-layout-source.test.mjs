@@ -119,12 +119,16 @@ assert.match(source, /Previous fiscal year/, "global fiscal selector should prov
 assert.match(source, /Next fiscal year/, "global fiscal selector should provide next-year navigation");
 assert.match(source, /Update next year/, "opening balance rows should offer next-year update preparation");
 assert.match(source, /handleDeleteOpeningBalance/, "opening balance rows should offer delete with confirmation");
+assert.match(source, /handleBulkDeleteOpeningBalances/, "opening balance rows should support selected-row bulk delete");
+assert.match(source, /opening-edit-modal/, "opening balance edit should use a focused popup layout");
 assert.match(source, /opening-balance-row/, "opening balance rows should use a dedicated action-safe layout");
 assert.match(source, /opening-register-toolbar/, "opening balance should use a compact register toolbar");
 assert.doesNotMatch(source, /Company-wise year switcher/, "opening balance should not show the bulky company-wise year switcher panel");
 assert.match(css, /\.fiscal-context-switcher/, "global fiscal switcher should be styled");
 assert.match(css, /\.fiscal-context-chip/, "topbar should show selected fiscal year");
 assert.match(css, /\.table-row\.opening-balance-row\s*{[\s\S]*minmax\(292px,\s*1\.05fr\)/, "opening balance action column should prevent edit/update/delete text clipping");
+assert.match(css, /\.modal-backdrop/, "opening balance edit popup should have an overlay");
+assert.match(css, /\.opening-edit-modal/, "opening balance edit popup should be styled");
 assert.match(css, /\.opening-register-toolbar\s*{[\s\S]*grid-template-columns:\s*minmax\(260px,\s*340px\)\s*minmax\(0,\s*1fr\)/, "opening balance compact toolbar should align year control and facts");
 assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");

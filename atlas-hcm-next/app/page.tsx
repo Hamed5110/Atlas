@@ -254,6 +254,12 @@ type OpeningBalanceRegisterRow = {
   MaximumPayout?: number;
   IsActive?: boolean;
 };
+type OpeningBalanceCalculation = {
+  openingDays: number;
+  maximumPayout: number;
+  openingBhd: number;
+  formulaSource: string;
+};
 type IntelligenceSummary = {
   AsOfDate?: string;
   CurrentYear?: number;
@@ -965,6 +971,8 @@ export default function DashboardPage() {
     maximumPayout: "150"
   });
   const [editingOpeningBalanceKey, setEditingOpeningBalanceKey] = useState<string | null>(null);
+  const [openingEditModalOpen, setOpeningEditModalOpen] = useState(false);
+  const [selectedOpeningBalanceKeys, setSelectedOpeningBalanceKeys] = useState<Set<string>>(new Set());
   const [activeOpeningYear, setActiveOpeningYear] = useState(new Date().getFullYear().toString());
   const [openingBalanceRows, setOpeningBalanceRows] = useState<OpeningBalanceRegisterRow[]>([]);
   const [openingBalanceLoading, setOpeningBalanceLoading] = useState(false);
@@ -1681,9 +1689,14 @@ export default function DashboardPage() {
     try {
       const rows = await atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${year}`, activeSession.token, activeSession.sessionId);
       setOpeningBalanceRows(rows);
+      setSelectedOpeningBalanceKeys((current) => new Set([...current].filter((key) => rows.some((row) => openingBalanceKey(row) === key))));
     } finally {
       setOpeningBalanceLoading(false);
     }
+  }
+
+  function openingBalanceKey(row: Pick<OpeningBalanceRegisterRow, "EmployeeID" | "BalanceYear">) {
+    return `${row.EmployeeID}-${normalizeOpeningYear(row.BalanceYear || activeOpeningYearNumber)}`;
   }
 
   function shiftDateToFiscalYear(dateValue: string, year: number, fallbackMonthDay = "01-01") {
@@ -1699,6 +1712,8 @@ export default function DashboardPage() {
     setActiveOpeningYear(yearText);
     setOpeningPreview(null);
     setEditingOpeningBalanceKey(null);
+    setOpeningEditModalOpen(false);
+    setSelectedOpeningBalanceKeys(new Set());
     setYearEndPreview(null);
     setAllocationEligibilityReview(null);
     setMonthlyEmiRunPreview(null);
@@ -3313,12 +3328,11 @@ export default function DashboardPage() {
     if (!session) return setMessage("Please sign in before saving.");
     const employee = (employeeMasterAll.length ? employeeMasterAll : employees).find((item) => item.EmployeeID === Number(openingForm.employeeId));
     if (!employee) return setMessage("Select employee first.");
-    if (openingForm.openingDays.trim() === "" || openingForm.openingBhd.trim() === "") {
-      return setMessage("Enter opening days and opening amount before saving.");
+    if (openingForm.openingDays.trim() === "") {
+      return setMessage("Enter opening days before saving. Opening amount is calculated by MSSQL.");
     }
     const maximumPayout = toNumber(openingForm.maximumPayout, employee.MaximumPayout || AIRFARE_DEFAULT_PAYOUT);
     const openingDays = Math.min(AIRFARE_MAX_DAYS, toNumber(openingForm.openingDays));
-    const openingBhd = toNumber(openingForm.openingBhd, roundMoney((maximumPayout / 60) * openingDays));
     const openingYear = normalizeOpeningYear(openingForm.year);
 
     setBusy(true);
@@ -3328,7 +3342,7 @@ export default function DashboardPage() {
         employeeId: employee.EmployeeID,
         year: openingYear,
         openingDays,
-        openingBhd,
+        openingBhd: null,
         maximumPayout
       });
       setActiveFiscalYear(String(openingYear));
@@ -3337,6 +3351,7 @@ export default function DashboardPage() {
       await reloadOpeningBalances(session, openingYear);
       setOpeningForm({ ...openingForm, employeeId: "", year: String(openingYear), openingDays: "", openingBhd: "", maximumPayout: "150" });
       setEditingOpeningBalanceKey(null);
+      setOpeningEditModalOpen(false);
       setMessage(`Opening balance ${editingOpeningBalanceKey ? "updated" : "saved"} for ${openingYear} and employee airfare balance updated.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Opening balance save failed");
@@ -3348,7 +3363,34 @@ export default function DashboardPage() {
   function resetOpeningBalanceForm(yearValue: string | number = activeOpeningYear) {
     const year = normalizeOpeningYear(yearValue);
     setEditingOpeningBalanceKey(null);
+    setOpeningEditModalOpen(false);
     setOpeningForm({ employeeId: "", year: String(year), openingDays: "", openingBhd: "", maximumPayout: "150" });
+  }
+
+  async function refreshOpeningFormAmount(next: { openingDays?: string; maximumPayout?: string }) {
+    if (!session) return;
+    const openingDays = next.openingDays ?? openingForm.openingDays;
+    const maximumPayout = next.maximumPayout ?? openingForm.maximumPayout;
+    if (openingDays.trim() === "") {
+      setOpeningForm((current) => ({ ...current, ...next, openingBhd: "" }));
+      return;
+    }
+    setOpeningForm((current) => ({ ...current, ...next }));
+    try {
+      const params = new URLSearchParams({
+        openingDays: String(Math.min(AIRFARE_MAX_DAYS, toNumber(openingDays))),
+        maximumPayout: String(toNumber(maximumPayout, AIRFARE_DEFAULT_PAYOUT))
+      });
+      const calculated = await atlasFetch<OpeningBalanceCalculation>(`/opening-balances/calculate?${params.toString()}`, session.token, session.sessionId);
+      setOpeningForm((current) => ({
+        ...current,
+        openingDays,
+        maximumPayout,
+        openingBhd: Number(calculated.openingBhd || 0).toFixed(2)
+      }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Opening amount calculation failed");
+    }
   }
 
   function prepareOpeningBalanceEdit(row: OpeningBalanceRegisterRow) {
@@ -3362,6 +3404,7 @@ export default function DashboardPage() {
       openingBhd: String(Number(row.OpeningBHD || 0)),
       maximumPayout: String(row.MaximumPayout || employee?.MaximumPayout || 150)
     });
+    setOpeningEditModalOpen(true);
     setMessage(`Editing ${row.EmployeeCode} opening balance for ${year}. Review values, then Update opening balance.`);
   }
 
@@ -3381,6 +3424,47 @@ export default function DashboardPage() {
       setMessage(`Deleted ${row.EmployeeCode} opening balance for ${year}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Opening balance delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleOpeningBalanceSelection(row: OpeningBalanceRegisterRow, checked: boolean) {
+    const key = openingBalanceKey(row);
+    setSelectedOpeningBalanceKeys((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function toggleAllOpeningBalanceRows(checked: boolean) {
+    setSelectedOpeningBalanceKeys(checked ? new Set(filteredOpeningBalanceRows.map((row) => openingBalanceKey(row))) : new Set());
+  }
+
+  async function handleBulkDeleteOpeningBalances() {
+    if (!session) return setMessage("Please sign in before deleting opening balances.");
+    if (!["admin", "manager", "hr"].includes(session.user.role)) return setMessage("Only admin, manager, or HR can delete opening balances.");
+    const selectedRows = filteredOpeningBalanceRows.filter((row) => selectedOpeningBalanceKeys.has(openingBalanceKey(row)));
+    if (!selectedRows.length) return setMessage("Select opening balance rows before deleting.");
+    const year = activeOpeningYearNumber;
+    const ok = window.confirm(`Delete ${selectedRows.length} selected opening balance row(s) for ${year}?`);
+    if (!ok) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await atlasMutation<{ deleted: number; year: number }>("/opening-balances/bulk-delete", session.token, session.sessionId, "POST", {
+        year,
+        employeeIds: selectedRows.map((row) => row.EmployeeID)
+      });
+      setSelectedOpeningBalanceKeys(new Set());
+      if (selectedRows.some((row) => editingOpeningBalanceKey === openingBalanceKey(row))) resetOpeningBalanceForm(year);
+      await loadLiveData(session, year);
+      await reloadOpeningBalances(session, year);
+      setMessage(`Deleted ${result.deleted} selected opening balance row(s) for ${result.year}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Selected opening balance delete failed");
     } finally {
       setBusy(false);
     }
@@ -3413,8 +3497,7 @@ export default function DashboardPage() {
       const balances = parsedBalances
         .filter((row) => row.employeeCode || row.openingDays || row.importedOpeningBhd)
         .map((row) => ({
-          ...row,
-          openingBhd: roundMoney((Number(row.maximumPayout || AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, Number(row.openingDays || 0)))
+          ...row
         }));
       if (!balances.length) throw new Error("No opening balance rows found.");
       const previewResult = await atlasMutation<{
@@ -4710,6 +4793,8 @@ export default function DashboardPage() {
     const text = `${row.EmployeeCode} ${row.FullName} ${row.Department || ""} ${row.Branch || ""}`.toLowerCase();
     return text.includes(searchText);
   });
+  const selectedOpeningBalanceRows = filteredOpeningBalanceRows.filter((row) => selectedOpeningBalanceKeys.has(openingBalanceKey(row)));
+  const allOpeningBalanceRowsSelected = filteredOpeningBalanceRows.length > 0 && filteredOpeningBalanceRows.every((row) => selectedOpeningBalanceKeys.has(openingBalanceKey(row)));
   const openingFormKey = openingForm.employeeId ? `${openingForm.employeeId}-${normalizeOpeningYear(openingForm.year)}` : null;
   const openingFormIsUpdate = Boolean(editingOpeningBalanceKey && openingFormKey === editingOpeningBalanceKey);
   const openingBalanceTotalAmount = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningBHD || 0), 0);
@@ -5857,6 +5942,7 @@ export default function DashboardPage() {
               <div className="button-row compact">
                 <button className="soft-button" disabled={busy || !session} onClick={() => openingImportRef.current?.click()}><Upload size={16} /> Import Excel</button>
                 <button className="soft-button" disabled={busy} onClick={handleExportOpeningBalances}><Download size={16} /> Export Opening Balances</button>
+                <button className="danger-button" disabled={busy || selectedOpeningBalanceRows.length === 0} onClick={() => void handleBulkDeleteOpeningBalances}><Trash2 size={16} /> Delete selected {selectedOpeningBalanceRows.length ? `(${selectedOpeningBalanceRows.length})` : ""}</button>
               </div>
               {openingPreview && (
                 <div className="import-preview">
@@ -5902,7 +5988,10 @@ export default function DashboardPage() {
                 </div>
               )}
               <div className="premium-table">
-                <div className="table-row employee-head opening-balance-row table-head"><span>Employee</span><span>Opening Days</span><span>Opening Amount</span><span>Status</span><span>Action</span></div>
+                <div className="table-row employee-head opening-balance-row table-head">
+                  <span><input type="checkbox" aria-label="Select all opening balance rows" checked={allOpeningBalanceRowsSelected} disabled={!filteredOpeningBalanceRows.length} onChange={(event) => toggleAllOpeningBalanceRows(event.target.checked)} /></span>
+                  <span>Employee</span><span>Opening Days</span><span>Opening Amount</span><span>Status</span><span>Action</span>
+                </div>
                 {filteredOpeningBalanceRows.length === 0 && (
                   <div className="notice">
                     <span />
@@ -5914,6 +6003,7 @@ export default function DashboardPage() {
                 )}
                 {filteredOpeningBalanceRows.map((row) => (
                   <div className="table-row employee-head opening-balance-row" key={`${row.EmployeeID}-${row.BalanceYear}`}>
+                    <span><input type="checkbox" aria-label={`Select ${row.EmployeeCode} opening balance`} checked={selectedOpeningBalanceKeys.has(openingBalanceKey(row))} onChange={(event) => toggleOpeningBalanceSelection(row, event.target.checked)} /></span>
                     <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / {row.Department || "-"}</small></span>
                     <span>{Number(row.OpeningDays || 0).toFixed(2)}</span>
                     <span>{money.format(Number(row.OpeningBHD || 0))}</span>
@@ -5961,19 +6051,17 @@ export default function DashboardPage() {
                 }} onBlur={(event) => void handleOpeningYearChange(event.target.value)} /></Field>
                 <Field label="Opening days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => {
                   const days = event.target.value;
-                  const amount = days.trim() === "" ? "" : roundMoney((toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, toNumber(days))).toFixed(2);
-                  setOpeningForm({ ...openingForm, openingDays: days, openingBhd: amount });
+                  void refreshOpeningFormAmount({ openingDays: days });
                 }} /></Field>
-                <Field label="Opening amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} onChange={(event) => setOpeningForm({ ...openingForm, openingBhd: event.target.value })} /></Field>
+                <Field label="Opening amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} readOnly /></Field>
                 <Field label="Maximum payout"><input type="number" step="0.01" min="0" max="150" value={openingForm.maximumPayout} onChange={(event) => {
                   const maximumPayout = event.target.value;
-                  const amount = openingForm.openingDays.trim() === "" ? "" : roundMoney((toNumber(maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, toNumber(openingForm.openingDays))).toFixed(2);
-                  setOpeningForm({ ...openingForm, maximumPayout, openingBhd: amount });
+                  void refreshOpeningFormAmount({ maximumPayout });
                 }} /></Field>
               </div>
               <div className="calc-result">
-                <span><small>Formula</small><strong>Max / 60 x days</strong></span>
-                <span><small>Amount</small><strong>{money.format(toNumber(openingForm.openingBhd))}</strong></span>
+                <span><small>Formula source</small><strong>dbo.fn_ATLAS_AirfareAmount</strong></span>
+                <span><small>SQL amount</small><strong>{money.format(toNumber(openingForm.openingBhd))}</strong></span>
                 <span><small>Per day</small><strong>{money.format(toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS)}</strong></span>
               </div>
               <div className="button-row">
@@ -5983,6 +6071,41 @@ export default function DashboardPage() {
               <p className="muted">Opening balance is the approved carry-forward balance used by Airfare Allocation.</p>
             </div>
           </section>
+        )}
+
+        {openingEditModalOpen && openingFormIsUpdate && activeView === "Opening Balance" && (
+          <div className="modal-backdrop" role="presentation">
+            <section className="glass-panel opening-edit-modal" role="dialog" aria-modal="true" aria-labelledby="opening-edit-title">
+              <div className="modal-head">
+                <div>
+                  <strong id="opening-edit-title">Edit opening balance</strong>
+                  <span>MSSQL calculates the amount through dbo.fn_ATLAS_AirfareAmount.</span>
+                </div>
+                <button className="icon-button" type="button" aria-label="Close edit opening balance" onClick={() => resetOpeningBalanceForm(openingForm.year)}><X size={18} /></button>
+              </div>
+              <div className="form-grid two">
+                <Field label="Employee">
+                  <select value={openingForm.employeeId} disabled>
+                    <option value="">Select employee</option>
+                    {(employeeMasterAll.length ? employeeMasterAll : employees).map((employee) => <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}</option>)}
+                  </select>
+                </Field>
+                <Field label="Opening year"><input type="number" value={openingForm.year} disabled /></Field>
+                <Field label="Opening days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => void refreshOpeningFormAmount({ openingDays: event.target.value })} /></Field>
+                <Field label="Maximum payout"><input type="number" step="0.01" min="0" max="150" value={openingForm.maximumPayout} onChange={(event) => void refreshOpeningFormAmount({ maximumPayout: event.target.value })} /></Field>
+                <Field label="Opening amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} readOnly /></Field>
+              </div>
+              <div className="calc-result">
+                <span><small>Formula source</small><strong>dbo.fn_ATLAS_AirfareAmount</strong></span>
+                <span><small>SQL amount</small><strong>{money.format(toNumber(openingForm.openingBhd))}</strong></span>
+                <span><small>Per day</small><strong>{money.format(toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS)}</strong></span>
+              </div>
+              <div className="button-row">
+                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>Update opening balance</button>
+                <button className="soft-button" disabled={busy} onClick={() => resetOpeningBalanceForm(openingForm.year)}>Cancel edit</button>
+              </div>
+            </section>
+          </div>
         )}
 
         {activeView === "Airfare" && (
