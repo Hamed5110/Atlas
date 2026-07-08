@@ -1274,6 +1274,107 @@ h3 { font-size: 20px; letter-spacing: 0; }
   font-size: 13px;
   line-height: 1.5;
 }
+.mapping-validation-engine,
+.voucher-template-engine,
+.company-year-matrix,
+.emi-confirmation-matrix {
+  display: grid;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid rgba(21,94,239,.16);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.mapping-validation-engine > div:first-child strong,
+.mapping-validation-engine > div:first-child span,
+.voucher-template-head strong,
+.voucher-template-head span,
+.matrix-head strong,
+.matrix-head span,
+.emi-confirmation-head strong,
+.emi-confirmation-head span {
+  display: block;
+}
+.mapping-validation-engine > div:first-child span,
+.voucher-template-head span,
+.matrix-head span,
+.emi-confirmation-head span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.mapping-diagnostic-strip,
+.voucher-template-grid,
+.matrix-grid,
+.emi-step-grid,
+.emi-variance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+.mapping-diagnostic-strip span,
+.voucher-template-grid span,
+.matrix-grid span,
+.emi-step-grid span,
+.emi-variance-grid span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15,23,42,.08);
+  border-radius: 8px;
+  background: #ffffff;
+}
+.mapping-diagnostic-strip small,
+.voucher-template-grid small,
+.matrix-grid small,
+.emi-step-grid small,
+.emi-variance-grid small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.mapping-diagnostic-strip strong,
+.voucher-template-grid strong,
+.matrix-grid strong,
+.emi-step-grid strong,
+.emi-variance-grid strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mapping-grid em,
+.matrix-grid em,
+.emi-step-grid em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+}
+.mapping-grid .mapping-missing {
+  border-color: rgba(225,29,72,.24);
+  background: #fff1f2;
+}
+.mapping-grid .mapping-review {
+  border-color: rgba(217,119,6,.24);
+  background: #fffbeb;
+}
+.voucher-template-head,
+.matrix-head,
+.emi-confirmation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.voucher-template-engine {
+  margin: 14px 0;
+}
+.emi-confirmation-matrix {
+  border-color: rgba(5,150,105,.18);
+  background: #ecfdf5;
+}
 .import-summary-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(110px, 1fr));

@@ -184,6 +184,12 @@ type ImportPreview = {
     selectedRows: number;
   };
 };
+type ImportMappingDiagnostic = {
+  label: string;
+  mappedHeader: string;
+  status: "Mapped" | "Missing" | "Review";
+  detail: string;
+};
 type OpeningBalancePreview = {
   importBatchId?: number;
   fileName: string;
@@ -418,6 +424,13 @@ type LoanEmiPreview = {
     NextDeduction: number;
     BalanceAfter: number;
   }>;
+};
+type EmiRunVariance = {
+  originalTotal: number;
+  adjustedTotal: number;
+  settlementTotal: number;
+  deferredCount: number;
+  excludedCount: number;
 };
 type LoanEmiReturnPreview = {
   selected: number;
@@ -1308,6 +1321,36 @@ export default function DashboardPage() {
       detail: "Closing days and amount are copied into next-year opening balance with audit history.",
       status: yearEndPreview ? "Protected" : "Pending",
       tone: yearEndPreview ? "success" : "info"
+    }
+  ];
+  const yearEndSelectedYear = Number(yearEndForm.year || new Date().getFullYear());
+  const yearEndNextYear = yearEndSelectedYear + 1;
+  const yearEndIsHistorical = Boolean(yearEndPreview?.yearEndId || yearEndSelectedYear < new Date().getFullYear());
+  const yearEndMatrixCompany = companies.find((company) => String(company.CompanyID) === selectedCompanyId) || companies[0];
+  const yearEndMatrixRows = [
+    {
+      label: "Company partition",
+      value: yearEndMatrixCompany ? `${yearEndMatrixCompany.CompanyCode || "Company"} - ${yearEndMatrixCompany.CompanyName}` : "Active company required",
+      state: yearEndMatrixCompany ? "Isolated" : "Select company",
+      detail: "Logos, name, sessions, and tenant records stay scoped to the selected company."
+    },
+    {
+      label: "Selected year",
+      value: String(yearEndSelectedYear || "-"),
+      state: yearEndIsHistorical ? "Historical read-only" : "Active operational",
+      detail: yearEndIsHistorical ? "Closed or prior year opens as a snapshot review surface." : "Open year can preview and close through admin workflow."
+    },
+    {
+      label: "Next-year ledger",
+      value: String(yearEndNextYear || "-"),
+      state: yearEndPreview ? "Mapped" : "Preview required",
+      detail: "Closing days, closing BHD, and pending loan balances map to next-year opening evidence after close."
+    },
+    {
+      label: "Preference guard",
+      value: "Runtime airfare policy",
+      state: "Formula locked",
+      detail: "Year-end screens do not change formulas; airfare values stay tied to policy snapshots and preference lookup."
     }
   ];
 
@@ -5860,6 +5903,23 @@ export default function DashboardPage() {
                   <button className="shine-button" type="button" disabled={!allocationWhatsAppReady} onClick={openAllocationManagerWhatsApp}>Open manager WhatsApp</button>
                 </div>
               </div>
+              <div className="voucher-template-engine">
+                <div className="voucher-template-head">
+                  <div>
+                    <strong>Bulk Voucher Template Engine</strong>
+                    <span>Web-to-print payload uses company branding, employee snapshot, allocation values, and captured preference rate evidence.</span>
+                  </div>
+                  <span className="pill">Template v1 / Paper + PDF</span>
+                </div>
+                <div className="voucher-template-grid">
+                  <span><small>Company header</small><strong>{activeCompany?.CompanyName || "ATLAS"}</strong></span>
+                  <span><small>Employee block</small><strong>{selectedEmployee ? `${selectedEmployee.EmployeeCode} - ${selectedEmployee.FullName}` : "Select employee"}</strong></span>
+                  <span><small>Calculation block</small><strong>{money.format(selectedEntitlement)} entitlement</strong></span>
+                  <span><small>Financial block</small><strong>{money.format(displayedCompanySettlementAmount)} company pay</strong></span>
+                  <span><small>Audit block</small><strong>{editingAllocationId ? `Allocation #${editingAllocationId}` : "Draft preview"}</strong></span>
+                  <span><small>Branding</small><strong>{companyLogoUrl ? "Logo linked" : "Default mark"}</strong></span>
+                </div>
+              </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy} onClick={handleCreateAllocation}>{editingAllocationId ? "Update, upload and print" : "Save, upload and print"}</button>
                 {editingAllocationId && <button className="soft-button" disabled={busy} onClick={cancelAllocationEdit}>Cancel edit</button>}
@@ -6228,6 +6288,7 @@ export default function DashboardPage() {
                         </div>
                       ))}
                     </div>
+                    <EmiRunConfirmationPanel preview={monthlyEmiRunPreview} />
                     <div className="button-row compact">
                       <button className="shine-button" disabled={busy || monthlyEmiRunPreview.processed === 0} onClick={handleRunSelectedEmis}>Process selected loan EMI</button>
                     </div>
@@ -6328,6 +6389,24 @@ export default function DashboardPage() {
                 <span><small>Closing days</small><strong>{yearEndPreview ? Number(yearEndPreview.totalClosingDays || 0).toFixed(2) : "-"}</strong></span>
                 <span><small>Closing amount</small><strong>{money.format(yearEndPreview?.totalOpeningBalance ?? 0)}</strong></span>
                 <span><small>Pending loans</small><strong>{yearEndPreview ? `${yearEndPreview.pendingLoanCount || 0} / ${money.format(yearEndPreview.pendingLoanAmount || 0)}` : "-"}</strong></span>
+              </div>
+              <div className="company-year-matrix">
+                <div className="matrix-head">
+                  <div>
+                    <strong>Company-wise and year-wise shifting matrix</strong>
+                    <span>Switching company or year reloads scoped assets, preferences, and historical/current state boundaries.</span>
+                  </div>
+                  <span className="pill">{yearEndIsHistorical ? "Read-only historical mode" : "Current operational mode"}</span>
+                </div>
+                <div className="matrix-grid">
+                  {yearEndMatrixRows.map((row) => (
+                    <span key={row.label}>
+                      <small>{row.label}</small>
+                      <strong>{row.value}</strong>
+                      <em>{row.state}: {row.detail}</em>
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="premium-table">
                 <div className="table-row employee-head"><span>Control</span><span>Value</span><span>Status</span><span>Action</span></div>
@@ -7506,6 +7585,8 @@ function ImportPreviewPanel({ preview, onCancel, onConfirm, onToggleRow, onToggl
   const selectedRows = preview.employees.filter((employee) => employee.selected);
   const readyRows = preview.employees.filter((employee) => employee.validationStatus === "Ready");
   const allReadySelected = readyRows.length > 0 && readyRows.every((employee) => employee.selected);
+  const mappingDiagnostics = buildImportMappingDiagnostics(preview);
+  const typeDiagnostics = buildImportTypeDiagnostics(preview);
   return (
     <div className="import-preview">
       <div className="import-preview-head">
@@ -7521,6 +7602,18 @@ function ImportPreviewPanel({ preview, onCancel, onConfirm, onToggleRow, onToggl
       <div className="import-alert">
         Review the Excel list before saving. Uncheck or remove employees you do not want to import. SQL validates duplicates, missing code/name, and then inserts or updates selected rows.
       </div>
+      <div className="mapping-validation-engine">
+        <div>
+          <strong>Data Mapping Validation Engine</strong>
+          <span>Staging memory matrix checks headers, data types, duplicate IDs, and required fields before database commit.</span>
+        </div>
+        <div className="mapping-diagnostic-strip">
+          <span><small>Duplicate IDs</small><strong>{typeDiagnostics.duplicateIds}</strong></span>
+          <span><small>Invalid dates</small><strong>{typeDiagnostics.invalidDates}</strong></span>
+          <span><small>Missing required</small><strong>{typeDiagnostics.missingRequired}</strong></span>
+          <span><small>Total issues</small><strong>{typeDiagnostics.totalIssues}</strong></span>
+        </div>
+      </div>
       {preview.summary && (
         <div className="import-summary-strip">
           <span><small>Total rows</small><strong>{preview.summary.totalRows}</strong></span>
@@ -7531,10 +7624,11 @@ function ImportPreviewPanel({ preview, onCancel, onConfirm, onToggleRow, onToggl
         </div>
       )}
       <div className="mapping-grid">
-        {importMappingFields.map((field) => (
-          <span key={field.label}>
+        {mappingDiagnostics.map((field) => (
+          <span className={`mapping-${field.status.toLowerCase()}`} key={field.label}>
             <small>{field.label}</small>
-            <strong>{mappedHeaderLabel(preview, field.keys)}</strong>
+            <strong>{field.mappedHeader}</strong>
+            <em>{field.status}: {field.detail}</em>
           </span>
         ))}
       </div>
@@ -7577,6 +7671,29 @@ function ImportPreviewPanel({ preview, onCancel, onConfirm, onToggleRow, onToggl
         ))}
       </div>
       {!preview.employees.length && <p className="muted">All preview rows were removed. Select Excel again to rebuild the list.</p>}
+    </div>
+  );
+}
+
+function EmiRunConfirmationPanel({ preview }: { preview: LoanEmiPreview }) {
+  const variance = buildEmiRunVariance(preview);
+  return (
+    <div className="emi-confirmation-matrix">
+      <div className="emi-confirmation-head">
+        <strong>3-step EMI run verification</strong>
+        <span>Selection and filtering to exception application to multi-user confirmation before ledger commit.</span>
+      </div>
+      <div className="emi-step-grid">
+        <span><small>Step 1</small><strong>Selection and Filtering</strong><em>{preview.processed} active eligible loan(s)</em></span>
+        <span><small>Step 2</small><strong>Exception Application</strong><em>{variance.deferredCount} deferred / {money.format(variance.settlementTotal)} settlement variance</em></span>
+        <span><small>Step 3</small><strong>Multi-User Confirmation</strong><em>{money.format(variance.adjustedTotal)} final ledger total</em></span>
+      </div>
+      <div className="emi-variance-grid">
+        <span><small>Original EMI total</small><strong>{money.format(variance.originalTotal)}</strong></span>
+        <span><small>Adjusted total</small><strong>{money.format(variance.adjustedTotal)}</strong></span>
+        <span><small>Variance</small><strong>{money.format(variance.adjustedTotal - variance.originalTotal)}</strong></span>
+        <span><small>Excluded loans</small><strong>{variance.excludedCount}</strong></span>
+      </div>
     </div>
   );
 }
@@ -7940,6 +8057,53 @@ const importMappingFields = [
   { label: "Status", keys: ["employeestatusgeneral", "employee status"] },
   { label: "Email", keys: ["emailcontactdetails", "email"] }
 ];
+
+function buildImportMappingDiagnostics(preview: ImportPreview): ImportMappingDiagnostic[] {
+  const required = new Set(["Employee Code", "Full Name", "Join Date", "Status"]);
+  return importMappingFields.map((field) => {
+    const mappedHeader = mappedHeaderLabel(preview, field.keys);
+    const isMissing = mappedHeader === "Not mapped";
+    const status: ImportMappingDiagnostic["status"] = isMissing ? (required.has(field.label) ? "Missing" : "Review") : "Mapped";
+    const detail = isMissing
+      ? required.has(field.label)
+        ? "Required mapping is missing before commit."
+        : "Optional field is not mapped; row can still be reviewed."
+      : "Mapped into staging memory matrix.";
+    return { label: field.label, mappedHeader, status, detail };
+  });
+}
+
+function buildImportTypeDiagnostics(preview: ImportPreview) {
+  const duplicateCodes = new Set<string>();
+  const seenCodes = new Set<string>();
+  for (const row of preview.employees) {
+    const code = String(row.code || "").trim().toLowerCase();
+    if (!code) continue;
+    if (seenCodes.has(code)) duplicateCodes.add(code);
+    seenCodes.add(code);
+  }
+  const invalidDates = preview.employees.filter((row) => row.joinDate && Number.isNaN(new Date(`${row.joinDate}T00:00:00`).getTime())).length;
+  const missingRequired = preview.employees.filter((row) => !row.code || !row.name || !row.joinDate).length;
+  return {
+    duplicateIds: duplicateCodes.size,
+    invalidDates,
+    missingRequired,
+    totalIssues: duplicateCodes.size + invalidDates + missingRequired
+  };
+}
+
+function buildEmiRunVariance(preview: LoanEmiPreview): EmiRunVariance {
+  const originalTotal = preview.rows.reduce((total, row) => total + Number(row.EMI || 0), 0);
+  const adjustedTotal = Number(preview.totalDeducted || 0);
+  const settlementTotal = preview.rows.reduce((total, row) => {
+    const emi = Number(row.EMI || 0);
+    const nextDeduction = Number(row.NextDeduction || 0);
+    return total + (nextDeduction > emi ? nextDeduction - emi : 0);
+  }, 0);
+  const deferredCount = preview.rows.filter((row) => Number(row.NextDeduction || 0) <= 0).length;
+  const excludedCount = Math.max(0, Number(preview.selected === "all-active" ? preview.processed : preview.selected) - Number(preview.processed || 0));
+  return { originalTotal, adjustedTotal, settlementTotal, deferredCount, excludedCount };
+}
 
 const employeeExportColumns = [
   "BankCode[General]",

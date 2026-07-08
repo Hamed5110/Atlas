@@ -58,6 +58,9 @@ assert.match(source, /entitlementAppliedAmount\s*=\s*allocationForm\.paymentMode
 assert.match(source, /loanExcessAmount\s*=\s*allocationForm\.paymentMode === "loan"\s*\?\s*excessBalance\s*:\s*0/, "loan option should carry only the excess balance when selected");
 assert.doesNotMatch(source, /entitlementFullyCoversTicket[\s\S]{0,180}setAllocationForm\(\(current\)\s*=>\s*\(\{\s*\.\.\.current,\s*paymentMode:\s*"entitlement"/, "entitlement coverage should not force settlement selection back to entitlement");
 assert.match(source, /Opening balance is controlled separately/, "employee master should guide users to separate opening balance process");
+assert.match(source, /Data Mapping Validation Engine/, "employee import should expose data mapping validation before commit");
+assert.match(source, /buildImportMappingDiagnostics/, "employee import should calculate mapping diagnostics");
+assert.match(source, /buildImportTypeDiagnostics/, "employee import should calculate duplicate and type diagnostics");
 assert.match(source, /WhatsApp number/, "employee master should store a WhatsApp number for normal WhatsApp messaging");
 assert.match(source, /WhatsApp message/, "employee master should expose a WhatsApp message composer");
 assert.match(source, /Employee WhatsApp from master/, "WhatsApp composer should pick up employee number from Employee Master");
@@ -107,6 +110,8 @@ assert.match(source, /employee exception, pay group matrix, department matrix, c
 assert.match(source, /handleYearEndPreview/, "year end screen should support preview before closing");
 assert.match(source, /handleYearEndClose/, "year end screen should support controlled final close");
 assert.match(source, /Year End readiness gate/, "year end screen should show readiness checks before closing");
+assert.match(source, /Company-wise and year-wise shifting matrix/, "year end should show company/year matrix boundaries");
+assert.match(source, /yearEndMatrixRows/, "year end should generate company-year isolation matrix rows");
 assert.match(source, /yearEndReadinessChecks/, "year end readiness checks should be generated from live preview state");
 assert.match(source, /Pending loans/, "year end preview should show pending loans before final close");
 assert.match(source, /Closing days/, "year end preview should show closing days as of selected closing date");
@@ -158,6 +163,8 @@ assert.match(source, /Update loan/, "loan form should switch to update mode");
 assert.match(source, /handlePreviewSelectedEmis/, "loan register should preview selected EMI before processing");
 assert.match(source, /Monthly EMI preview/, "loan register should show an in-screen EMI preview");
 assert.match(source, /Process selected loan EMI/, "loan preview should provide an explicit process button");
+assert.match(source, /3-step EMI run verification/, "loan EMI run should show three-step verification before commit");
+assert.match(source, /buildEmiRunVariance/, "loan EMI run should show original and adjusted variance totals");
 assert.match(source, /handlePreviewReturnSelectedEmis/, "loan register should preview selected EMI returns before processing");
 assert.match(source, /Return EMI preview/, "loan register should show an in-screen EMI return preview");
 assert.match(source, /Process selected EMI return/, "loan return preview should provide an explicit process button");
@@ -307,6 +314,7 @@ assert.match(source, /PDF \/ Print/, "reports screen should print or save the di
 assert.match(source, /From date/, "reports screen should support date range start");
 assert.match(source, /To date/, "reports screen should support date range end");
 assert.match(source, /function printCurrentScreen/, "every app screen should have a premium print snapshot");
+assert.match(source, /Bulk Voucher Template Engine/, "airfare allocation should expose voucher template payload structure");
 assert.match(source, /Print current screen/, "topbar should expose global screen printing");
 assert.match(source, /ATLAS Help and Validation Guide/, "support screen should have a printable help format");
 assert.match(source, /ATLAS_Airfare_HCM_Support_Guide_2026-06-28\.docx/, "support screen should link the Word help guide");
