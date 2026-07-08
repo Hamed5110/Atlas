@@ -477,7 +477,51 @@ input, select, button { max-width: 100%; }
   background: #ffffff;
   padding: 0 12px;
 }
+.fiscal-context-switcher {
+  padding: 10px;
+  border: 1px solid rgba(5,150,105,.18);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(236,253,245,.9), rgba(239,246,255,.92));
+}
+.fiscal-stepper {
+  display: grid;
+  grid-template-columns: minmax(58px, .7fr) minmax(86px, 1fr) minmax(58px, .7fr);
+  gap: 6px;
+  align-items: center;
+}
+.fiscal-stepper button,
+.fiscal-stepper input {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #ffffff;
+  text-align: center;
+  font-weight: 900;
+}
+.fiscal-stepper button {
+  cursor: pointer;
+  color: #047857;
+  border-color: rgba(5,150,105,.24);
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.fiscal-stepper button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(5,150,105,.12);
+}
+.fiscal-stepper button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.fiscal-context-switcher small {
+  margin-top: 7px;
+  color: var(--muted);
+  line-height: 1.35;
+}
 .theme-dark .company-switcher select,
+.theme-dark .fiscal-stepper button,
+.theme-dark .fiscal-stepper input,
 .theme-dark .search-box,
 .theme-dark .icon-button,
 .theme-dark .inline-form input,
@@ -489,6 +533,23 @@ input, select, button { max-width: 100%; }
   color: var(--text);
   background: #111827;
   border-color: var(--line);
+}
+.fiscal-context-chip {
+  min-height: var(--control-h);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(5,150,105,.24);
+  border-radius: 12px;
+  color: #047857;
+  background: #ecfdf5;
+  padding: 0 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(5,150,105,.08);
+}
+.fiscal-context-chip:disabled {
+  opacity: .68;
 }
 nav {
   display: grid;
@@ -3693,6 +3754,11 @@ h3 { font-size: 20px; letter-spacing: 0; }
     width: 100%;
     height: 44px;
     flex: 0 0 44px;
+  }
+  .fiscal-context-chip {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
   }
   .profile-chip {
     grid-column: 1 / -1;

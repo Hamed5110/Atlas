@@ -1055,6 +1055,7 @@ export default function DashboardPage() {
     from: `${new Date().getFullYear()}-01-01`,
     to: today
   });
+  const [activeFiscalYear, setActiveFiscalYear] = useState(new Date().getFullYear().toString());
   const [reportDensity, setReportDensity] = useState<"comfortable" | "standard" | "compact">("standard");
   const [reportFitMode, setReportFitMode] = useState<"wide" | "fit">("wide");
   const [yearEndForm, setYearEndForm] = useState({
@@ -1114,7 +1115,7 @@ export default function DashboardPage() {
     })[0];
   const selectedMaximumPayout = selectedEffectivePolicyRate?.MaxPayoutAmount || allocationEligibilityReview?.MaximumPayout || selectedEmployee?.MaximumPayout || AIRFARE_DEFAULT_PAYOUT;
   const selectedCompanyMaxPayout = selectedMaximumPayout;
-  const selectedAllocationYear = Number(allocationForm.year) || new Date().getFullYear();
+  const selectedAllocationYear = normalizeOpeningYear(allocationForm.year || activeFiscalYear);
   const selectedOpeningDays = selectedEmployee?.OpeningDays ?? 0;
   const selectedOpeningAmount = roundMoney(selectedEmployee?.OpeningBHD ?? ((selectedMaximumPayout / 60) * Math.max(0, selectedOpeningDays)));
   const selectedEmployeeAllocations = allocations.filter((allocation) => {
@@ -1314,7 +1315,8 @@ export default function DashboardPage() {
   const yearEndPendingLoanAmount = Number(yearEndPreview?.pendingLoanAmount ?? yearEndPreview?.totals?.PendingLoanAmount ?? 0);
   const yearEndNegativeBalances = (yearEndPreview?.employees || []).filter((row) => Number(row.ClosingDays || 0) < 0 || Number(row.ClosingBHD || 0) < 0).length;
   const yearEndCalendarYear = new Date().getFullYear();
-  const yearEndSelectedYear = normalizeOpeningYear(yearEndForm.year || yearEndCalendarYear);
+  const activeFiscalYearNumber = normalizeOpeningYear(activeFiscalYear);
+  const yearEndSelectedYear = normalizeOpeningYear(yearEndForm.year || activeFiscalYearNumber);
   const yearEndNextYear = yearEndSelectedYear + 1;
   const yearEndYearOptions = Array.from(new Set([
     yearEndCalendarYear - 1,
@@ -1629,19 +1631,51 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleOpeningYearChange(value: string | number) {
+  function shiftDateToFiscalYear(dateValue: string, year: number, fallbackMonthDay = "01-01") {
+    const source = /^\d{4}-\d{2}-\d{2}$/.test(dateValue) ? dateValue : `${year}-${fallbackMonthDay}`;
+    const monthDay = source.slice(5) || fallbackMonthDay;
+    return `${year}-${monthDay}`;
+  }
+
+  async function handleFiscalYearSwitch(value: string | number, options: { announce?: boolean; targetView?: ViewKey } = {}) {
     const year = normalizeOpeningYear(value);
     const yearText = String(year);
+    setActiveFiscalYear(yearText);
     setActiveOpeningYear(yearText);
-    setOpeningForm((current) => ({ ...current, year: yearText }));
     setOpeningPreview(null);
-    if (session) {
-      await reloadOpeningBalances(session, year);
-      setMessage(`Opening balance register switched to ${year}.`);
+    setYearEndPreview(null);
+    setAllocationEligibilityReview(null);
+    setMonthlyEmiRunPreview(null);
+    setMonthlyEmiReturnPreview(null);
+    setOpeningForm((current) => ({ ...current, year: yearText }));
+    setAllocationForm((current) => ({
+      ...current,
+      year: yearText,
+      date: shiftDateToFiscalYear(current.date || today, year, "07-01")
+    }));
+    setYearEndForm((current) => ({
+      ...current,
+      year: yearText,
+      closingDate: `${year}-12-31`
+    }));
+    setReportForm((current) => ({
+      ...current,
+      from: `${year}-01-01`,
+      to: `${year}-12-31`
+    }));
+    if (options.targetView) setActiveView(options.targetView);
+    if (session) await loadLiveData(session, year);
+    if (options.announce !== false) {
+      setMessage(`Fiscal year switched to ${year}. Application data, reports, opening balances, allocations, and year-end context reloaded for ${year}.`);
     }
   }
 
-  async function loadLiveData(activeSession = session) {
+  async function handleOpeningYearChange(value: string | number) {
+    const year = normalizeOpeningYear(value);
+    await handleFiscalYearSwitch(year, { targetView: "Opening Balance" });
+  }
+
+  async function loadLiveData(activeSession = session, fiscalYearValue: string | number = activeFiscalYear) {
     if (!activeSession) return;
     if (activeSession.user.role === "employee") {
       const [selfServiceSummaryData, selfServiceRequestData] = await Promise.all([
@@ -1662,8 +1696,8 @@ export default function DashboardPage() {
       setStatus("Employee Self-Service ready");
       return;
     }
-    const reportYear = new Date().getFullYear();
-    const openingYear = normalizeOpeningYear(activeOpeningYear);
+    const reportYear = normalizeOpeningYear(fiscalYearValue);
+    const openingYear = reportYear;
     const canReviewSelfService = ["admin", "manager", "hr"].includes(activeSession.user.role);
     const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, selfServiceAlertData, intelligenceData, verificationData, integrityData, airfarePayableData, openingBalanceData] = await Promise.all([
       atlasFetch<Employee[]>("/employees?scope=active", activeSession.token, activeSession.sessionId),
@@ -1701,6 +1735,12 @@ export default function DashboardPage() {
     setSystemIntegrity(integrityData);
     setAirfarePayableReport(airfarePayableData);
     setOpeningBalanceRows(openingBalanceData);
+    setActiveFiscalYear(String(reportYear));
+    setActiveOpeningYear(String(reportYear));
+    setOpeningForm((current) => ({ ...current, year: String(reportYear) }));
+    setAllocationForm((current) => ({ ...current, year: String(reportYear), date: shiftDateToFiscalYear(current.date || today, reportYear, "07-01") }));
+    setYearEndForm((current) => ({ ...current, year: String(reportYear), closingDate: `${reportYear}-12-31` }));
+    setReportForm((current) => ({ ...current, from: `${reportYear}-01-01`, to: `${reportYear}-12-31` }));
     setSelectedCompanyId((current) => current || (companyData[0]?.CompanyID ? String(companyData[0].CompanyID) : ""));
     setBackupForm((current) => ({ ...current, databaseName: current.databaseName || companyData[0]?.DatabaseName || "" }));
     setSummary(summaryData);
@@ -1930,10 +1970,10 @@ export default function DashboardPage() {
     }
   }
 
-  async function refreshAirfarePayableReport(activeSession = session) {
+  async function refreshAirfarePayableReport(activeSession = session, fiscalYearValue: string | number = activeFiscalYear) {
     if (!activeSession) return airfarePayableReport;
-    const reportYear = Number((reportForm.to || today).slice(0, 4)) || new Date().getFullYear();
-    const asOfDate = reportForm.to || today;
+    const reportYear = normalizeOpeningYear(fiscalYearValue);
+    const asOfDate = reportForm.to && reportForm.to.startsWith(String(reportYear)) ? reportForm.to : `${reportYear}-12-31`;
     const rows = await atlasFetch<AirfarePayableReportRow[]>(
       `/reports/airfare-payable?year=${reportYear}&asOfDate=${asOfDate}`,
       activeSession.token,
@@ -1951,9 +1991,9 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
-      await loadLiveData(session);
-      if (["airfare", "airfare_summary", "airfare_exceptions"].includes(reportForm.type)) await refreshAirfarePayableReport(session);
-      setMessage("System confirmation: live SQL data refreshed.");
+      await loadLiveData(session, activeFiscalYear);
+      if (["airfare", "airfare_summary", "airfare_exceptions"].includes(reportForm.type)) await refreshAirfarePayableReport(session, activeFiscalYear);
+      setMessage(`System confirmation: live SQL data refreshed. Fiscal year ${activeFiscalYear} is active.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Live SQL data refresh failed.");
     } finally {
@@ -1995,10 +2035,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!session || !["airfare", "airfare_summary", "airfare_exceptions"].includes(reportForm.type)) return;
-    void refreshAirfarePayableReport(session).catch(() => {
+    void refreshAirfarePayableReport(session, activeFiscalYear).catch(() => {
       setMessage("Unable to refresh Airfare Payable report from SQL.");
     });
-  }, [session, reportForm.type, reportForm.to]);
+  }, [session, reportForm.type, reportForm.to, activeFiscalYear]);
 
   async function handleForgotPassword() {
     const usernameOrEmail = resetEmail || loginForm.username;
@@ -2338,6 +2378,7 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
+      const payloadFiscalYear = normalizeOpeningYear(allocationForm.year || activeFiscalYear);
       let finalPaymentMode = allocationForm.paymentMode;
       let finalLoanAmount = suggestedLoan;
       let finalEmi = suggestedEmi;
@@ -2366,7 +2407,7 @@ export default function DashboardPage() {
       const payload = {
         employeeId: allocationEmployee.EmployeeID,
         date: allocationForm.date,
-        year: Number(allocationForm.year),
+        year: payloadFiscalYear,
         overrideReason: allocationForm.overrideReason,
         managerApproval: allocationForm.managerApproval,
         ticketCost,
@@ -2411,10 +2452,12 @@ export default function DashboardPage() {
       if (allocationFile) {
         await uploadAllocationAttachment(allocation.AllocationID, allocationFile);
       }
-      await loadLiveData();
+      await loadLiveData(session, payloadFiscalYear);
+      setActiveFiscalYear(String(payloadFiscalYear));
+      setActiveOpeningYear(String(payloadFiscalYear));
       setMessage(editingAllocationId
-        ? `System confirmation: airfare allocation #${allocation.AllocationID} updated.`
-        : finalPaymentMode === "loan" ? `System confirmation: airfare allocation #${allocation.AllocationID} saved and excess loan created.` : `System confirmation: airfare allocation #${allocation.AllocationID} saved.`);
+        ? `System confirmation: airfare allocation #${allocation.AllocationID} updated. Fiscal year ${payloadFiscalYear} is active.`
+        : finalPaymentMode === "loan" ? `System confirmation: airfare allocation #${allocation.AllocationID} saved. Fiscal year ${payloadFiscalYear} is active and excess loan created.` : `System confirmation: airfare allocation #${allocation.AllocationID} saved. Fiscal year ${payloadFiscalYear} is active.`);
       resetAllocationForm();
       setAllocationErrors({});
       printAllocationLetter(allocationEmployee, allocation, payload);
@@ -2444,11 +2487,14 @@ export default function DashboardPage() {
   }
 
   function handleEditAllocation(allocation: Allocation) {
+    const allocationYear = normalizeOpeningYear(allocation.AllocYear || activeFiscalYear);
+    setActiveFiscalYear(String(allocationYear));
+    setActiveOpeningYear(String(allocationYear));
     setEditingAllocationId(allocation.AllocationID);
     setAllocationForm({
       employeeId: String(allocation.EmployeeID),
       date: formatExportDate(allocation.AllocationDate) || today,
-      year: String(allocation.AllocYear || new Date().getFullYear()),
+      year: String(allocationYear),
       ticketCost: String(allocation.TicketCost ?? 0),
       paymentMode: allocation.PaymentMode || "entitlement",
       decision: "process",
@@ -2466,7 +2512,7 @@ export default function DashboardPage() {
     });
     setAllocationFile(null);
     setActiveView("Airfare");
-    setMessage(`Editing allocation #${allocation.AllocationID}. Update the form and save.`);
+    setMessage(`Editing allocation #${allocation.AllocationID} in fiscal year ${allocationYear}. Change the year and save to update it into another fiscal year.`);
   }
 
   function cancelAllocationEdit() {
@@ -3178,8 +3224,9 @@ export default function DashboardPage() {
         openingBhd,
         maximumPayout
       });
+      setActiveFiscalYear(String(openingYear));
       setActiveOpeningYear(String(openingYear));
-      await loadLiveData();
+      await loadLiveData(session, openingYear);
       await reloadOpeningBalances(session, openingYear);
       setOpeningForm({ ...openingForm, employeeId: "", year: String(openingYear), openingDays: "", openingBhd: "", maximumPayout: "150" });
       setMessage(`Opening balance saved for ${openingYear} and employee airfare balance updated.`);
@@ -3302,8 +3349,8 @@ export default function DashboardPage() {
           rowIds: selectedRows.map((row) => row.importBatchRowId)
         }
       );
-      await loadLiveData();
-      await reloadOpeningBalances(session, activeOpeningYear);
+      await loadLiveData(session, activeFiscalYear);
+      await reloadOpeningBalances(session, activeFiscalYear);
       setOpeningPreview(null);
       const errorText = result.errors.length ? ` ${result.errors.length} row(s) need review.` : "";
       setMessage(`Opening balance import complete: ${result.updated} updated from ${selectedRows.length} selected row(s).${errorText}`);
@@ -3361,7 +3408,7 @@ export default function DashboardPage() {
   async function handleExportAirfareReport() {
     const resolveAirfareEntitlementAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.AirfareEntitlementAmount ?? 0)).toFixed(2));
     const resolveAirfarePayableAmount = (row: AirfarePayableReportRow) => Number(Math.max(0, Number(row.PayableBHD ?? (Number(row.BalanceDays || 0) * Number(row.PerDayRate || 2.5)))).toFixed(2));
-    const sourceRows = session ? await refreshAirfarePayableReport(session) : airfarePayableReport;
+    const sourceRows = session ? await refreshAirfarePayableReport(session, activeFiscalYear) : airfarePayableReport;
     const rows = sourceRows.map((row) => ({
       "Employee Code": row.EmployeeCode,
       "Employee Name": row.FullName,
@@ -4096,25 +4143,26 @@ export default function DashboardPage() {
 
   function handleYearEndYearChange(value: string | number, announce = false) {
     const year = normalizeOpeningYear(value);
-    setYearEndForm((current) => ({
-      ...current,
-      year: String(year),
-      closingDate: `${year}-12-31`
-    }));
-    setYearEndPreview(null);
-    if (announce) {
-      setMessage(`Year End switched to ${year}. Run preview to confirm closing balances before any final close.`);
-    }
+    void handleFiscalYearSwitch(year, { announce, targetView: "Year End" });
   }
 
   async function openOpeningBalanceForYear(yearValue: string | number) {
     const year = normalizeOpeningYear(yearValue);
-    setActiveOpeningYear(String(year));
-    setOpeningForm((current) => ({ ...current, year: String(year) }));
-    setOpeningPreview(null);
-    setActiveView("Opening Balance");
-    if (session) await reloadOpeningBalances(session, year);
+    await handleFiscalYearSwitch(year, { announce: false, targetView: "Opening Balance" });
     setMessage(`Opening Balance opened for ${year}. This shows the selected year register and export context.`);
+  }
+
+  async function prepareNextYearOpeningUpdate(row: OpeningBalanceRegisterRow) {
+    const nextYear = normalizeOpeningYear((row.BalanceYear || activeFiscalYearNumber) + 1);
+    await handleFiscalYearSwitch(nextYear, { announce: false, targetView: "Opening Balance" });
+    setOpeningForm({
+      employeeId: String(row.EmployeeID),
+      year: String(nextYear),
+      openingDays: String(Number(row.OpeningDays || 0)),
+      openingBhd: String(Number(row.OpeningBHD || 0)),
+      maximumPayout: String(row.MaximumPayout || 150)
+    });
+    setMessage(`Prepared ${row.EmployeeCode} opening balance for ${nextYear}. Review values, then Save opening balance to update the next year.`);
   }
 
   async function handleYearEndClose() {
@@ -5175,6 +5223,29 @@ export default function DashboardPage() {
             </select>
           </label>
         ) : null}
+        {!isEmployeePortalSession ? (
+          <div className="company-switcher fiscal-context-switcher">
+            <span>Fiscal year</span>
+            <div className="fiscal-stepper">
+              <button type="button" disabled={busy || activeFiscalYearNumber <= 2000} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber - 1)}>
+                {activeFiscalYearNumber - 1}
+              </button>
+              <input
+                type="number"
+                min="2000"
+                max="2100"
+                value={activeFiscalYear}
+                onChange={(event) => setActiveFiscalYear(event.target.value)}
+                onBlur={(event) => void handleFiscalYearSwitch(event.target.value)}
+                aria-label="Global fiscal year"
+              />
+              <button type="button" disabled={busy || activeFiscalYearNumber >= 2100} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber + 1)}>
+                {activeFiscalYearNumber + 1}
+              </button>
+            </div>
+            <small className="sidebar-text">All application data reloads for FY {activeFiscalYearNumber}</small>
+          </div>
+        ) : null}
         <nav>
           {visibleNav.map((item) => {
             const Icon = item.icon;
@@ -5229,6 +5300,12 @@ export default function DashboardPage() {
                 placeholder="Search employees, loans, companies"
               />
             </label> : null}
+            {!isEmployeePortalSession ? (
+              <button className="fiscal-context-chip" type="button" disabled={busy} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber, { announce: true })} title="Reload selected fiscal year">
+                <CalendarClock size={16} />
+                <span>FY {activeFiscalYearNumber}</span>
+              </button>
+            ) : null}
             {!isEmployeePortalSession ? <button className="icon-button" onClick={handleSearchSubmit} title="Run search"><Search size={18} /></button> : null}
             {!isEmployeePortalSession ? <button className="icon-button" onClick={printCurrentScreen} title="Print current screen"><Printer size={18} /></button> : null}
             <button className="icon-button" disabled={busy} onClick={handleRefreshLiveData} title="Refresh live data"><RefreshCw size={18} /></button>
@@ -5658,6 +5735,7 @@ export default function DashboardPage() {
                       {(() => {
                         const employee = employeeMasterAll.find((item) => item.EmployeeID === Number(row.EmployeeID)) || employees.find((item) => item.EmployeeID === Number(row.EmployeeID));
                         return (
+                          <>
                       <button className="mini-soft" onClick={() => setOpeningForm({
                         employeeId: String(row.EmployeeID),
                         year: String(row.BalanceYear || activeOpeningYearNumber),
@@ -5665,6 +5743,8 @@ export default function DashboardPage() {
                         openingBhd: String(Number(row.OpeningBHD || 0)),
                         maximumPayout: String(row.MaximumPayout || employee?.MaximumPayout || 150)
                       })}>Edit</button>
+                      <button className="mini-soft" onClick={() => void prepareNextYearOpeningUpdate(row)}>Update next year</button>
+                          </>
                         );
                       })()}
                     </span>
@@ -5828,11 +5908,15 @@ export default function DashboardPage() {
                   clearAllocationError("date");
                   clearAllocationError("year");
                   setAllocationForm({ ...allocationForm, date: selectedDate, year: selectedYear });
+                }} onBlur={(event) => {
+                  const selectedDate = event.target.value;
+                  const selectedYear = selectedDate ? new Date(selectedDate).getFullYear() : selectedAllocationYear;
+                  if (selectedYear !== activeFiscalYearNumber) void handleFiscalYearSwitch(selectedYear, { targetView: "Airfare" });
                 }} {...fieldErrorProps(allocationErrors, "date")} /></Field>
                 <Field label="Allocation year" errorId="year" error={allocationErrors.year}><input type="number" placeholder="Year" value={allocationForm.year} onChange={(e) => {
                   clearAllocationError("year");
                   setAllocationForm({ ...allocationForm, year: e.target.value });
-                }} {...fieldErrorProps(allocationErrors, "year")} /></Field>
+                }} onBlur={(event) => void handleFiscalYearSwitch(event.target.value, { targetView: "Airfare" })} {...fieldErrorProps(allocationErrors, "year")} /></Field>
                 <Field label="Ticket Amount" errorId="ticketCost" error={allocationErrors.ticketCost}><input type="number" step="0.01" placeholder="Ticket amount" value={allocationForm.ticketCost} onChange={(e) => {
                   clearAllocationError("ticketCost");
                   setAllocationForm({ ...allocationForm, ticketCost: e.target.value });

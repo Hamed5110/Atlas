@@ -111,6 +111,12 @@ assert.match(source, /handleYearEndPreview/, "year end screen should support pre
 assert.match(source, /handleYearEndClose/, "year end screen should support controlled final close");
 assert.match(source, /Year End readiness gate/, "year end screen should show readiness checks before closing");
 assert.match(source, /Fiscal year switch/, "year end should expose a visible fiscal year switcher above the process metrics");
+assert.match(source, /activeFiscalYear/, "application should expose a global fiscal year context");
+assert.match(source, /handleFiscalYearSwitch/, "application should reload year-sensitive data from one fiscal switch");
+assert.match(source, /Fiscal year/, "sidebar should show the global fiscal year switch");
+assert.match(source, /Update next year/, "opening balance rows should offer next-year update preparation");
+assert.match(css, /\.fiscal-context-switcher/, "global fiscal switcher should be styled");
+assert.match(css, /\.fiscal-context-chip/, "topbar should show selected fiscal year");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
 assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
 assert.match(source, /Run preview first/, "year end should show a clear confirmation message before closing");
