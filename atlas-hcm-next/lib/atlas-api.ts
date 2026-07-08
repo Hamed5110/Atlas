@@ -180,6 +180,9 @@ export type AirfarePolicyRate = {
   Deactivated?: boolean;
   HardDeleted?: boolean;
   Purged?: boolean;
+  IsSystem?: boolean;
+  CanDelete?: boolean;
+  ActiveReferenceCount?: number;
   AllocationUsageCount?: number;
   RecentAllocationUsageCount?: number;
   AllocationLinksCleared?: number;

@@ -51,11 +51,10 @@ assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId
 assert.match(serverText, /sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy delete should use the SQL purge procedure');
 assert.match(serverText, /ensureAtlasSafeDeleteProcedure/i, 'Airfare policy delete should verify the safe-delete procedure before use');
 assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the safe-delete procedure is missing');
-assert.match(serverText, /isMissingSqlProcedureError/i, 'Airfare policy delete should retry after repairing a missing SQL procedure');
-assert.match(serverText, /sqlNumber === 308/i, 'Airfare policy delete should catch stale SQL index-hint error 308 and use fallback');
-assert.match(serverText, /PK_AirfarePolicyRates/i, 'Airfare policy delete should catch stale PK index hint failures from old procedures');
 assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime soft-delete if database repair is blocked');
-assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare policy delete should call the soft-delete SQL procedure');
+assert.match(serverText, /Only current deletable preference rules can be deleted from current preferences/i, 'Airfare policy delete should block historical or protected rows');
+assert.match(serverText, /System default preference cannot be deleted/i, 'Airfare policy delete should protect system default rules');
+assert.match(serverText, /History locked - actively used by/i, 'Airfare policy delete should report active reference locks');
 assert.doesNotMatch(serverText, /Installed delete procedure returned a non-purge state/i, 'Airfare policy delete should not override a valid soft-delete result with a purge flow');
 assert.doesNotMatch(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should not hard-delete the policy row');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');

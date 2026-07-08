@@ -708,6 +708,14 @@ async function hasSqlObject(db, objectName, objectType = 'P') {
     return Boolean(result.recordset?.[0]?.ObjectID);
 }
 
+async function hasSqlColumn(db, tableName, columnName) {
+    const result = await db.request()
+        .input('TableName', sql.NVarChar(256), tableName)
+        .input('ColumnName', sql.NVarChar(128), columnName)
+        .query('SELECT COL_LENGTH(@TableName, @ColumnName) AS ColumnLength;');
+    return result.recordset?.[0]?.ColumnLength !== null && result.recordset?.[0]?.ColumnLength !== undefined;
+}
+
 async function applySqlScriptFile(db, relativePath, label) {
     const scriptPath = path.join(__dirname, relativePath);
     if (!fs.existsSync(scriptPath)) {
@@ -5342,6 +5350,14 @@ app.get('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'ma
     try {
         const db = await getConnection();
         await ensureAtlasSqlObjects(db);
+        const hasTravelExpensePolicyRate = await hasSqlObject(db, 'dbo.travel_expenses', 'U') && await hasSqlColumn(db, 'dbo.travel_expenses', 'PolicyRateID');
+        const hasEmployeeAllowancePolicyRate = await hasSqlObject(db, 'dbo.employee_allowances', 'U') && await hasSqlColumn(db, 'dbo.employee_allowances', 'PolicyRateID');
+        const travelExpenseCountSql = hasTravelExpensePolicyRate
+            ? `(SELECT COUNT_BIG(*) FROM dbo.travel_expenses te WHERE te.PolicyRateID = r.PolicyRateID)`
+            : 'CAST(0 AS BIGINT)';
+        const employeeAllowanceCountSql = hasEmployeeAllowancePolicyRate
+            ? `(SELECT COUNT_BIG(*) FROM dbo.employee_allowances ea WHERE ea.PolicyRateID = r.PolicyRateID)`
+            : 'CAST(0 AS BIGINT)';
         const result = await withSqlRetry(() => db.request().query(`
             SELECT
                 r.PolicyRateID,
@@ -5360,7 +5376,47 @@ app.get('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'ma
                 r.AirfareDaysPerMonth,
                 CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
                 r.IsActive,
-                r.CreatedAt
+                r.CreatedAt,
+                r.IsDeleted,
+                r.DeletedAt,
+                r.DeletedBy,
+                r.DeleteReason,
+                r.ArchivedAt,
+                r.DependencySnapshotJson,
+                r.PolicyStatus,
+                CAST(CASE
+                    WHEN r.CompanyID IS NULL
+                     AND r.EmployeeID IS NULL
+                     AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+                     AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
+                     AND r.EffectiveFrom IN ('19000101', '20260618')
+                    THEN 1 ELSE 0
+                END AS BIT) AS IsSystem,
+                CAST((SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID) AS BIGINT) AS AllocationUsageCount,
+                CAST(${travelExpenseCountSql} AS BIGINT) AS TravelExpenseUsageCount,
+                CAST(${employeeAllowanceCountSql} AS BIGINT) AS EmployeeAllowanceUsageCount,
+                CAST(
+                    (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
+                    + ${travelExpenseCountSql}
+                    + ${employeeAllowanceCountSql}
+                AS BIGINT) AS ActiveReferenceCount,
+                CAST(CASE
+                    WHEN r.IsActive = 1
+                     AND r.EffectiveTo IS NULL
+                     AND NOT (
+                        r.CompanyID IS NULL
+                        AND r.EmployeeID IS NULL
+                        AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+                        AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
+                        AND r.EffectiveFrom IN ('19000101', '20260618')
+                     )
+                     AND (
+                        (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
+                        + ${travelExpenseCountSql}
+                        + ${employeeAllowanceCountSql}
+                     ) = 0
+                    THEN 1 ELSE 0
+                END AS BIT) AS CanDelete
             FROM dbo.AirfarePolicyRates r
             LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
             LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
@@ -5425,38 +5481,93 @@ async function deactivateAirfarePolicyRate(req, res) {
 
     try {
         const db = await getConnection();
+        const hasTravelExpensePolicyRate = await hasSqlObject(db, 'dbo.travel_expenses', 'U') && await hasSqlColumn(db, 'dbo.travel_expenses', 'PolicyRateID');
+        const hasEmployeeAllowancePolicyRate = await hasSqlObject(db, 'dbo.employee_allowances', 'U') && await hasSqlColumn(db, 'dbo.employee_allowances', 'PolicyRateID');
+        const travelExpenseCountSql = hasTravelExpensePolicyRate
+            ? `(SELECT COUNT_BIG(*) FROM dbo.travel_expenses te WHERE te.PolicyRateID = r.PolicyRateID)`
+            : 'CAST(0 AS BIGINT)';
+        const employeeAllowanceCountSql = hasEmployeeAllowancePolicyRate
+            ? `(SELECT COUNT_BIG(*) FROM dbo.employee_allowances ea WHERE ea.PolicyRateID = r.PolicyRateID)`
+            : 'CAST(0 AS BIGINT)';
+        const policyState = await withSqlRetry(() => db.request()
+            .input('PolicyRateID', sql.BigInt, policyRateId)
+            .query(`
+                SELECT TOP (1)
+                    r.PolicyRateID,
+                    r.IsActive,
+                    r.EffectiveTo,
+                    CAST(CASE
+                        WHEN r.CompanyID IS NULL
+                         AND r.EmployeeID IS NULL
+                         AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+                         AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
+                         AND r.EffectiveFrom IN ('19000101', '20260618')
+                        THEN 1 ELSE 0
+                    END AS BIT) AS IsSystem,
+                    CAST(
+                        (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
+                        + ${travelExpenseCountSql}
+                        + ${employeeAllowanceCountSql}
+                    AS BIGINT) AS ActiveReferenceCount,
+                    CAST(CASE
+                        WHEN r.IsActive = 1
+                         AND r.EffectiveTo IS NULL
+                         AND NOT (
+                            r.CompanyID IS NULL
+                            AND r.EmployeeID IS NULL
+                            AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+                            AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
+                            AND r.EffectiveFrom IN ('19000101', '20260618')
+                         )
+                         AND (
+                            (SELECT COUNT_BIG(*) FROM dbo.Allocations a WHERE a.PolicyRateID = r.PolicyRateID)
+                            + ${travelExpenseCountSql}
+                            + ${employeeAllowanceCountSql}
+                         ) = 0
+                        THEN 1 ELSE 0
+                    END AS BIT) AS CanDelete
+                FROM dbo.AirfarePolicyRates r
+                WHERE r.PolicyRateID = @PolicyRateID;
+            `), 'check airfare policy delete state');
+        const state = policyState.recordset?.[0];
+        if (!state) {
+            return res.json({
+                status: 'success',
+                action: 'soft_delete',
+                message: 'Airfare policy rule is not present in SQL.',
+                policyRate: null,
+                deleted: true
+            });
+        }
+        if (!state.CanDelete) {
+            if (state.IsSystem) return res.status(409).json({ error: 'System default preference cannot be deleted.' });
+            if (Number(state.ActiveReferenceCount || 0) > 0) {
+                return res.status(409).json({ error: `History locked - actively used by ${Number(state.ActiveReferenceCount)} live record(s).` });
+            }
+            return res.status(409).json({ error: 'Only current deletable preference rules can be deleted from current preferences.' });
+        }
         try {
             await ensureAtlasSqlObjects(db);
         } catch (sqlObjectErr) {
             logger.warn('ATLAS SQL object verification could not finish before delete; runtime delete fallback remains available.', sqlObjectErr);
         }
-        const executeDelete = () => db.request()
-            .input('PolicyRateID', sql.BigInt, policyRateId)
-            .input('DeletedBy', sql.Int, req.user.userId)
-            .input('DeleteReason', sql.NVarChar(400), `Preference delete requested by ${req.user.username || 'system'}`)
-            .execute('dbo.sp_ATLAS_DeactivateAirfarePolicyRate');
         let result;
         try {
-            result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate');
+            result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
+                db,
+                policyRateId,
+                req.user.userId,
+                `Preference delete requested by ${req.user.username || 'system'}`
+            ), 'soft delete airfare policy rate');
         } catch (err) {
-            if (!isAirfarePolicyDeleteFallbackError(err)) throw err;
-            logger.warn('Safe-delete procedure failed during request; repairing SQL objects and retrying delete.', err);
-            try {
-                if (isMissingSqlProcedureError(err, 'sp_ATLAS_DeactivateAirfarePolicyRate')) {
-                    await ensureAtlasSqlObjects(db, { force: true });
-                    result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate after SQL object repair');
-                } else {
-                    throw err;
-                }
-            } catch (repairErr) {
-                logger.warn('Safe-delete SQL repair did not finish; using runtime fallback archive path.', repairErr);
-                result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
-                    db,
-                    policyRateId,
-                    req.user.userId,
-                    `Preference delete requested by ${req.user.username || 'system'}`
-                ), 'runtime fallback deactivate airfare policy rate');
-            }
+            logger.warn('Soft-delete SQL batch failed during request; repairing SQL objects and retrying runtime fallback.', err);
+            await ensureAtlasSqlObjects(db, { force: true });
+            result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
+                db,
+                policyRateId,
+                req.user.userId,
+                `Preference delete requested by ${req.user.username || 'system'}`
+            ), 'runtime fallback deactivate airfare policy rate after repair');
         }
         let deletedPolicy = result.recordset?.[0] || null;
         if (!deletedPolicy) {

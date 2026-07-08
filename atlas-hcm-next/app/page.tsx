@@ -2361,6 +2361,17 @@ export default function DashboardPage() {
     return Boolean(rate.IsActive && !rate.EffectiveTo);
   }
 
+  function canDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
+    return Boolean(isCurrentAirfarePolicyRate(rate) && rate.CanDelete);
+  }
+
+  function getAirfarePolicyLockMessage(rate: AirfarePolicyRate) {
+    if (rate.IsSystem) return "System default";
+    const activeReferenceCount = Number(rate.ActiveReferenceCount || 0);
+    if (activeReferenceCount > 0) return `History locked - ${activeReferenceCount} active ref${activeReferenceCount === 1 ? "" : "s"}`;
+    return "History locked";
+  }
+
   function handleEditAirfarePolicyRate(rate: AirfarePolicyRate) {
     const ruleType = rate.EmployeeID ? "employee" : rate.EmpGroup ? "payGroup" : rate.Department ? "department" : rate.CompanyID ? "company" : "global";
     setPolicyForm({
@@ -2453,8 +2464,8 @@ export default function DashboardPage() {
   async function handleBulkDeleteAirfarePolicyRates() {
     if (!session) return setMessage("Please sign in first.");
     if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can delete preference policy rules.");
-    const selectedRates = airfarePolicyRates.filter((rate) => selectedPolicyRateIds.has(rate.PolicyRateID) && isCurrentAirfarePolicyRate(rate));
-    if (!selectedRates.length) return setMessage("Select at least one current preference rule to delete.");
+    const selectedRates = airfarePolicyRates.filter((rate) => selectedPolicyRateIds.has(rate.PolicyRateID) && canDeleteAirfarePolicyRate(rate));
+    if (!selectedRates.length) return setMessage("Select at least one deletable current preference rule to delete.");
     const typed = window.prompt([
       `Delete ${selectedRates.length} selected current airfare policy rule(s)?`,
       "This is a soft delete only. Historical transactions will stay unchanged.",
@@ -7414,13 +7425,13 @@ export default function DashboardPage() {
                     <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
                     <span className="row-actions preference-row-actions">
                       <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit preference as draft"><Pencil size={14} /> Edit</button>
-                      {isCurrentAirfarePolicyRate(rate) ? (
+                      <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /> History</button>
+                      {canDeleteAirfarePolicyRate(rate) ? (
                         <>
-                          <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /> History</button>
                           <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /> Delete</button>
                         </>
                       ) : (
-                        <span className="pill warning">History locked</span>
+                        <span className="pill warning">{getAirfarePolicyLockMessage(rate)}</span>
                       )}
                     </span>
                   </div>
@@ -7564,8 +7575,8 @@ export default function DashboardPage() {
                     <button className="mini-danger" type="button" disabled={busy || selectedPolicyRateIds.size === 0} onClick={handleBulkDeleteAirfarePolicyRates}>
                       <Trash2 size={14} /> Delete selected ({selectedPolicyRateIds.size})
                     </button>
-                    <button className="mini-soft" type="button" disabled={busy || airfarePolicyRates.every((rate) => !isCurrentAirfarePolicyRate(rate))} onClick={() => setSelectedPolicyRateIds(new Set(airfarePolicyRates.filter((rate) => isCurrentAirfarePolicyRate(rate)).map((rate) => rate.PolicyRateID)))}>
-                      Select all current
+                    <button className="mini-soft" type="button" disabled={busy || airfarePolicyRates.every((rate) => !canDeleteAirfarePolicyRate(rate))} onClick={() => setSelectedPolicyRateIds(new Set(airfarePolicyRates.filter((rate) => canDeleteAirfarePolicyRate(rate)).map((rate) => rate.PolicyRateID)))}>
+                      Select all deletable
                     </button>
                     <button className="mini-soft" type="button" disabled={busy || selectedPolicyRateIds.size === 0} onClick={() => setSelectedPolicyRateIds(new Set())}>
                       Clear selection
@@ -7575,7 +7586,7 @@ export default function DashboardPage() {
                   {airfarePolicyRates.length === 0 && <p className="muted">No custom airfare policy found. System will use BHD 150.00 default.</p>}
                   {airfarePolicyRates.map((rate) => (
                     <div className="table-row loan-head policy-rate-row" key={`history-${rate.PolicyRateID}`}>
-                      <span><input type="checkbox" checked={selectedPolicyRateIds.has(rate.PolicyRateID)} disabled={!isCurrentAirfarePolicyRate(rate) || busy} onChange={(event) => togglePolicyRateSelection(rate.PolicyRateID, event.target.checked)} /></span>
+                      <span><input type="checkbox" checked={selectedPolicyRateIds.has(rate.PolicyRateID)} disabled={!canDeleteAirfarePolicyRate(rate) || busy} onChange={(event) => togglePolicyRateSelection(rate.PolicyRateID, event.target.checked)} /></span>
                       <span>
                         <strong>{rate.EmployeeID ? "Employee exception" : rate.EmpGroup ? "Pay group matrix" : rate.Department ? "Department matrix" : rate.CompanyID ? "Company default" : "Global default"}</strong>
                         <small>{rate.EmployeeID ? `${rate.EmployeeCode || rate.EmployeeID} - ${rate.FullName || ""}` : rate.EmpGroup ? rate.EmpGroup : rate.Department ? rate.Department : rate.CompanyID ? rate.CompanyName || `Company ${rate.CompanyID}` : "All companies and employees"}</small>
@@ -7588,10 +7599,10 @@ export default function DashboardPage() {
                       <span className="row-actions">
                         <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit as draft"><Pencil size={14} /></button>
                         <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /></button>
-                        {isCurrentAirfarePolicyRate(rate) ? (
+                        {canDeleteAirfarePolicyRate(rate) ? (
                           <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete current preference rule"><Trash2 size={14} /></button>
                         ) : (
-                          <span className="muted">History locked</span>
+                          <span className="muted">{getAirfarePolicyLockMessage(rate)}</span>
                         )}
                       </span>
                     </div>

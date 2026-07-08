@@ -1350,32 +1350,6 @@ BEGIN
             RETURN;
         END;
 
-        IF @totalDependencyCount = 0
-        BEGIN
-            DELETE FROM dbo.AirfarePolicyRates
-            WHERE PolicyRateID = @PolicyRateID;
-
-            COMMIT TRANSACTION;
-            SELECT
-                CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-                CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
-                CAST('hard_deleted' AS NVARCHAR(40)) AS DeleteStatus,
-                CAST(0 AS BIT) AS AlreadyRemoved,
-                CAST(0 AS BIT) AS AlreadyHistorical,
-                CAST(0 AS BIT) AS Deactivated,
-                CAST(1 AS BIT) AS HardDeleted,
-                @allocationUsageCount AS AllocationUsageCount,
-                @activeAllocationUsageCount AS RecentAllocationUsageCount,
-                @auditUsageCount AS AuditUsageCount,
-                @travelExpenseUsageCount AS TravelExpenseUsageCount,
-                @employeeAllowanceUsageCount AS EmployeeAllowanceUsageCount,
-                @historyUsageCount AS HistoryUsageCount,
-                @dependencySnapshot AS DependencySnapshotJson,
-                *
-            FROM @policy;
-            RETURN;
-        END;
-
         IF EXISTS (SELECT 1 FROM @policy WHERE IsActive = 0 OR EffectiveTo IS NOT NULL OR IsDeleted = 1)
         BEGIN
             UPDATE dbo.AirfarePolicyRates
