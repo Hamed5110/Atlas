@@ -990,7 +990,7 @@ async function fallbackDeactivateAirfarePolicyRate(db, policyRateId, deletedBy, 
     const result = await db.request()
         .input('PolicyRateID', sql.BigInt, policyRateId)
         .input('DeletedBy', sql.Int, deletedBy || null)
-        .input('DeleteReason', sql.NVarChar(400), deleteReason || 'Policy purged from current preferences.')
+        .input('DeleteReason', sql.NVarChar(400), deleteReason || 'Policy removed from current preferences. Historical transactions preserved.')
         .batch(`
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -1032,103 +1032,45 @@ BEGIN TRY
         COMMIT TRANSACTION;
         SELECT
             CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-            CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
-            CAST('not_found_purged' AS NVARCHAR(40)) AS DeleteStatus,
-            CAST(0 AS BIT) AS AlreadyRemoved,
+            CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
+            CAST('already_removed' AS NVARCHAR(40)) AS DeleteStatus,
+            CAST(1 AS BIT) AS AlreadyRemoved,
             CAST(0 AS BIT) AS AlreadyHistorical,
             CAST(0 AS BIT) AS Deactivated,
-            CAST(1 AS BIT) AS HardDeleted,
-            CAST(1 AS BIT) AS Purged,
+            CAST(0 AS BIT) AS HardDeleted,
+            CAST(0 AS BIT) AS Purged,
             CAST(@PolicyRateID AS BIGINT) AS PolicyRateID,
             CAST(1 AS BIT) AS FallbackUsed;
         RETURN;
     END;
 
-    IF OBJECT_ID(N'dbo.Allocations', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.Allocations', N'PolicyRateID') IS NOT NULL
-    BEGIN
-        UPDATE dbo.Allocations
-           SET PolicyRateID = NULL
-         WHERE PolicyRateID = @PolicyRateID;
-        SET @allocationLinksCleared = @@ROWCOUNT;
-    END;
-
-    IF OBJECT_ID(N'dbo.AirfarePolicyRateArchive', N'U') IS NOT NULL
-    BEGIN
-        DELETE FROM dbo.AirfarePolicyRateArchive WHERE PolicyRateID = @PolicyRateID;
-        SET @archiveRowsDeleted = @@ROWCOUNT;
-    END;
-
-    IF OBJECT_ID(N'dbo.AuditLog', N'U') IS NOT NULL
-    BEGIN
-        DELETE FROM dbo.AuditLog WHERE EntityType = N'AirfarePolicyRate' AND EntityID = @PolicyRateID;
-        SET @auditRowsDeleted = @@ROWCOUNT;
-    END;
-
-    DECLARE policy_fk_cursor CURSOR LOCAL FAST_FORWARD FOR
-        SELECT
-            OBJECT_SCHEMA_NAME(fkc.parent_object_id),
-            OBJECT_NAME(fkc.parent_object_id),
-            pc.name,
-            pc.is_nullable
-        FROM sys.foreign_key_columns fkc
-        INNER JOIN sys.columns pc
-            ON pc.object_id = fkc.parent_object_id
-           AND pc.column_id = fkc.parent_column_id
-        INNER JOIN sys.columns rc
-            ON rc.object_id = fkc.referenced_object_id
-           AND rc.column_id = fkc.referenced_column_id
-        WHERE fkc.referenced_object_id = OBJECT_ID(N'dbo.AirfarePolicyRates')
-          AND rc.name = N'PolicyRateID'
-          AND fkc.parent_object_id <> OBJECT_ID(N'dbo.AirfarePolicyRates');
-
-    OPEN policy_fk_cursor;
-    FETCH NEXT FROM policy_fk_cursor INTO @schemaName, @tableName, @columnName, @isNullable;
-    WHILE @@FETCH_STATUS = 0
-    BEGIN
-        IF @isNullable = 1
-        BEGIN
-            SET @sql = N'UPDATE ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
-                       N' SET ' + QUOTENAME(@columnName) + N' = NULL WHERE ' + QUOTENAME(@columnName) + N' = @id; SET @affected = @@ROWCOUNT;';
-            EXEC sp_executesql @sql, N'@id BIGINT, @affected INT OUTPUT', @id = @PolicyRateID, @affected = @affected OUTPUT;
-            SET @dynamicRowsCleared = @dynamicRowsCleared + ISNULL(@affected, 0);
-        END
-        ELSE
-        BEGIN
-            SET @sql = N'DELETE FROM ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
-                       N' WHERE ' + QUOTENAME(@columnName) + N' = @id; SET @affected = @@ROWCOUNT;';
-            EXEC sp_executesql @sql, N'@id BIGINT, @affected INT OUTPUT', @id = @PolicyRateID, @affected = @affected OUTPUT;
-            SET @dynamicRowsDeleted = @dynamicRowsDeleted + ISNULL(@affected, 0);
-        END;
-        FETCH NEXT FROM policy_fk_cursor INTO @schemaName, @tableName, @columnName, @isNullable;
-    END;
-    CLOSE policy_fk_cursor;
-    DEALLOCATE policy_fk_cursor;
-
-    IF OBJECT_ID(N'dbo.AirfarePolicyAllocations', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.AirfarePolicyAllocations', N'PolicyRateID') IS NOT NULL
-    BEGIN
-        DELETE FROM dbo.AirfarePolicyAllocations WHERE PolicyRateID = @PolicyRateID;
-        SET @dynamicRowsDeleted = @dynamicRowsDeleted + @@ROWCOUNT;
-    END;
-
-    IF OBJECT_ID(N'dbo.AirfarePolicyRateHistory', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.AirfarePolicyRateHistory', N'PolicyRateID') IS NOT NULL
-    BEGIN
-        DELETE FROM dbo.AirfarePolicyRateHistory WHERE PolicyRateID = @PolicyRateID;
-        SET @dynamicRowsDeleted = @dynamicRowsDeleted + @@ROWCOUNT;
-    END;
-
-    DELETE FROM dbo.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID;
+    UPDATE dbo.AirfarePolicyRates
+       SET IsActive = 0,
+           IsDeleted = 1,
+           EffectiveTo = CASE
+               WHEN EffectiveTo IS NOT NULL THEN EffectiveTo
+               WHEN CAST(SYSUTCDATETIME() AS DATE) < EffectiveFrom THEN EffectiveFrom
+               ELSE CAST(SYSUTCDATETIME() AS DATE)
+           END,
+           DeletedAt = SYSUTCDATETIME(),
+           DeletedBy = @DeletedBy,
+           DeleteReason = COALESCE(@DeleteReason, N'Policy removed from current preferences. Historical transactions preserved.'),
+           ArchivedAt = SYSUTCDATETIME(),
+           DependencySnapshotJson = COALESCE(DependencySnapshotJson, N'{"strategy":"runtime_soft_delete"}'),
+           PolicyStatus = N'archived'
+     WHERE PolicyRateID = @PolicyRateID;
 
     COMMIT TRANSACTION;
 
     SELECT
         CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-        CAST('hard_delete' AS NVARCHAR(40)) AS DeleteAction,
-        CAST('purged' AS NVARCHAR(40)) AS DeleteStatus,
+        CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
+        CAST('deactivated' AS NVARCHAR(40)) AS DeleteStatus,
         CAST(0 AS BIT) AS AlreadyRemoved,
         CAST(0 AS BIT) AS AlreadyHistorical,
-        CAST(0 AS BIT) AS Deactivated,
-        CAST(1 AS BIT) AS HardDeleted,
-        CAST(1 AS BIT) AS Purged,
+        CAST(1 AS BIT) AS Deactivated,
+        CAST(0 AS BIT) AS HardDeleted,
+        CAST(0 AS BIT) AS Purged,
         CAST(1 AS BIT) AS FallbackUsed,
         @PolicyRateID AS PolicyRateID,
         @allocationLinksCleared AS AllocationLinksCleared,
@@ -5491,8 +5433,8 @@ async function deactivateAirfarePolicyRate(req, res) {
         const executeDelete = () => db.request()
             .input('PolicyRateID', sql.BigInt, policyRateId)
             .input('DeletedBy', sql.Int, req.user.userId)
-            .input('DeleteReason', sql.NVarChar(400), `Preference purge requested by ${req.user.username || 'system'}`)
-            .execute('dbo.sp_ATLAS_PurgeAirfarePolicyRate');
+            .input('DeleteReason', sql.NVarChar(400), `Preference delete requested by ${req.user.username || 'system'}`)
+            .execute('dbo.sp_ATLAS_DeactivateAirfarePolicyRate');
         let result;
         try {
             result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate');
@@ -5500,7 +5442,7 @@ async function deactivateAirfarePolicyRate(req, res) {
             if (!isAirfarePolicyDeleteFallbackError(err)) throw err;
             logger.warn('Safe-delete procedure failed during request; repairing SQL objects and retrying delete.', err);
             try {
-                if (isMissingSqlProcedureError(err, 'sp_ATLAS_PurgeAirfarePolicyRate')) {
+                if (isMissingSqlProcedureError(err, 'sp_ATLAS_DeactivateAirfarePolicyRate')) {
                     await ensureAtlasSqlObjects(db, { force: true });
                     result = await withSqlRetry(executeDelete, 'deactivate airfare policy rate after SQL object repair');
                 } else {
@@ -5517,31 +5459,21 @@ async function deactivateAirfarePolicyRate(req, res) {
             }
         }
         let deletedPolicy = result.recordset?.[0] || null;
-        if (deletedPolicy?.AlreadyRemoved || deletedPolicy?.AlreadyHistorical || deletedPolicy?.DeleteAction === 'soft_delete') {
-            logger.warn('Installed delete procedure returned a non-purge state; forcing runtime hard purge.', deletedPolicy);
-            result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
-                db,
-                policyRateId,
-                req.user.userId,
-                `Preference purge requested by ${req.user.username || 'system'}`
-            ), 'force purge airfare policy rate after soft-delete response');
-            deletedPolicy = result.recordset?.[0] || null;
-        }
         if (!deletedPolicy) {
             return res.json({
                 status: 'success',
-                action: 'hard_delete',
+                action: 'soft_delete',
                 message: 'Airfare policy rule is not present in SQL.',
                 policyRate: null,
-                purged: true
+                deleted: true
             });
         }
 
-        const action = deletedPolicy.DeleteAction || (deletedPolicy.HardDeleted ? 'hard_delete' : 'soft_delete');
+        const action = deletedPolicy.DeleteAction || 'soft_delete';
         res.json({
             status: 'success',
             action,
-            message: 'Airfare policy rule purged from preferences.',
+            message: 'Airfare policy rule deleted from current preferences. Historical transactions remain unchanged.',
             policyRate: deletedPolicy
         });
     } catch (err) {

@@ -402,10 +402,10 @@ assert.match(server, /DEFAULT_AIRFARE_POLICY_AMOUNT\s*=\s*150/, "backend may kee
 assert.match(server, /AIRFARE_STANDARD_YEAR_DAYS\s*=\s*360/, "backend should enforce the fixed 360-day standard year");
 assert.match(server, /maxPayoutAmount:\s*Joi\.number\(\)\.positive\(\)\.required\(\)/, "backend should accept configured airfare policy values above BHD 150");
 assert.doesNotMatch(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_Objects.sql"), "utf8"), /@MaxPayoutAmount > 150 THROW 52003/, "SQL policy save should allow configured airfare values above BHD 150");
-assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*sp_ATLAS_PurgeAirfarePolicyRate[\s\S]*Airfare policy rule purged from preferences[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should purge airfare policy rules through SQL purge procedure");
-assert.match(server, /Installed delete procedure returned a non-purge state[\s\S]*force purge airfare policy rate after soft-delete response/, "backend should force purge when an old installed procedure returns a soft-delete state");
-assert.match(server, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/, "backend fallback should remove the airfare policy row");
-assert.match(source, /formatAirfarePolicyDeleteMessage[\s\S]*purged from preferences[\s\S]*Airfare policy delete failed/, "preferences should format policy purge responses as readable notifications");
+assert.match(server, /async function deactivateAirfarePolicyRate[\s\S]*sp_ATLAS_DeactivateAirfarePolicyRate[\s\S]*Airfare policy rule deleted from current preferences\. Historical transactions remain unchanged\.[\s\S]*app\.delete\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should soft-delete airfare policy rules through the SQL deactivation procedure");
+assert.doesNotMatch(server, /Installed delete procedure returned a non-purge state[\s\S]*force purge airfare policy rate after soft-delete response/, "backend should not override a valid soft-delete result with a purge flow");
+assert.doesNotMatch(server, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/, "backend fallback should not remove the airfare policy row");
+assert.match(source, /formatAirfarePolicyDeleteMessage[\s\S]*deleted from current preferences\. Historical transactions remain unchanged\.[\s\S]*Airfare policy delete failed/, "preferences should format policy soft-delete responses as readable notifications");
 assert.match(source, /airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*POST/, "preferences should retry policy delete through POST fallback when DELETE is blocked");
 assert.match(readFileSync(join(process.cwd(), "lib", "atlas-api.ts"), "utf8"), /HTTP \$\{res\.status\}[\s\S]*res\.text\(\)/, "API helper should expose HTTP status and non-JSON error bodies");
 assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a direct POST compatibility route for policy deletes");
@@ -424,6 +424,9 @@ assert.match(css, /\.maintenance-grid\s*{[\s\S]*grid-template-columns:\s*minmax\
 assert.match(css, /@media \(max-width:\s*1120px\)[\s\S]*\.maintenance-grid[\s\S]*grid-template-columns:\s*1fr/, "maintenance screen should stack on tablet");
 assert.match(readFileSync(join(process.cwd(), "..", "installer", "Build-ATLAS-MSI.ps1"), "utf8"), /atlas-payload-manifest\.json[\s\S]*CompressionLevel=high[\s\S]*fileCount[\s\S]*totalBytes/, "MSI build should embed a payload manifest with compressed package metadata");
 assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a POST fallback for policy deletes");
+assert.match(source, /Type DELETE to confirm\./, "preferences delete should require typed confirmation");
+assert.match(source, /Opened preference history for policy #/, "preferences grid should expose a history action");
+assert.match(source, /Select all current/, "preferences history bulk tools should support selecting all current rows");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
 assert.match(server, /imgSrc:\s*\[[\s\S]*"blob:"/, "security policy should allow fetched company logos rendered through blob URLs");

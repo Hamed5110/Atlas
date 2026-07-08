@@ -55,10 +55,11 @@ assert.match(serverText, /isMissingSqlProcedureError/i, 'Airfare policy delete s
 assert.match(serverText, /sqlNumber === 308/i, 'Airfare policy delete should catch stale SQL index-hint error 308 and use fallback');
 assert.match(serverText, /PK_AirfarePolicyRates/i, 'Airfare policy delete should catch stale PK index hint failures from old procedures');
 assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime soft-delete if database repair is blocked');
-assert.match(serverText, /Installed delete procedure returned a non-purge state/i, 'Airfare policy delete should force hard purge when old procedures return soft-delete states');
-assert.match(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should hard-delete the policy row');
+assert.match(serverText, /sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Airfare policy delete should call the soft-delete SQL procedure');
+assert.doesNotMatch(serverText, /Installed delete procedure returned a non-purge state/i, 'Airfare policy delete should not override a valid soft-delete result with a purge flow');
+assert.doesNotMatch(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should not hard-delete the policy row');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
-assert.match(serverText, /Airfare policy rule purged from preferences/i, 'Airfare policy delete should report purge success');
+assert.match(serverText, /Airfare policy rule deleted from current preferences\. Historical transactions remain unchanged\./i, 'Airfare policy delete should report soft-delete success');
 assert.match(serverText, /normalizeSqlConnectionEndpoint/i, 'Server should normalize named SQL instances to explicit TCP port connections');
 const phase1PolicyRepairText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_Phase1_PolicyRate_Repair.sql'), 'utf8');
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
