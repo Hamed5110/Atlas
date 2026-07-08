@@ -892,6 +892,9 @@ async function main() {
         assert.equal(Number(preview.totalOpeningBalance), expectedClosingBhd);
         assert.ok(Number(preview.pendingLoanCount) >= 0, 'pending loan count missing from year-end preview');
         assert.ok(Number(preview.pendingLoanAmount) >= 0, 'pending loan amount missing from year-end preview');
+        assert.ok(Number(preview.totalOpeningLoanBalance) >= 0, 'opening loan balance missing from year-end preview');
+        assert.ok(Number(preview.loansCarriedForward) >= 0, 'opening loan carry-forward count missing from year-end preview');
+        assert.ok(Object.prototype.hasOwnProperty.call(preview.employees[0], 'NextOpeningLoanBalance'), 'employee preview missing next opening loan balance');
         assert.equal(Number(preview.employees[0].ClosingDays), expectedClosingDays);
         assert.equal(Number(preview.employees[0].ClosingBHD), expectedClosingBhd);
         try {
@@ -930,12 +933,16 @@ async function main() {
       assert.equal(Number(closed.totalClosingDays), expectedClosingDays);
       assert.equal(Number(closed.totalOpeningBalance), expectedClosingBhd);
       assert.ok(Number(closed.pendingLoanCount) >= 0, 'pending loan count missing from year-end close');
+      assert.ok(Number(closed.totalOpeningLoanBalance) >= 0, 'opening loan balance missing from year-end close');
+      assert.ok(Number(closed.loansCarriedForward) >= 0, 'opening loan carry-forward count missing from year-end close');
 
       const nextYear = await request(`/opening-balances?year=${yearEndYear + 1}`);
       const row = nextYear.find((item) => item.EmployeeID === employee.employeeId);
       assert.ok(row, 'next year opening balance was not carried');
       assert.equal(Number(row.OpeningDays), expectedClosingDays);
       assert.equal(Number(row.OpeningBHD), expectedClosingBhd);
+      const nextYearOpeningLoans = await request(`/opening-loan-balances?year=${yearEndYear + 1}`);
+      assert.ok(Array.isArray(nextYearOpeningLoans), 'next year opening loan balance endpoint should return a register');
       return { yearEndId: closed.yearEndId, yearEndYear, carriedToYear: yearEndYear + 1, openingDays: row.OpeningDays, openingBhd: row.OpeningBHD };
     });
   } finally {

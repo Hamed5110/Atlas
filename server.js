@@ -2354,6 +2354,8 @@ BEGIN
         END, 2) AS DECIMAL(10,2)) AS ClosingBHD,
         COALESCE(loans.PendingLoanCount, 0) AS PendingLoanCount,
         CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS PendingLoanAmount,
+        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS ClosingLoanBalance,
+        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS NextOpeningLoanBalance,
         CAST(ROUND(COALESCE(loans.MonthlyEMI, 0), 2) AS DECIMAL(12,2)) AS PendingMonthlyEMI,
         CASE
             WHEN COALESCE(loans.PendingLoanCount, 0) > 0 THEN 'Pending loan review required'
@@ -3050,6 +3052,26 @@ app.get('/api/opening-balances', authenticateToken, async (req, res) => {
     } catch (err) {
         logger.error('Get opening balances error:', err);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/opening-loan-balances
+app.get('/api/opening-loan-balances', authenticateToken, async (req, res) => {
+    try {
+        const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+        if (!year || year < 2000 || year > 2100) {
+            return res.status(400).json({ error: 'Valid opening loan balance year is required' });
+        }
+
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const result = await withSqlRetry(() => db.request()
+            .input('BalanceYear', sql.Int, year)
+            .execute('dbo.sp_ATLAS_GetOpeningLoanBalances'), 'opening loan balance register');
+        res.json(result.recordset);
+    } catch (err) {
+        logger.error('Get opening loan balances error:', err);
+        res.status(500).json({ error: err.message || 'Opening loan balance load failed' });
     }
 });
 
@@ -6547,6 +6569,8 @@ app.get('/api/year-end/preview/:year', authenticateToken, requireRole('admin'), 
         const totalClosingDays = employees.recordset.reduce((sum, row) => sum + Number(row.ClosingDays || 0), 0);
         const pendingLoanCount = employees.recordset.reduce((sum, row) => sum + Number(row.PendingLoanCount || 0), 0);
         const pendingLoanAmount = employees.recordset.reduce((sum, row) => sum + Number(row.PendingLoanAmount || 0), 0);
+        const totalOpeningLoanBalance = employees.recordset.reduce((sum, row) => sum + Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0), 0);
+        const loansCarriedForward = employees.recordset.filter((row) => Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0) > 0).length;
         res.json({
             closedYear,
             nextYear: closedYear + 1,
@@ -6557,6 +6581,8 @@ app.get('/api/year-end/preview/:year', authenticateToken, requireRole('admin'), 
             totalClosingDays: Number(totalClosingDays.toFixed(2)),
             pendingLoanCount,
             pendingLoanAmount: Number(pendingLoanAmount.toFixed(2)),
+            totalOpeningLoanBalance: Number(totalOpeningLoanBalance.toFixed(2)),
+            loansCarriedForward,
             totals: counts.recordset[0],
             employees: employees.recordset
         });
@@ -6606,6 +6632,8 @@ app.post('/api/year-end/close', authenticateToken, requireRole('admin'), async (
         const totalClosingDays = preview.recordset.reduce((sum, row) => sum + Number(row.ClosingDays || 0), 0);
         const pendingLoanCount = preview.recordset.reduce((sum, row) => sum + Number(row.PendingLoanCount || 0), 0);
         const pendingLoanAmount = preview.recordset.reduce((sum, row) => sum + Number(row.PendingLoanAmount || 0), 0);
+        const totalOpeningLoanBalance = preview.recordset.reduce((sum, row) => sum + Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0), 0);
+        const loansCarriedForward = preview.recordset.filter((row) => Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0) > 0).length;
         const summary = {
             closedYear,
             nextYear,
@@ -6616,6 +6644,8 @@ app.post('/api/year-end/close', authenticateToken, requireRole('admin'), async (
             totalClosingDays: Number(totalClosingDays.toFixed(2)),
             pendingLoanCount,
             pendingLoanAmount: Number(pendingLoanAmount.toFixed(2)),
+            totalOpeningLoanBalance: Number(totalOpeningLoanBalance.toFixed(2)),
+            loansCarriedForward,
             totals: totals.recordset[0],
             dryRun: value.dryRun
         };
@@ -6672,11 +6702,27 @@ app.post('/api/year-end/close', authenticateToken, requireRole('admin'), async (
                     VALUES (@ClosedYear, @NextYear, @ClosingDate, @EmployeeCount, @BalancesCarried,
                         @TotalAllocations, @TotalLoansCreated, @TotalEmergencyTickets, @TotalOpeningBalance, @Remarks, @ClosedBy)
                 `);
+            const yearEndId = history.recordset[0].YearEndID;
+
+            for (const row of preview.recordset) {
+                const openingLoanAmount = Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0);
+                if (openingLoanAmount <= 0) continue;
+                await new sql.Request(tx)
+                    .input('EmployeeID', sql.Int, row.EmployeeID)
+                    .input('BalanceYear', sql.Int, nextYear)
+                    .input('OpeningLoanAmount', sql.Decimal(12, 2), openingLoanAmount)
+                    .input('PendingLoanCount', sql.Int, Number(row.PendingLoanCount || 0))
+                    .input('MonthlyEMI', sql.Decimal(12, 2), Number(row.PendingMonthlyEMI || 0))
+                    .input('CarriedFromYear', sql.Int, closedYear)
+                    .input('SourceYearEndID', sql.Int, yearEndId)
+                    .input('CreatedBy', sql.Int, req.user.userId)
+                    .execute('dbo.sp_ATLAS_UpsertOpeningLoanBalance');
+            }
 
             await tx.commit();
-            await logAudit(req.user.userId, req.user.username, 'YEAR_END_CLOSE', 'YearEnd', history.recordset[0].YearEndID, null,
+            await logAudit(req.user.userId, req.user.username, 'YEAR_END_CLOSE', 'YearEnd', yearEndId, null,
                 { ...summary, history: history.recordset[0] }, `Closed year ${closedYear}`, req);
-            res.json({ ...summary, yearEndId: history.recordset[0].YearEndID });
+            res.json({ ...summary, yearEndId });
         } catch (innerErr) {
             await tx.rollback();
             throw innerErr;

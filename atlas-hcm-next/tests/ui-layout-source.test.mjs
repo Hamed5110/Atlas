@@ -142,6 +142,10 @@ assert.match(css, /\.year-end-year-switcher\s*{[\s\S]*box-shadow/, "year end fis
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.opening-register-facts[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "opening balance compact facts should collapse cleanly on mobile");
 assert.match(source, /yearEndReadinessChecks/, "year end readiness checks should be generated from live preview state");
 assert.match(source, /Pending loans/, "year end preview should show pending loans before final close");
+assert.match(source, /Opening Loan Balance/, "loan dashboard should show the selected-year opening loan balance");
+assert.match(source, /Opening loan balance/, "year end summary should show next-year opening loan balance");
+assert.match(source, /opening-loan-balances\?year=\$\{openingYear\}/, "global fiscal switch should reload opening loan balances");
+assert.match(source, /NextOpeningLoanBalance/, "year end employee preview should show the next opening loan value");
 assert.match(source, /Closing days/, "year end preview should show closing days as of selected closing date");
 assert.match(source, /Closing amount/, "year end preview should show closing amount as of selected closing date");
 assert.match(source, /CurrentYearEarnedDays/, "year end employee preview should include earned days up to closing date");

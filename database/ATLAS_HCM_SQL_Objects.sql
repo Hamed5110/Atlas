@@ -554,6 +554,101 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OpeningBalanceImportBa
     CREATE INDEX IX_OpeningBalanceImportBatchRows_Batch ON dbo.OpeningBalanceImportBatchRows(ImportBatchID, SourceRow);
 GO
 
+IF OBJECT_ID('dbo.OpeningLoanBalances', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.OpeningLoanBalances (
+        OpeningLoanBalanceID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_OpeningLoanBalances PRIMARY KEY,
+        EmployeeID INT NOT NULL,
+        BalanceYear INT NOT NULL,
+        OpeningLoanAmount DECIMAL(12,2) NOT NULL CONSTRAINT DF_OpeningLoanBalances_Amount DEFAULT (0),
+        PendingLoanCount INT NOT NULL CONSTRAINT DF_OpeningLoanBalances_Count DEFAULT (0),
+        MonthlyEMI DECIMAL(12,2) NOT NULL CONSTRAINT DF_OpeningLoanBalances_EMI DEFAULT (0),
+        CarriedFromYear INT NULL,
+        SourceYearEndID INT NULL,
+        CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_OpeningLoanBalances_CreatedAt DEFAULT (GETDATE()),
+        UpdatedAt DATETIME2(0) NULL,
+        CreatedBy INT NULL,
+        CONSTRAINT UQ_OpeningLoanBalances_EmployeeYear UNIQUE (EmployeeID, BalanceYear)
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OpeningLoanBalances_Year' AND object_id = OBJECT_ID('dbo.OpeningLoanBalances'))
+    CREATE INDEX IX_OpeningLoanBalances_Year ON dbo.OpeningLoanBalances(BalanceYear, EmployeeID);
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_UpsertOpeningLoanBalance
+    @EmployeeID INT,
+    @BalanceYear INT,
+    @OpeningLoanAmount DECIMAL(12,2),
+    @PendingLoanCount INT = 0,
+    @MonthlyEMI DECIMAL(12,2) = 0,
+    @CarriedFromYear INT = NULL,
+    @SourceYearEndID INT = NULL,
+    @CreatedBy INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @EmployeeID IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.Employees WHERE EmployeeID = @EmployeeID)
+        THROW 53201, 'Employee is required for opening loan balance.', 1;
+    IF @BalanceYear IS NULL OR @BalanceYear < 2000 OR @BalanceYear > 2100
+        THROW 53202, 'Valid opening loan balance year is required.', 1;
+
+    MERGE dbo.OpeningLoanBalances AS target
+    USING (SELECT @EmployeeID AS EmployeeID, @BalanceYear AS BalanceYear) AS source
+    ON target.EmployeeID = source.EmployeeID AND target.BalanceYear = source.BalanceYear
+    WHEN MATCHED THEN UPDATE SET
+        OpeningLoanAmount = ROUND(COALESCE(@OpeningLoanAmount, 0), 2),
+        PendingLoanCount = COALESCE(@PendingLoanCount, 0),
+        MonthlyEMI = ROUND(COALESCE(@MonthlyEMI, 0), 2),
+        CarriedFromYear = @CarriedFromYear,
+        SourceYearEndID = @SourceYearEndID,
+        UpdatedAt = GETDATE(),
+        CreatedBy = COALESCE(@CreatedBy, target.CreatedBy)
+    WHEN NOT MATCHED THEN INSERT (
+        EmployeeID, BalanceYear, OpeningLoanAmount, PendingLoanCount, MonthlyEMI,
+        CarriedFromYear, SourceYearEndID, CreatedBy
+    )
+    VALUES (
+        @EmployeeID, @BalanceYear, ROUND(COALESCE(@OpeningLoanAmount, 0), 2), COALESCE(@PendingLoanCount, 0), ROUND(COALESCE(@MonthlyEMI, 0), 2),
+        @CarriedFromYear, @SourceYearEndID, @CreatedBy
+    );
+
+    SELECT olb.*, e.EmployeeCode, e.FullName, e.Department
+    FROM dbo.OpeningLoanBalances olb
+    JOIN dbo.Employees e ON e.EmployeeID = olb.EmployeeID
+    WHERE olb.EmployeeID = @EmployeeID AND olb.BalanceYear = @BalanceYear;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_GetOpeningLoanBalances
+    @BalanceYear INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT
+        olb.OpeningLoanBalanceID,
+        olb.EmployeeID,
+        e.EmployeeCode,
+        e.FullName,
+        e.Department,
+        olb.BalanceYear,
+        olb.OpeningLoanAmount,
+        olb.PendingLoanCount,
+        olb.MonthlyEMI,
+        olb.CarriedFromYear,
+        olb.SourceYearEndID,
+        olb.CreatedAt,
+        olb.UpdatedAt
+    FROM dbo.OpeningLoanBalances olb
+    JOIN dbo.Employees e ON e.EmployeeID = olb.EmployeeID
+    WHERE olb.BalanceYear = @BalanceYear
+    ORDER BY e.EmployeeCode;
+END;
+GO
+
 CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_CreateOpeningBalanceImportPreview
     @FileName NVARCHAR(260),
     @HeadersJson NVARCHAR(MAX) = NULL,
@@ -2931,6 +3026,8 @@ BEGIN
         END, 2) AS DECIMAL(10,2)) AS ClosingBHD,
         COALESCE(loans.PendingLoanCount, 0) AS PendingLoanCount,
         CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS PendingLoanAmount,
+        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS ClosingLoanBalance,
+        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS NextOpeningLoanBalance,
         CAST(ROUND(COALESCE(loans.MonthlyEMI, 0), 2) AS DECIMAL(12,2)) AS PendingMonthlyEMI,
         CASE WHEN COALESCE(loans.PendingLoanCount, 0) > 0 THEN 'Pending loan review required' ELSE 'Ready for close' END AS CloseStatus
     FROM YearEndCalc c

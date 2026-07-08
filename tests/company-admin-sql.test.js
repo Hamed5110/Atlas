@@ -18,12 +18,18 @@ assert.match(serverText, /PUT \/api\/companies\/:id/i, 'Company update API shoul
 assert.match(serverText, /CREATE DATABASE/i, 'Company API should create company database');
 assert.match(serverText, /POST \/api\/auth\/forgot-password/i, 'Forgot password API should exist');
 assert.match(serverText, /GET \/api\/opening-balances/i, 'Opening balance list API should exist');
+assert.match(serverText, /GET \/api\/opening-loan-balances/i, 'Opening loan balance list API should exist');
 assert.match(serverText, /POST \/api\/opening-balances/i, 'Opening balance save API should exist');
 assert.match(serverText, /DELETE \/api\/opening-balances\/:employeeId\/:year/i, 'Opening balance employee/year delete API should exist');
 assert.match(serverText, /POST \/api\/opening-balances\/bulk-delete/i, 'Opening balance selected-row bulk delete API should exist');
 assert.match(serverText, /GET \/api\/opening-balances\/calculate/i, 'Opening balance SQL calculation API should exist');
 assert.match(serverText, /dbo\.fn_ATLAS_AirfareAmount\(@OpeningDays, @MaximumPayout\)/i, 'Opening balance calculations should use the MSSQL function');
 assert.match(hcmSqlText, /CREATE OR ALTER FUNCTION dbo\.fn_ATLAS_AirfareAmount/i, 'Airfare amount SQL function should exist');
+assert.match(hcmSqlText, /CREATE TABLE dbo\.OpeningLoanBalances/i, 'Opening loan balance carry-forward table should exist');
+assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_UpsertOpeningLoanBalance/i, 'Opening loan balance upsert procedure should exist');
+assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_GetOpeningLoanBalances/i, 'Opening loan balance register procedure should exist');
+assert.match(hcmSqlText, /NextOpeningLoanBalance/i, 'Year-end preview should expose next-year opening loan balance');
+assert.match(serverText, /sp_ATLAS_UpsertOpeningLoanBalance/i, 'Year-end close should commit opening loan balance through SQL procedure');
 assert.match(hcmSqlText, /dbo\.fn_ATLAS_AirfareAmount\(x\.openingDays/i, 'Opening balance import preview should use the SQL formula function');
 assert.match(serverText, /Deleted opening balance for employee/i, 'Opening balance delete should write an audit trail');
 assert.match(serverText, /POST \/api\/opening-balances\/import/i, 'Opening balance import API should exist');

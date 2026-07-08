@@ -254,6 +254,20 @@ type OpeningBalanceRegisterRow = {
   MaximumPayout?: number;
   IsActive?: boolean;
 };
+type OpeningLoanBalanceRow = {
+  OpeningLoanBalanceID: number;
+  EmployeeID: number;
+  EmployeeCode: string;
+  FullName: string;
+  Department?: string;
+  Branch?: string;
+  BalanceYear: number;
+  OpeningLoanAmount: number;
+  PendingLoanCount: number;
+  MonthlyEMI: number;
+  CarriedFromYear?: number;
+  SourceYearEndID?: number;
+};
 type OpeningBalanceCalculation = {
   openingDays: number;
   maximumPayout: number;
@@ -434,6 +448,8 @@ type YearEndPreview = {
   totalClosingDays?: number;
   pendingLoanCount?: number;
   pendingLoanAmount?: number;
+  totalOpeningLoanBalance?: number;
+  loansCarriedForward?: number;
   totals?: { TotalAllocations?: number; LoansCreated?: number; TotalLoansCreated?: number; EmergencyTickets?: number; TotalEmergencyTickets?: number; PendingLoans?: number; PendingLoanAmount?: number };
   employees?: Array<{
     EmployeeID: number;
@@ -450,6 +466,8 @@ type YearEndPreview = {
     PendingLoanCount?: number;
     PendingLoanAmount?: number;
     PendingMonthlyEMI?: number;
+    ClosingLoanBalance?: number;
+    NextOpeningLoanBalance?: number;
     CloseStatus?: string;
     MaximumPayout: number;
   }>;
@@ -975,6 +993,7 @@ export default function DashboardPage() {
   const [selectedOpeningBalanceKeys, setSelectedOpeningBalanceKeys] = useState<Set<string>>(new Set());
   const [activeOpeningYear, setActiveOpeningYear] = useState(new Date().getFullYear().toString());
   const [openingBalanceRows, setOpeningBalanceRows] = useState<OpeningBalanceRegisterRow[]>([]);
+  const [openingLoanBalanceRows, setOpeningLoanBalanceRows] = useState<OpeningLoanBalanceRow[]>([]);
   const [openingBalanceLoading, setOpeningBalanceLoading] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [allocationForm, setAllocationForm] = useState(emptyAllocationForm);
@@ -1366,6 +1385,8 @@ export default function DashboardPage() {
   const selectedLoanEmployee = employees.find((item) => item.EmployeeID === Number(loanForm.employeeId));
   const yearEndPendingLoans = Number(yearEndPreview?.pendingLoanCount ?? yearEndPreview?.totals?.PendingLoans ?? 0);
   const yearEndPendingLoanAmount = Number(yearEndPreview?.pendingLoanAmount ?? yearEndPreview?.totals?.PendingLoanAmount ?? 0);
+  const yearEndOpeningLoanBalance = Number(yearEndPreview?.totalOpeningLoanBalance ?? yearEndPendingLoanAmount);
+  const yearEndLoansCarriedForward = Number(yearEndPreview?.loansCarriedForward ?? (yearEndPreview?.employees || []).filter((row) => Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0) > 0).length);
   const yearEndNegativeBalances = (yearEndPreview?.employees || []).filter((row) => Number(row.ClosingDays || 0) < 0 || Number(row.ClosingBHD || 0) < 0).length;
   const yearEndCalendarYear = new Date().getFullYear();
   const activeFiscalYearNumber = normalizeOpeningYear(activeFiscalYear);
@@ -1401,7 +1422,7 @@ export default function DashboardPage() {
     },
     {
       title: "Pending loan visibility",
-      detail: yearEndPreview ? `${yearEndPendingLoans} pending loan(s), amount ${money.format(yearEndPendingLoanAmount)}.` : "Pending loan count appears after preview.",
+      detail: yearEndPreview ? `${yearEndPendingLoans} pending loan(s), ${money.format(yearEndOpeningLoanBalance)} becomes next-year opening loan balance.` : "Pending loan count appears after preview.",
       status: yearEndPendingLoans > 0 ? "Review" : yearEndPreview ? "Clear" : "Required",
       tone: yearEndPendingLoans > 0 ? "warning" : yearEndPreview ? "success" : "warning"
     },
@@ -1413,7 +1434,7 @@ export default function DashboardPage() {
     },
     {
       title: "Carry-forward snapshot",
-      detail: "Closing days and amount are copied into next-year opening balance with audit history.",
+      detail: "Closing airfare balance and opening loan balance are copied into next-year SQL ledgers with audit history.",
       status: yearEndPreview ? "Protected" : "Pending",
       tone: yearEndPreview ? "success" : "info"
     }
@@ -1687,8 +1708,12 @@ export default function DashboardPage() {
     const year = normalizeOpeningYear(yearValue);
     setOpeningBalanceLoading(true);
     try {
-      const rows = await atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${year}`, activeSession.token, activeSession.sessionId);
+      const [rows, loanRows] = await Promise.all([
+        atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${year}`, activeSession.token, activeSession.sessionId),
+        atlasFetch<OpeningLoanBalanceRow[]>(`/opening-loan-balances?year=${year}`, activeSession.token, activeSession.sessionId)
+      ]);
       setOpeningBalanceRows(rows);
+      setOpeningLoanBalanceRows(loanRows);
       setSelectedOpeningBalanceKeys((current) => new Set([...current].filter((key) => rows.some((row) => openingBalanceKey(row) === key))));
     } finally {
       setOpeningBalanceLoading(false);
@@ -1759,6 +1784,7 @@ export default function DashboardPage() {
       setEmployees([]);
       setEmployeeMasterAll([]);
       setLoans([]);
+      setOpeningLoanBalanceRows([]);
       setAllocations([]);
       setAirfarePolicyRates([]);
       setCompanies([]);
@@ -1770,7 +1796,7 @@ export default function DashboardPage() {
     const reportYear = normalizeOpeningYear(fiscalYearValue);
     const openingYear = reportYear;
     const canReviewSelfService = ["admin", "manager", "hr"].includes(activeSession.user.role);
-    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, selfServiceAlertData, intelligenceData, verificationData, integrityData, airfarePayableData, openingBalanceData] = await Promise.all([
+    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, selfServiceAlertData, intelligenceData, verificationData, integrityData, airfarePayableData, openingBalanceData, openingLoanBalanceData] = await Promise.all([
       atlasFetch<Employee[]>("/employees?scope=active", activeSession.token, activeSession.sessionId),
       atlasFetch<Employee[]>("/employees?scope=all", activeSession.token, activeSession.sessionId),
       atlasFetch<Loan[]>("/loans/register", activeSession.token, activeSession.sessionId),
@@ -1787,7 +1813,8 @@ export default function DashboardPage() {
       atlasFetch<SystemVerification>("/intelligence/verification", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemIntegrityModel>(`/intelligence/system-integrity?year=${reportYear}`, activeSession.token, activeSession.sessionId),
       atlasFetch<AirfarePayableReportRow[]>(`/reports/airfare-payable?year=${reportYear}&asOfDate=${today}`, activeSession.token, activeSession.sessionId),
-      atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${openingYear}`, activeSession.token, activeSession.sessionId)
+      atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${openingYear}`, activeSession.token, activeSession.sessionId),
+      atlasFetch<OpeningLoanBalanceRow[]>(`/opening-loan-balances?year=${openingYear}`, activeSession.token, activeSession.sessionId)
     ]);
     setEmployees(employeeData);
     setEmployeeMasterAll(employeeMasterData);
@@ -1806,6 +1833,7 @@ export default function DashboardPage() {
     setSystemIntegrity(integrityData);
     setAirfarePayableReport(airfarePayableData);
     setOpeningBalanceRows(openingBalanceData);
+    setOpeningLoanBalanceRows(openingLoanBalanceData);
     setActiveFiscalYear(String(reportYear));
     setActiveOpeningYear(String(reportYear));
     setOpeningForm((current) => ({ ...current, year: String(reportYear) }));
@@ -4282,6 +4310,8 @@ export default function DashboardPage() {
         { Metric: "Closing Amount", Value: money.format(yearEndPreview.totalOpeningBalance || 0) },
         { Metric: "Pending Loans", Value: yearEndPreview.pendingLoanCount ?? yearEndPreview.totals?.PendingLoans ?? 0 },
         { Metric: "Pending Loan Amount", Value: money.format(yearEndPreview.pendingLoanAmount ?? yearEndPreview.totals?.PendingLoanAmount ?? 0) },
+        { Metric: "Opening Loan Balance", Value: money.format(yearEndPreview.totalOpeningLoanBalance ?? 0) },
+        { Metric: "Loans Carried Forward", Value: yearEndPreview.loansCarriedForward ?? 0 },
         { Metric: "Allocations", Value: yearEndPreview.totals?.TotalAllocations ?? 0 },
         { Metric: "Loans Created", Value: yearEndPreview.totals?.LoansCreated ?? yearEndPreview.totals?.TotalLoansCreated ?? 0 },
         { Metric: "Emergency Tickets", Value: yearEndPreview.totals?.EmergencyTickets ?? yearEndPreview.totals?.TotalEmergencyTickets ?? 0 }
@@ -4799,6 +4829,8 @@ export default function DashboardPage() {
   const openingFormIsUpdate = Boolean(editingOpeningBalanceKey && openingFormKey === editingOpeningBalanceKey);
   const openingBalanceTotalAmount = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningBHD || 0), 0);
   const openingBalanceTotalDays = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningDays || 0), 0);
+  const openingLoanBalanceTotal = openingLoanBalanceRows.reduce((sum, row) => sum + Number(row.OpeningLoanAmount || 0), 0);
+  const openingLoanBalanceEmployeeCount = openingLoanBalanceRows.filter((row) => Number(row.OpeningLoanAmount || 0) > 0).length;
   const filteredEmployees = employees.filter((employee) => {
     const text = `${employee.EmployeeCode} ${employee.FullName} ${employee.Department || ""}`.toLowerCase();
     return text.includes(searchText);
@@ -6770,6 +6802,7 @@ export default function DashboardPage() {
               <Metric title="Active Loans" value={String(loanSummary?.ActiveLoans ?? loans.filter((loan) => loan.Status === "active").length)} icon={<WalletCards />} tone="blue" />
               <Metric title="Outstanding" value={money.format(loanSummary?.TotalOutstanding ?? 0)} icon={<CreditCard />} tone="rose" />
               <Metric title="Monthly EMI" value={money.format(loanSummary?.MonthlyDeduction ?? 0)} icon={<CalendarClock />} tone="cyan" />
+              <Metric title="Opening Loan Balance" value={money.format(openingLoanBalanceTotal)} icon={<ClipboardCheck />} tone="cyan" />
               <Metric title="Recovered" value={money.format(loanSummary?.TotalRecovered ?? 0)} icon={<TrendingUp />} tone="violet" />
             </section>
             <section className="table-grid">
@@ -6801,7 +6834,7 @@ export default function DashboardPage() {
                 <div className="loan-action-panel">
                   <div className="loan-action-copy">
                     <strong>Loan action controls</strong>
-                    <p>Use selected EMI run for controlled monthly deductions. Defer, settle, and restructure write loan history and require confirmation.</p>
+                    <p>Use selected EMI run for controlled monthly deductions. Opening loan balance shows {openingLoanBalanceEmployeeCount} employee ledger row(s) carried by year-end SQL.</p>
                   </div>
                   <div className="loan-action-fields">
                     <Field label="Action date">
@@ -6995,6 +7028,7 @@ export default function DashboardPage() {
                 <span><small>Closing days</small><strong>{yearEndPreview ? Number(yearEndPreview.totalClosingDays || 0).toFixed(2) : "-"}</strong></span>
                 <span><small>Closing amount</small><strong>{money.format(yearEndPreview?.totalOpeningBalance ?? 0)}</strong></span>
                 <span><small>Pending loans</small><strong>{yearEndPreview ? `${yearEndPreview.pendingLoanCount || 0} / ${money.format(yearEndPreview.pendingLoanAmount || 0)}` : "-"}</strong></span>
+                <span><small>Opening loan balance</small><strong>{yearEndPreview ? `${yearEndLoansCarriedForward} / ${money.format(yearEndOpeningLoanBalance)}` : "-"}</strong></span>
               </div>
               <div className="company-year-matrix">
                 <div className="matrix-head">
@@ -7046,7 +7080,7 @@ export default function DashboardPage() {
               </div>
               {yearEndPreview && (
                 <div className="preview-grid">
-                  <div className="preview-row year-end-head"><span>Employee</span><span>Opening</span><span>Earned</span><span>Paid/Used</span><span>Closing</span><span>Pending loans</span><span>Status</span></div>
+                  <div className="preview-row year-end-head"><span>Employee</span><span>Opening</span><span>Earned</span><span>Paid/Used</span><span>Closing</span><span>Opening loan balance</span><span>Status</span></div>
                   {(yearEndPreview.employees || []).slice(0, 12).map((row) => (
                     <div className="preview-row year-end-head" key={row.EmployeeID}>
                       <span>{row.EmployeeCode} - {row.FullName}</span>
@@ -7054,7 +7088,7 @@ export default function DashboardPage() {
                       <span><strong>{Number(row.CurrentYearEarnedDays || 0).toFixed(2)} days</strong><small>{money.format(row.CurrentYearEarnedBHD || 0)}</small></span>
                       <span><strong>{Number(row.PaidDays || 0).toFixed(2)} days</strong><small>{money.format(row.PaidAmount || 0)}</small></span>
                       <span><strong>{Number(row.ClosingDays || 0).toFixed(2)} days</strong><small>{money.format(row.ClosingBHD || 0)}</small></span>
-                      <span><strong>{row.PendingLoanCount || 0}</strong><small>{money.format(row.PendingLoanAmount || 0)} / EMI {money.format(row.PendingMonthlyEMI || 0)}</small></span>
+                      <span><strong>{money.format(row.NextOpeningLoanBalance ?? row.PendingLoanAmount ?? 0)}</strong><small>{row.PendingLoanCount || 0} loan(s) / EMI {money.format(row.PendingMonthlyEMI || 0)}</small></span>
                       <span className={row.PendingLoanCount ? "pill danger-pill" : "pill"}>{row.CloseStatus || "Ready for close"}</span>
                     </div>
                   ))}
