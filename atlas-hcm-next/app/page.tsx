@@ -863,6 +863,15 @@ function buildAlreadyApprovedMessage(request: EmployeeAllowanceRequest) {
   return `Request is already ${formatSelfServiceStatus(request.ApprovalStatus).toLowerCase()}.${allocationNote}`;
 }
 
+function moneyParts(value: number) {
+  const formatted = money.format(Number(value || 0));
+  const match = formatted.match(/^([^\d-]+)\s*(.+)$/);
+  return {
+    currency: match?.[1]?.trim() || "BHD",
+    amount: match?.[2]?.trim() || formatted
+  };
+}
+
 export default function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>("Overview");
   const [session, setSession] = useState<AtlasSession | null>(null);
@@ -5538,17 +5547,17 @@ export default function DashboardPage() {
               <motion.div className="overview-summary glass-panel" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
                 <div>
                   <p className="eyebrow">Airfare command center</p>
-                  <h2>Summary first. Details when needed.</h2>
+                  <h2>Command metrics, clean decisions.</h2>
                   <p>Track payable balance, monthly growth, active loans, and review alerts from one clean workspace.</p>
                 </div>
                 <div className="summary-focus-row">
                   <span>
                     <small>Airfare payable</small>
-                    <strong>{money.format(metrics.totalAirfare)}</strong>
+                    <strong className="kpi-money"><em>{moneyParts(metrics.totalAirfare).currency}</em><b>{moneyParts(metrics.totalAirfare).amount}</b></strong>
                   </span>
                   <span>
                     <small>Current year earned</small>
-                    <strong>{money.format(metrics.currentYearEarned)}</strong>
+                    <strong className="kpi-money"><em>{moneyParts(metrics.currentYearEarned).currency}</em><b>{moneyParts(metrics.currentYearEarned).amount}</b></strong>
                   </span>
                   <span>
                     <small>Report employees</small>
@@ -5564,11 +5573,11 @@ export default function DashboardPage() {
               </motion.div>
             </section>
             <MetricGrid metrics={metrics} />
-            <details className="analytics-disclosure glass-panel">
+            <details className="analytics-disclosure glass-panel" open>
               <summary>
                 <span>
-                  <strong>Advanced analytics</strong>
-                  <small>Open detailed charts only when reviewing trends.</small>
+                  <strong>Advanced analytics active</strong>
+                  <small>Trend and distribution panels are ready for review.</small>
                 </span>
                 <TrendingUp size={18} />
               </summary>
@@ -7190,7 +7199,7 @@ export default function DashboardPage() {
               <div className="standard-note">
                 <div>
                   <strong>Date-effective values are used only for new or edited transactions.</strong>
-                  <span>Historical allocations keep their saved policy snapshot. Current entitlement is capped at 60 days and BHD 150.</span>
+                  <span>Historical allocations keep their saved policy snapshot. Current entitlement uses the active preference amount and cycle rules at runtime.</span>
                 </div>
                 <button className="mini-soft" onClick={() => setActiveView("Airfare")}>Open Airfare</button>
               </div>
@@ -7232,10 +7241,10 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="premium-table">
-                <div className="table-row loan-head policy-rate-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span><span>Action</span></div>
+                <div className="table-row loan-head policy-rate-row preference-current-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span><span>Action</span></div>
                 {airfarePolicyRates.length === 0 && <p className="muted">No custom airfare policy found. System will use BHD 150.00 default.</p>}
                 {airfarePolicyRates.map((rate) => (
-                  <div className="table-row loan-head policy-rate-row" key={rate.PolicyRateID}>
+                  <div className="table-row loan-head policy-rate-row preference-current-row" key={rate.PolicyRateID}>
                     <span>
                       <strong>{rate.EmployeeID ? "Employee exception" : rate.EmpGroup ? "Pay group matrix" : rate.Department ? "Department matrix" : rate.CompanyID ? "Company default" : "Global default"}</strong>
                       <small>{rate.EmployeeID ? `${rate.EmployeeCode || rate.EmployeeID} - ${rate.FullName || ""}` : rate.EmpGroup ? rate.EmpGroup : rate.Department ? rate.Department : rate.CompanyID ? rate.CompanyName || `Company ${rate.CompanyID}` : "All companies and employees"}</small>
@@ -7245,8 +7254,13 @@ export default function DashboardPage() {
                     <span><strong>{Number(rate.CycleDays || 60).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 30).toFixed(0)} working days / month</small></span>
                     <span><strong>{money.format(rate.PerDayRate || ((rate.MaxPayoutAmount || 150) / (rate.CycleDays || 60)))}</strong><small>Amount / cycle days</small></span>
                     <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
-                    <span className="row-actions">
-                      <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /></button>
+                    <span className="row-actions preference-row-actions">
+                      <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit preference as draft"><Pencil size={14} /> Edit</button>
+                      {isCurrentAirfarePolicyRate(rate) ? (
+                        <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /> Delete</button>
+                      ) : (
+                        <span className="pill warning">History locked</span>
+                      )}
                     </span>
                   </div>
                 ))}
@@ -7364,7 +7378,7 @@ export default function DashboardPage() {
                   <input type="date" value={policyForm.effectiveFrom} onChange={(event) => setPolicyForm({ ...policyForm, effectiveFrom: event.target.value })} />
                 </Field>
                 <Field label="New airfare amount">
-                  <input type="number" step="0.01" min="0" max="150" placeholder="150.00" value={policyForm.maxPayoutAmount} onChange={(event) => setPolicyForm({ ...policyForm, maxPayoutAmount: event.target.value })} />
+                  <input type="number" step="0.01" min="0" placeholder="Preference amount" value={policyForm.maxPayoutAmount} onChange={(event) => setPolicyForm({ ...policyForm, maxPayoutAmount: event.target.value })} />
                 </Field>
               </div>
               <div className="calc-result">
@@ -7374,6 +7388,12 @@ export default function DashboardPage() {
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={handleSaveAirfarePolicyRate}>Save preference value</button>
+                <button className="soft-button" type="button" disabled={busy} onClick={() => {
+                  setPolicyForm({ ruleType: "global", companyId: "", employeeId: "", department: "", payGroup: "", effectiveFrom: today, maxPayoutAmount: String(AIRFARE_DEFAULT_PAYOUT) });
+                  setPolicyEmployeeSearch("");
+                  setSelectedPolicyRateIds(new Set());
+                  setMessage("Preference draft cleared.");
+                }}>Clear draft</button>
               </div>
                 </>
               )}
@@ -7827,9 +7847,9 @@ function MetricGrid({ metrics }: { metrics: { totalAirfare: number; opening: num
   return (
     <section className="metric-grid">
       <Metric title="Report Employees" value={metrics.employeeCount.toString()} icon={<Users />} tone="blue" />
-      <Metric title="Opening Balance" value={money.format(metrics.opening)} icon={<CalendarClock />} tone="violet" />
-      <Metric title="Airfare Payable" value={money.format(metrics.totalAirfare)} icon={<TrendingUp />} tone="cyan" />
-      <Metric title="Loan Exposure" value={money.format(metrics.loanBalance)} icon={<CreditCard />} tone="rose" />
+      <Metric title="Opening Balance" value={money.format(metrics.opening)} icon={<CalendarClock />} tone="violet" moneyValue />
+      <Metric title="Airfare Payable" value={money.format(metrics.totalAirfare)} icon={<TrendingUp />} tone="cyan" moneyValue />
+      <Metric title="Loan Exposure" value={money.format(metrics.loanBalance)} icon={<CreditCard />} tone="rose" moneyValue />
     </section>
   );
 }
@@ -8230,12 +8250,13 @@ function EmiRunConfirmationPanel({ preview }: { preview: LoanEmiPreview }) {
   );
 }
 
-function Metric({ title, value, icon, tone }: { title: string; value: string; icon: React.ReactNode; tone: string }) {
+function Metric({ title, value, icon, tone, moneyValue = false }: { title: string; value: string; icon: React.ReactNode; tone: string; moneyValue?: boolean }) {
+  const parts = moneyValue ? value.match(/^([^\d-]+)\s*(.+)$/) : null;
   return (
     <motion.div className={`metric glass-panel ${tone}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
       <div className="metric-icon">{icon}</div>
       <span>{title}</span>
-      <strong>{value}</strong>
+      {parts ? <strong className="metric-money"><em>{parts[1].trim()}</em><b>{parts[2].trim()}</b></strong> : <strong>{value}</strong>}
     </motion.div>
   );
 }

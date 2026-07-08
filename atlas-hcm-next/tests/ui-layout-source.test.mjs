@@ -366,6 +366,13 @@ assert.match(source, /\/intelligence\/control-center/, "intelligence control cen
 assert.match(source, /intelligence\?\.summary\.IntelligenceScore/, "intelligence screen should show SQL score");
 assert.match(source, /intelligence\?\.risks/, "intelligence screen should list SQL risk items");
 assert.match(source, /intelligence\?\.recommendations/, "intelligence screen should list SQL recommendations");
+assert.match(source, /kpi-money/, "overview dashboard should split large currency KPI values");
+assert.match(source, /metric-money/, "metric cards should use money-aware rendering");
+assert.match(source, /analytics-disclosure glass-panel" open/, "advanced analytics should be active by default");
+assert.match(css, /\.kpi-money b[\s\S]*white-space:\s*nowrap/, "dashboard KPI amounts should not wrap");
+assert.match(source, /preference-current-row/, "current preference rows should use a dedicated layout");
+assert.match(source, /preference-row-actions/, "global preference rows should expose direct actions");
+assert.doesNotMatch(source, /max="150" placeholder="Preference amount"/, "preference amount input should not be fixed to BHD 150");
 assert.match(server, /sp_ATLAS_GetIntelligenceControlCenter/, "backend should call SQL intelligence procedure");
 assert.match(server, /sp_ATLAS_GetEffectiveAirfarePolicy[\s\S]*@EmployeeID INT = NULL/, "SQL policy lookup should support employee-specific airfare amounts");
 assert.match(server, /sp_ATLAS_SaveAirfarePolicyRate[\s\S]*@EmployeeID INT = NULL/, "SQL policy save should support employee-specific airfare amounts");

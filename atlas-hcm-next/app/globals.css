@@ -1751,6 +1751,10 @@ h3 { font-size: 20px; letter-spacing: 0; }
   grid-template-columns: 64px minmax(190px, 1fr) minmax(150px, .8fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(120px, .65fr) minmax(115px, .6fr) minmax(110px, .45fr);
   min-width: 1120px;
 }
+.table-row.preference-current-row {
+  grid-template-columns: minmax(220px, 1.1fr) minmax(150px, .75fr) minmax(130px, .65fr) minmax(120px, .58fr) minmax(120px, .58fr) minmax(130px, .58fr) minmax(184px, .78fr);
+  min-width: 1160px;
+}
 .policy-rule-label {
   color: var(--muted);
   font-size: 12px;
@@ -2712,7 +2716,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
 
 .overview-command {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(280px, .65fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .55fr);
   gap: var(--page-gap);
   align-items: stretch;
 }
@@ -2723,8 +2727,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .overview-summary {
   display: grid;
-  grid-template-columns: minmax(0, .95fr) minmax(360px, 1.25fr);
-  gap: 20px;
+  grid-template-columns: minmax(280px, .9fr) minmax(480px, 1.1fr);
+  gap: clamp(18px, 1.8vw, 30px);
   align-items: center;
 }
 .overview-summary h2 {
@@ -2739,11 +2743,13 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .summary-focus-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(180px, 1.1fr) minmax(168px, .95fr) minmax(150px, .8fr);
   gap: 10px;
+  min-width: 0;
 }
 .summary-focus-row span {
-  min-height: 94px;
+  min-width: 0;
+  min-height: 112px;
   display: grid;
   align-content: center;
   gap: 8px;
@@ -2766,9 +2772,36 @@ h3 { font-size: 20px; letter-spacing: 0; }
   text-transform: uppercase;
 }
 .summary-focus-row strong {
-  font-size: clamp(22px, 2.1vw, 32px);
+  font-size: clamp(24px, 2.2vw, 34px);
   line-height: 1.05;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.kpi-money,
+.metric-money {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.kpi-money em,
+.metric-money em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .8;
+}
+.kpi-money b,
+.metric-money b {
+  min-width: 0;
+  display: block;
+  font-size: clamp(30px, 2.75vw, 44px);
+  line-height: .98;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .overview-ai {
   display: grid;
@@ -2784,6 +2817,24 @@ h3 { font-size: 20px; letter-spacing: 0; }
   line-height: 1.5;
 }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+.metric {
+  min-width: 0;
+  overflow: hidden;
+}
+.metric > strong {
+  min-width: 0;
+  overflow-wrap: normal;
+}
+.metric-money b {
+  font-size: clamp(26px, 2vw, 34px);
+}
+.preference-row-actions {
+  flex-wrap: nowrap;
+}
+.preference-row-actions .mini-soft,
+.preference-row-actions .mini-danger {
+  white-space: nowrap;
+}
 .loan-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
 .metric { padding: 14px; min-height: 106px; display: grid; align-content: space-between; }
 .metric-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; }
