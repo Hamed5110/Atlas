@@ -386,6 +386,15 @@ assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_HCM_SQL_O
 assert.match(readFileSync(join(process.cwd(), "..", "database", "ATLAS_AirfarePolicy_Delete_Report.sql"), "utf8"), /ForeignKeyName[\s\S]*AirfarePolicyRates[\s\S]*IndexName/, "SQL report should list policy rules, foreign keys, and indexes");
 assert.match(deployScript, /function Test-AtlasUpdateManifest[\s\S]*update_available[\s\S]*function Invoke-ChecksumDiagnostic[\s\S]*Get-FileHash/, "installer should check update manifests and write checksum diagnostics");
 assert.match(deployScript, /Invoke-UpdateOnlyPrepare[\s\S]*Test-AtlasUpdateManifest[\s\S]*New-Backup/, "update-only patch should check manifest and create backup before file update");
+assert.match(source, /System Maintenance/, "admin profile menu should expose System Maintenance");
+assert.match(source, /Check for Updates/, "admin profile menu and maintenance screen should expose Check for Updates");
+assert.match(source, /Admin Settings \/ System Maintenance \/ Updates/, "update screen should use the correct admin settings hierarchy");
+assert.match(source, /activeView === "System Maintenance"/, "System Maintenance should be a dedicated workspace");
+assert.match(source, /handleCheckForUpdates[\s\S]*atlasHealth\(\)/, "Check for Updates should verify existing ATLAS health on port 3355");
+assert.match(css, /\.admin-profile-menu/, "profile dropdown menu styling should exist");
+assert.match(css, /\.system-maintenance-page/, "System Maintenance responsive page styling should exist");
+assert.match(css, /\.maintenance-grid\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.35fr\)\s*minmax\(320px,\s*\.65fr\)/, "maintenance screen should use a stable HD two-column layout");
+assert.match(css, /@media \(max-width:\s*1120px\)[\s\S]*\.maintenance-grid[\s\S]*grid-template-columns:\s*1fr/, "maintenance screen should stack on tablet");
 assert.match(readFileSync(join(process.cwd(), "..", "installer", "Build-ATLAS-MSI.ps1"), "utf8"), /atlas-payload-manifest\.json[\s\S]*CompressionLevel=high[\s\S]*fileCount[\s\S]*totalBytes/, "MSI build should embed a payload manifest with compressed package metadata");
 assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a POST fallback for policy deletes");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");

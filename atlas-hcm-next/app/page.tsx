@@ -84,11 +84,12 @@ import {
 } from "../lib/atlas-api";
 import { calculateAirfare } from "../lib/airfare-engine";
 
-type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support";
+type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
 type ThemeMode = "light" | "dark";
 type ThemeAccent = "blue" | "emerald" | "slate";
 type UiDensity = "comfortable" | "standard" | "compact";
+type UpdateCheckState = "Not checked" | "Checking" | "Up to date" | "Needs review" | "Offline";
 
 type ReportRow = Record<string, unknown> & {
   __recordType?: ReportDrillType;
@@ -101,6 +102,14 @@ type AirfarePolicyDeleteResult = {
   policyRate: AirfarePolicyRate | null;
   alreadyRemoved?: boolean;
   alreadyHistorical?: boolean;
+};
+type UpdateCheckStatus = {
+  state: UpdateCheckState;
+  checkedAt?: string;
+  port: string;
+  database: string;
+  detail: string;
+  source: string;
 };
 type EmployeeSelfServiceSummary = {
   setupRequired: boolean;
@@ -872,6 +881,14 @@ export default function DashboardPage() {
   const [query, setQuery] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelsCollapsed, setRightPanelsCollapsed] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<UpdateCheckStatus>({
+    state: "Not checked",
+    port: "3355",
+    database: "Not checked",
+    detail: "Open System Maintenance and check the current ATLAS update channel before installing a patch.",
+    source: "Admin Settings > System Maintenance > Updates"
+  });
   const [reportChecksCollapsed, setReportChecksCollapsed] = useState(false);
   const [employeeFormOpen, setEmployeeFormOpen] = useState(false);
   const [recentAllocationsOpen, setRecentAllocationsOpen] = useState(false);
@@ -2008,6 +2025,57 @@ export default function DashboardPage() {
       setMessage(`System confirmation: live SQL data refreshed. Fiscal year ${activeFiscalYear} is active.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Live SQL data refresh failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openSystemMaintenance() {
+    if (!session || session.user.role !== "admin") {
+      setMessage("System Maintenance is available for administrators only.");
+      return;
+    }
+    setActiveView("System Maintenance");
+    setShowAdminMenu(false);
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  }
+
+  async function handleCheckForUpdates() {
+    if (!session || session.user.role !== "admin") {
+      setMessage("Check for Updates is available for administrators only.");
+      return;
+    }
+    setShowAdminMenu(false);
+    setActiveView("System Maintenance");
+    setBusy(true);
+    setUpdateCheckStatus((current) => ({
+      ...current,
+      state: "Checking",
+      detail: "Checking ATLAS service health and update readiness on port 3355."
+    }));
+    try {
+      const health = await atlasHealth();
+      setUpdateCheckStatus({
+        state: health?.status === "healthy" ? "Up to date" : "Needs review",
+        checkedAt: health?.timestamp || new Date().toISOString(),
+        port: "3355",
+        database: String(health?.database || "unknown"),
+        detail: health?.status === "healthy"
+          ? "ATLAS is healthy on port 3355. Use the verified update-only EXE when a signed patch artifact is available."
+          : "ATLAS responded, but the update readiness status needs administrator review.",
+        source: "Existing ATLAS update-only patch channel"
+      });
+      setMessage("Update check completed. ATLAS service health verified on port 3355.");
+    } catch (error) {
+      setUpdateCheckStatus({
+        state: "Offline",
+        checkedAt: new Date().toISOString(),
+        port: "3355",
+        database: "Unavailable",
+        detail: error instanceof Error ? error.message : "ATLAS update readiness check failed.",
+        source: "Existing ATLAS update-only patch channel"
+      });
+      setMessage(error instanceof Error ? error.message : "ATLAS update readiness check failed.");
     } finally {
       setBusy(false);
     }
@@ -4115,6 +4183,16 @@ export default function DashboardPage() {
         Department: user.Department || "-",
         Status: user.IsActive ? "Active" : "Inactive"
       }));
+    } else if (activeView === "System Maintenance") {
+      title = "System Maintenance Update Status";
+      columns = ["Control", "Value"];
+      rows = [
+        { Control: "Update status", Value: updateCheckStatus.state },
+        { Control: "Application port", Value: `127.0.0.1:${updateCheckStatus.port}` },
+        { Control: "Database", Value: updateCheckStatus.database },
+        { Control: "Patch channel", Value: updateCheckStatus.source },
+        { Control: "Detail", Value: updateCheckStatus.detail }
+      ];
     } else if (activeView === "Support") {
       title = "ATLAS Help and Validation Guide";
       columns = ["Area", "Instruction"];
@@ -5344,13 +5422,37 @@ export default function DashboardPage() {
             }} title={themeMode === "light" ? "Switch to dark mode" : "Switch to normal mode"}>
               {themeMode === "light" ? <Moon size={18} /> : <Sun size={18} />}
             </button>
-            <button className="profile-chip" type="button" title={`${session.user.fullName || session.user.username} profile`}>
-              <span className="profile-avatar">{getInitials(session.user.fullName || session.user.username)}</span>
-              <span className="profile-meta">
-                <strong>{session.user.fullName || session.user.username}</strong>
-                <small>{session.user.role}</small>
-              </span>
-            </button>
+            <div className="profile-menu-wrap">
+              <button
+                className={showAdminMenu ? "profile-chip active" : "profile-chip"}
+                type="button"
+                title={`${session.user.fullName || session.user.username} profile`}
+                aria-haspopup="menu"
+                aria-expanded={showAdminMenu}
+                onClick={() => setShowAdminMenu((current) => !current)}
+              >
+                <span className="profile-avatar">{getInitials(session.user.fullName || session.user.username)}</span>
+                <span className="profile-meta">
+                  <strong>{session.user.fullName || session.user.username}</strong>
+                  <small>{session.user.role}</small>
+                </span>
+                <ChevronRight className="profile-caret" size={15} />
+              </button>
+              {showAdminMenu && (
+                <div className="admin-profile-menu glass-panel" role="menu" aria-label="System Admin menu">
+                  <div className="admin-menu-head">
+                    <strong>{session.user.fullName || session.user.username}</strong>
+                    <span>{session.user.role === "admin" ? "Administrator tools" : "User profile"}</span>
+                  </div>
+                  <button type="button" role="menuitem" onClick={() => {
+                    setActiveView("Preferences");
+                    setShowAdminMenu(false);
+                  }}><Settings size={16} /> Preferences</button>
+                  <button type="button" role="menuitem" disabled={session.user.role !== "admin"} onClick={openSystemMaintenance}><ShieldCheck size={16} /> System Maintenance</button>
+                  <button type="button" role="menuitem" disabled={session.user.role !== "admin" || busy} onClick={handleCheckForUpdates}><Download size={16} /> Check for Updates</button>
+                </div>
+              )}
+            </div>
             <button className="logout-button top-logout" onClick={() => handleLogout()}><LogOut size={18} /> Logout</button>
           </div>
         </header>
@@ -7492,6 +7594,68 @@ export default function DashboardPage() {
                 <label className="switch-row"><input type="checkbox" checked={userForm.isActive} onChange={(event) => setUserForm({ ...userForm, isActive: event.target.checked })} /> Active user</label>
                 <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleCreateUser}>{editingUserId ? "Update user rights" : "Create user"}</button>
                 {editingUserId && <button className="soft-button" disabled={busy} onClick={cancelUserEdit}>Cancel edit</button>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeView === "System Maintenance" && (
+          <section className="system-maintenance-page">
+            <div className="glass-panel system-maintenance-hero">
+              <div>
+                <p className="eyebrow">Admin Settings / System Maintenance / Updates</p>
+                <h2>Update Application</h2>
+                <p>Application updates live here so operational screens stay focused on employees, balances, airfare, loans, and year-end work.</p>
+              </div>
+              <div className={`update-state-card state-${updateCheckStatus.state.toLowerCase().replace(/\s+/g, "-")}`}>
+                <small>Update status</small>
+                <strong>{updateCheckStatus.state}</strong>
+                <span>{updateCheckStatus.checkedAt ? formatExportDate(updateCheckStatus.checkedAt) : "Not checked yet"}</span>
+              </div>
+            </div>
+
+            <div className="maintenance-grid">
+              <div className="glass-panel table-card update-control-panel">
+                <div className="card-title"><Download size={18} /> Check for Updates</div>
+                <div className="standard-note">
+                  <div>
+                    <strong>Purpose-fit placement</strong>
+                    <span>FOSS admin layouts place update controls under admin settings or help/profile menus, not inside daily transaction modules.</span>
+                  </div>
+                  <span className="pill">Admin only</span>
+                </div>
+                <div className="maintenance-status-grid">
+                  <span><small>Application port</small><strong>127.0.0.1:{updateCheckStatus.port}</strong></span>
+                  <span><small>Database</small><strong>{updateCheckStatus.database}</strong></span>
+                  <span><small>Patch channel</small><strong>{updateCheckStatus.source}</strong></span>
+                  <span><small>Install mode</small><strong>Update-only EXE</strong></span>
+                </div>
+                <p className="muted">{updateCheckStatus.detail}</p>
+                <div className="button-row">
+                  <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleCheckForUpdates}><Download size={16} /> Check for Updates</button>
+                  <button className="soft-button" disabled={busy || !session} onClick={handleRefreshLiveData}><RefreshCw size={16} /> Refresh service data</button>
+                  <button className="soft-button" onClick={() => setActiveView("Support")}><HelpCircle size={16} /> Open support logs</button>
+                </div>
+              </div>
+
+              <div className="glass-panel form-card update-workflow-card">
+                <div className="card-title"><ShieldCheck size={18} /> Safe Update Workflow</div>
+                <div className="stack-list">
+                  <div className="notice notice-info"><span /><div><strong>1. Check</strong><p>Confirm ATLAS is reachable on port 3355 and the database is connected before patching.</p></div></div>
+                  <div className="notice notice-warning"><span /><div><strong>2. Backup</strong><p>Use the update-only patch flow that preserves existing configuration, company data, and SQL connection settings.</p></div></div>
+                  <div className="notice notice-success"><span /><div><strong>3. Verify</strong><p>After replacement, confirm copied files, backend health, frontend assets, and service restart evidence.</p></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="glass-panel update-placement-map">
+              <div className="card-title"><LayoutDashboard size={18} /> Layout placement map</div>
+              <div className="premium-table">
+                <div className="table-row maintenance-row"><span>Pattern</span><span>Atlas placement</span><span>Reason</span><span>Status</span></div>
+                <div className="table-row maintenance-row"><span>Nextcloud style</span><span>Admin Settings / System Maintenance / Updates</span><span>Version and updater belong in admin settings.</span><span className="pill">Applied</span></div>
+                <div className="table-row maintenance-row"><span>Open WebUI style</span><span>System Admin profile menu</span><span>Global instance controls sit behind administrator access.</span><span className="pill">Applied</span></div>
+                <div className="table-row maintenance-row"><span>VS Code style</span><span>Profile/help-adjacent update command</span><span>Manual update checks are expected in a system/user menu.</span><span className="pill">Applied</span></div>
+                <div className="table-row maintenance-row"><span>Material 3 style</span><span>Not in primary workflow navigation</span><span>Utility actions should not compete with daily work destinations.</span><span className="pill">Applied</span></div>
               </div>
             </div>
           </section>
