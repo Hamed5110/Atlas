@@ -11,7 +11,10 @@ const artifact = fs.readFileSync(path.join(root, 'docs', 'ATLAS_COMPANY_CLEANUP_
 assert.match(page, /Preview cleanup/, 'Companies screen should expose cleanup preview');
 assert.match(page, /companyCleanupPreview/, 'Companies screen should render cleanup evidence');
 assert.match(page, /opening-balance-row/, 'Opening Balance rows should have a dedicated layout class');
+assert.match(page, /opening-register-toolbar/, 'Opening Balance should use a compact register toolbar');
+assert.doesNotMatch(page, /Company-wise year switcher/, 'Opening Balance should not use the bulky year switcher copy');
 assert.match(css, /\.table-row\.opening-balance-row/, 'Opening Balance row layout CSS is missing');
+assert.match(css, /\.opening-register-toolbar/, 'Opening Balance compact toolbar CSS is missing');
 assert.match(css, /\.company-cleanup-preview/, 'Company cleanup preview CSS is missing');
 assert.match(server, /getCompanyCleanupPreview/, 'Backend cleanup preview helper is missing');
 assert.match(server, /app\.get\('\/api\/companies\/cleanup-preview'/, 'Backend cleanup preview route is missing');

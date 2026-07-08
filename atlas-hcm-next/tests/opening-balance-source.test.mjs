@@ -17,7 +17,9 @@ assert.match(source, /\/opening-balances\/import-confirm/, "opening balance impo
 assert.match(source, /activeOpeningYear/, "opening balance screen should keep an explicit selected year state");
 assert.match(source, /handleOpeningYearChange/, "opening balance screen should provide a year switching action");
 assert.match(source, /\/opening-balances\?year=\$\{year\}/, "opening balance register should reload through the existing year-aware backend endpoint");
-assert.match(source, /Company-wise year switcher/, "opening balance screen should show a company/year switcher panel");
+assert.match(source, /opening-register-toolbar/, "opening balance screen should show the compact year filter toolbar");
+assert.match(source, /Opening year/, "opening balance screen should expose a clear selected year control");
+assert.doesNotMatch(source, /Company-wise year switcher/, "opening balance screen should not show the bulky company/year switcher panel");
 assert.match(source, /Historical review/, "opening balance screen should identify historical year mode");
 assert.match(source, /openingBalanceRows/, "opening balance register should render selected-year SQL rows");
 assert.match(source, /Opening balance SQL preview ready/, "opening balance screen should show SQL preview confirmation");

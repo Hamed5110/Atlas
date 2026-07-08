@@ -5789,41 +5789,22 @@ export default function DashboardPage() {
             <div className="glass-panel table-card">
               <div className="card-title"><ListPlus size={18} /> Opening balance register</div>
               <input ref={openingImportRef} type="file" accept=".xlsx,.xls" hidden onChange={handleImportOpeningBalances} />
-              <div className="year-switcher-panel opening-year-switcher">
-                <div className="matrix-head">
-                  <div>
-                    <strong>Company-wise year switcher</strong>
-                    <span>Switch between current and historical opening balance registers without changing formulas or backend data rules.</span>
-                  </div>
+              <div className="opening-register-toolbar">
+                <div className="opening-year-control" aria-label="Opening balance year filter">
+                  <button className="icon-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber <= 2000} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber - 1)} title="Previous opening year" aria-label="Previous opening year"><ChevronLeft size={16} /></button>
+                  <label>
+                    <span>Opening year</span>
+                    <select value={activeOpeningYear} disabled={busy || openingBalanceLoading} onChange={(event) => void handleOpeningYearChange(event.target.value)}>
+                      {openingYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+                    </select>
+                  </label>
+                  <button className="icon-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber >= 2100} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber + 1)} title="Next opening year" aria-label="Next opening year"><ChevronRight size={16} /></button>
+                </div>
+                <div className="opening-register-facts">
                   <span className={`pill ${activeOpeningYearNumber < currentCalendarYear ? "warning" : "success"}`}>{activeOpeningYearMode}</span>
-                </div>
-                <div className="year-switcher-controls">
-                  <button className="soft-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber <= 2000} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber - 1)}><CalendarClock size={16} /> {activeOpeningYearNumber - 1}</button>
-                  <Field label="Selected year">
-                    <input type="number" min="2000" max="2100" value={activeOpeningYear} onChange={(event) => {
-                      setActiveOpeningYear(event.target.value);
-                      setOpeningForm((current) => ({ ...current, year: event.target.value }));
-                    }} onBlur={(event) => void handleOpeningYearChange(event.target.value)} />
-                  </Field>
-                  <button className="soft-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber >= 2100} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber + 1)}><CalendarClock size={16} /> {activeOpeningYearNumber + 1}</button>
-                  <div className="year-chip-grid">
-                    {openingYearOptions.map((year) => (
-                      <button
-                        key={year}
-                        className={year === activeOpeningYearNumber ? "mini-soft active" : "mini-soft"}
-                        disabled={busy || openingBalanceLoading}
-                        onClick={() => void handleOpeningYearChange(year)}
-                      >
-                        {year}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="matrix-grid">
-                  <span><small>Selected year</small><strong>{activeOpeningYearNumber}</strong><em>{activeOpeningYearMode}</em></span>
-                  <span><small>Register rows</small><strong>{openingBalanceRows.length}</strong><em>{openingBalanceLoading ? "Loading year register" : "Loaded from SQL by year"}</em></span>
-                  <span><small>Total days</small><strong>{openingBalanceTotalDays.toFixed(2)}</strong><em>Read from selected year rows</em></span>
-                  <span><small>Total amount</small><strong>{money.format(openingBalanceTotalAmount)}</strong><em>No formula or rule changed</em></span>
+                  <span><small>Rows</small><strong>{openingBalanceRows.length}</strong></span>
+                  <span><small>Days</small><strong>{openingBalanceTotalDays.toFixed(2)}</strong></span>
+                  <span><small>Amount</small><strong>{money.format(openingBalanceTotalAmount)}</strong></span>
                 </div>
               </div>
               <div className="button-row compact">

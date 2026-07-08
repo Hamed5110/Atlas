@@ -5,6 +5,7 @@
 | Area | Reported problem | Resolution |
 |---|---|---|
 | Opening Balance | Row action buttons wrapped and clipped the `Update next year` label | Added a dedicated `opening-balance-row` grid with a wider action column and no-wrap action buttons |
+| Opening Balance | Company-wise year switcher panel was too large and duplicated the global fiscal selector | Replaced it with a compact opening-year toolbar and register facts |
 | Companies | `Empty company cleanup` returned `No empty company records found for deletion` without explaining why | Added cleanup preview evidence with Protected, Blocked, and Ready counts |
 
 ## Open-Source Comparison
@@ -33,4 +34,5 @@
 | Delete empty route | Deletes only Ready records and returns preview evidence when no deletion happens |
 | Companies UI | Shows Preview cleanup and Delete empty companies as separate actions |
 | Opening Balance UI | `Update next year` remains visible in the action column |
+| Opening Balance filter | Uses compact `Opening year` selector, previous/next buttons, and small facts instead of a large instructional matrix |
 | Responsive UI | Cleanup evidence cards stack on tablet and mobile |
