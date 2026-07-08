@@ -1277,7 +1277,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
 .mapping-validation-engine,
 .voucher-template-engine,
 .company-year-matrix,
-.emi-confirmation-matrix {
+.emi-confirmation-matrix,
+.year-switcher-panel {
   display: grid;
   gap: 12px;
   padding: 13px 14px;
@@ -1308,7 +1309,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
 .voucher-template-grid,
 .matrix-grid,
 .emi-step-grid,
-.emi-variance-grid {
+.emi-variance-grid,
+.year-chip-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 8px;
@@ -1367,6 +1369,29 @@ h3 { font-size: 20px; letter-spacing: 0; }
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+.opening-year-switcher {
+  margin: 12px 0 14px;
+  border-color: rgba(5,150,105,.18);
+  background: linear-gradient(135deg, rgba(236,253,245,.92), rgba(248,251,255,.96));
+}
+.year-switcher-controls {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 220px) auto minmax(220px, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+.year-switcher-controls .field {
+  min-width: 0;
+}
+.year-chip-grid {
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  align-items: end;
+}
+.year-chip-grid .mini-soft.active {
+  border-color: rgba(5,150,105,.38);
+  color: #047857;
+  background: #ecfdf5;
 }
 .voucher-template-engine {
   margin: 14px 0;
@@ -3686,6 +3711,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   .form-grid.two,
   .allocation-ticket-form,
   .self-service-ticket-form,
+  .year-switcher-controls,
   .preferences-policy-card .form-grid.one,
   .preferences-policy-card .calc-result,
   .preferences-policy-card .policy-rule-picker,

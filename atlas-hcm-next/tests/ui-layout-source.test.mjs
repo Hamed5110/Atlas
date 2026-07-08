@@ -112,6 +112,9 @@ assert.match(source, /handleYearEndClose/, "year end screen should support contr
 assert.match(source, /Year End readiness gate/, "year end screen should show readiness checks before closing");
 assert.match(source, /Company-wise and year-wise shifting matrix/, "year end should show company/year matrix boundaries");
 assert.match(source, /yearEndMatrixRows/, "year end should generate company-year isolation matrix rows");
+assert.match(source, /Company-wise year switcher/, "opening balance should expose a year switching matrix");
+assert.match(css, /\.year-switcher-controls\s*{[\s\S]*grid-template-columns/, "opening balance year switcher should use a responsive grid");
+assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.year-switcher-controls[\s\S]*grid-template-columns:\s*1fr/, "opening balance year switcher should collapse cleanly on mobile");
 assert.match(source, /yearEndReadinessChecks/, "year end readiness checks should be generated from live preview state");
 assert.match(source, /Pending loans/, "year end preview should show pending loans before final close");
 assert.match(source, /Closing days/, "year end preview should show closing days as of selected closing date");

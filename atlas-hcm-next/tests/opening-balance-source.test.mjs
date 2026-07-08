@@ -14,6 +14,12 @@ assert.match(source, /openingBhd: ""/, "opening balance form should start with e
 assert.match(source, /Enter opening days and opening amount before saving/, "opening balance save should require manual days and amount");
 assert.match(source, /\/opening-balances\/import-preview/, "opening balance import should create SQL validation preview batch");
 assert.match(source, /\/opening-balances\/import-confirm/, "opening balance import should confirm selected SQL preview rows only");
+assert.match(source, /activeOpeningYear/, "opening balance screen should keep an explicit selected year state");
+assert.match(source, /handleOpeningYearChange/, "opening balance screen should provide a year switching action");
+assert.match(source, /\/opening-balances\?year=\$\{year\}/, "opening balance register should reload through the existing year-aware backend endpoint");
+assert.match(source, /Company-wise year switcher/, "opening balance screen should show a company/year switcher panel");
+assert.match(source, /Historical review/, "opening balance screen should identify historical year mode");
+assert.match(source, /openingBalanceRows/, "opening balance register should render selected-year SQL rows");
 assert.match(source, /Opening balance SQL preview ready/, "opening balance screen should show SQL preview confirmation");
 assert.match(source, /toggleOpeningPreviewRow/, "opening balance preview should support row selection");
 assert.match(source, /removeOpeningPreviewRow/, "opening balance preview should support removing rows");

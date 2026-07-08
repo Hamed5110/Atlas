@@ -215,6 +215,19 @@ type OpeningBalancePreview = {
     selectedRows: number;
   };
 };
+type OpeningBalanceRegisterRow = {
+  OpeningBalanceID?: number;
+  EmployeeID: number;
+  EmployeeCode: string;
+  FullName: string;
+  Department?: string;
+  Branch?: string;
+  BalanceYear: number;
+  OpeningDays: number;
+  OpeningBHD: number;
+  MaximumPayout?: number;
+  IsActive?: boolean;
+};
 type IntelligenceSummary = {
   AsOfDate?: string;
   CurrentYear?: number;
@@ -907,6 +920,9 @@ export default function DashboardPage() {
     openingBhd: "",
     maximumPayout: "150"
   });
+  const [activeOpeningYear, setActiveOpeningYear] = useState(new Date().getFullYear().toString());
+  const [openingBalanceRows, setOpeningBalanceRows] = useState<OpeningBalanceRegisterRow[]>([]);
+  const [openingBalanceLoading, setOpeningBalanceLoading] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [allocationForm, setAllocationForm] = useState(emptyAllocationForm);
   const [allocationErrors, setAllocationErrors] = useState<FieldErrors>({});
@@ -1584,6 +1600,36 @@ export default function DashboardPage() {
     return canSelectSelfServiceEmployee && employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : "";
   }
 
+  function normalizeOpeningYear(value: string | number) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return new Date().getFullYear();
+    return Math.min(2100, Math.max(2000, Math.trunc(parsed)));
+  }
+
+  async function reloadOpeningBalances(activeSession = session, yearValue: string | number = activeOpeningYear) {
+    if (!activeSession || activeSession.user.role === "employee") return;
+    const year = normalizeOpeningYear(yearValue);
+    setOpeningBalanceLoading(true);
+    try {
+      const rows = await atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${year}`, activeSession.token, activeSession.sessionId);
+      setOpeningBalanceRows(rows);
+    } finally {
+      setOpeningBalanceLoading(false);
+    }
+  }
+
+  async function handleOpeningYearChange(value: string | number) {
+    const year = normalizeOpeningYear(value);
+    const yearText = String(year);
+    setActiveOpeningYear(yearText);
+    setOpeningForm((current) => ({ ...current, year: yearText }));
+    setOpeningPreview(null);
+    if (session) {
+      await reloadOpeningBalances(session, year);
+      setMessage(`Opening balance register switched to ${year}.`);
+    }
+  }
+
   async function loadLiveData(activeSession = session) {
     if (!activeSession) return;
     if (activeSession.user.role === "employee") {
@@ -1606,8 +1652,9 @@ export default function DashboardPage() {
       return;
     }
     const reportYear = new Date().getFullYear();
+    const openingYear = normalizeOpeningYear(activeOpeningYear);
     const canReviewSelfService = ["admin", "manager", "hr"].includes(activeSession.user.role);
-    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, selfServiceAlertData, intelligenceData, verificationData, integrityData, airfarePayableData] = await Promise.all([
+    const [employeeData, employeeMasterData, loanData, loanSummaryData, allocationData, summaryData, companyData, backupFileData, policyData, selfServiceSummaryData, selfServiceRequestData, selfServiceAlertData, intelligenceData, verificationData, integrityData, airfarePayableData, openingBalanceData] = await Promise.all([
       atlasFetch<Employee[]>("/employees?scope=active", activeSession.token, activeSession.sessionId),
       atlasFetch<Employee[]>("/employees?scope=all", activeSession.token, activeSession.sessionId),
       atlasFetch<Loan[]>("/loans/register", activeSession.token, activeSession.sessionId),
@@ -1623,7 +1670,8 @@ export default function DashboardPage() {
       atlasFetch<IntelligenceControlCenter>("/intelligence/control-center", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemVerification>("/intelligence/verification", activeSession.token, activeSession.sessionId),
       atlasFetch<SystemIntegrityModel>(`/intelligence/system-integrity?year=${reportYear}`, activeSession.token, activeSession.sessionId),
-      atlasFetch<AirfarePayableReportRow[]>(`/reports/airfare-payable?year=${reportYear}&asOfDate=${today}`, activeSession.token, activeSession.sessionId)
+      atlasFetch<AirfarePayableReportRow[]>(`/reports/airfare-payable?year=${reportYear}&asOfDate=${today}`, activeSession.token, activeSession.sessionId),
+      atlasFetch<OpeningBalanceRegisterRow[]>(`/opening-balances?year=${openingYear}`, activeSession.token, activeSession.sessionId)
     ]);
     setEmployees(employeeData);
     setEmployeeMasterAll(employeeMasterData);
@@ -1641,6 +1689,7 @@ export default function DashboardPage() {
     setVerification(verificationData);
     setSystemIntegrity(integrityData);
     setAirfarePayableReport(airfarePayableData);
+    setOpeningBalanceRows(openingBalanceData);
     setSelectedCompanyId((current) => current || (companyData[0]?.CompanyID ? String(companyData[0].CompanyID) : ""));
     setBackupForm((current) => ({ ...current, databaseName: current.databaseName || companyData[0]?.DatabaseName || "" }));
     setSummary(summaryData);
@@ -3106,20 +3155,23 @@ export default function DashboardPage() {
     const maximumPayout = toNumber(openingForm.maximumPayout, employee.MaximumPayout || AIRFARE_DEFAULT_PAYOUT);
     const openingDays = Math.min(AIRFARE_MAX_DAYS, toNumber(openingForm.openingDays));
     const openingBhd = toNumber(openingForm.openingBhd, roundMoney((maximumPayout / 60) * openingDays));
+    const openingYear = normalizeOpeningYear(openingForm.year);
 
     setBusy(true);
     setMessage("");
     try {
       await atlasMutation("/opening-balances", session.token, session.sessionId, "POST", {
         employeeId: employee.EmployeeID,
-        year: Number(openingForm.year),
+        year: openingYear,
         openingDays,
         openingBhd,
         maximumPayout
       });
+      setActiveOpeningYear(String(openingYear));
       await loadLiveData();
-      setOpeningForm({ ...openingForm, employeeId: "", openingDays: "", openingBhd: "", maximumPayout: "150" });
-      setMessage("Opening balance saved and employee airfare balance updated.");
+      await reloadOpeningBalances(session, openingYear);
+      setOpeningForm({ ...openingForm, employeeId: "", year: String(openingYear), openingDays: "", openingBhd: "", maximumPayout: "150" });
+      setMessage(`Opening balance saved for ${openingYear} and employee airfare balance updated.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Opening balance save failed");
     } finally {
@@ -3240,6 +3292,7 @@ export default function DashboardPage() {
         }
       );
       await loadLiveData();
+      await reloadOpeningBalances(session, activeOpeningYear);
       setOpeningPreview(null);
       const errorText = result.errors.length ? ` ${result.errors.length} row(s) need review.` : "";
       setMessage(`Opening balance import complete: ${result.updated} updated from ${selectedRows.length} selected row(s).${errorText}`);
@@ -3321,8 +3374,19 @@ export default function DashboardPage() {
   }
 
   async function handleExportOpeningBalances() {
-    const year = Number(openingForm.year) || new Date().getFullYear();
-    const rows = employees.map((employee) => ({
+    const year = normalizeOpeningYear(activeOpeningYear);
+    const rows = openingBalanceRows.map((row) => ({
+      "Employee Code": row.EmployeeCode,
+      "Employee Name": row.FullName,
+      Department: row.Department || "",
+      Branch: row.Branch || "",
+      "Opening Year": row.BalanceYear || year,
+      "Opening Days": Number(row.OpeningDays || 0),
+      "Opening Amount": Number(row.OpeningBHD || 0),
+      "Maximum Payout": row.MaximumPayout ?? 150,
+      Status: row.IsActive === false ? "Inactive" : "Active"
+    }));
+    const fallbackRows = employees.map((employee) => ({
       "Employee Code": employee.EmployeeCode,
       "Employee Name": employee.FullName,
       Department: employee.Department || "",
@@ -3333,8 +3397,9 @@ export default function DashboardPage() {
       "Maximum Payout": employee.MaximumPayout ?? 150,
       Status: employee.Status || ""
     }));
-    await exportRowsToExcel("ATLAS_Opening_Balance_Register.xlsx", Object.keys(rows[0] || { "Employee Code": "" }), rows);
-    setMessage(`Opening balance register exported with ${rows.length} row(s).`);
+    const exportRows = rows.length ? rows : fallbackRows;
+    await exportRowsToExcel("ATLAS_Opening_Balance_Register.xlsx", Object.keys(exportRows[0] || { "Employee Code": "" }), exportRows);
+    setMessage(`Opening balance register for ${year} exported with ${exportRows.length} row(s).`);
   }
 
   async function handleExportAllocations() {
@@ -4366,6 +4431,23 @@ export default function DashboardPage() {
   };
 
   const searchText = query.trim().toLowerCase();
+  const activeOpeningYearNumber = normalizeOpeningYear(activeOpeningYear);
+  const currentCalendarYear = new Date().getFullYear();
+  const openingYearOptions = Array.from(new Set([
+    currentCalendarYear - 1,
+    currentCalendarYear,
+    currentCalendarYear + 1,
+    activeOpeningYearNumber - 1,
+    activeOpeningYearNumber,
+    activeOpeningYearNumber + 1
+  ])).filter((year) => year >= 2000 && year <= 2100).sort((left, right) => left - right);
+  const activeOpeningYearMode = activeOpeningYearNumber < currentCalendarYear ? "Historical review" : activeOpeningYearNumber === currentCalendarYear ? "Current year" : "Future setup";
+  const filteredOpeningBalanceRows = openingBalanceRows.filter((row) => {
+    const text = `${row.EmployeeCode} ${row.FullName} ${row.Department || ""} ${row.Branch || ""}`.toLowerCase();
+    return text.includes(searchText);
+  });
+  const openingBalanceTotalAmount = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningBHD || 0), 0);
+  const openingBalanceTotalDays = openingBalanceRows.reduce((sum, row) => sum + Number(row.OpeningDays || 0), 0);
   const filteredEmployees = employees.filter((employee) => {
     const text = `${employee.EmployeeCode} ${employee.FullName} ${employee.Department || ""}`.toLowerCase();
     return text.includes(searchText);
@@ -5437,6 +5519,43 @@ export default function DashboardPage() {
             <div className="glass-panel table-card">
               <div className="card-title"><ListPlus size={18} /> Opening balance register</div>
               <input ref={openingImportRef} type="file" accept=".xlsx,.xls" hidden onChange={handleImportOpeningBalances} />
+              <div className="year-switcher-panel opening-year-switcher">
+                <div className="matrix-head">
+                  <div>
+                    <strong>Company-wise year switcher</strong>
+                    <span>Switch between current and historical opening balance registers without changing formulas or backend data rules.</span>
+                  </div>
+                  <span className={`pill ${activeOpeningYearNumber < currentCalendarYear ? "warning" : "success"}`}>{activeOpeningYearMode}</span>
+                </div>
+                <div className="year-switcher-controls">
+                  <button className="soft-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber <= 2000} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber - 1)}><CalendarClock size={16} /> {activeOpeningYearNumber - 1}</button>
+                  <Field label="Selected year">
+                    <input type="number" min="2000" max="2100" value={activeOpeningYear} onChange={(event) => {
+                      setActiveOpeningYear(event.target.value);
+                      setOpeningForm((current) => ({ ...current, year: event.target.value }));
+                    }} onBlur={(event) => void handleOpeningYearChange(event.target.value)} />
+                  </Field>
+                  <button className="soft-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber >= 2100} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber + 1)}><CalendarClock size={16} /> {activeOpeningYearNumber + 1}</button>
+                  <div className="year-chip-grid">
+                    {openingYearOptions.map((year) => (
+                      <button
+                        key={year}
+                        className={year === activeOpeningYearNumber ? "mini-soft active" : "mini-soft"}
+                        disabled={busy || openingBalanceLoading}
+                        onClick={() => void handleOpeningYearChange(year)}
+                      >
+                        {year}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="matrix-grid">
+                  <span><small>Selected year</small><strong>{activeOpeningYearNumber}</strong><em>{activeOpeningYearMode}</em></span>
+                  <span><small>Register rows</small><strong>{openingBalanceRows.length}</strong><em>{openingBalanceLoading ? "Loading year register" : "Loaded from SQL by year"}</em></span>
+                  <span><small>Total days</small><strong>{openingBalanceTotalDays.toFixed(2)}</strong><em>Read from selected year rows</em></span>
+                  <span><small>Total amount</small><strong>{money.format(openingBalanceTotalAmount)}</strong><em>No formula or rule changed</em></span>
+                </div>
+              </div>
               <div className="button-row compact">
                 <button className="soft-button" disabled={busy || !session} onClick={() => openingImportRef.current?.click()}><Upload size={16} /> Import Excel</button>
                 <button className="soft-button" disabled={busy} onClick={handleExportOpeningBalances}><Download size={16} /> Export Opening Balances</button>
@@ -5486,20 +5605,34 @@ export default function DashboardPage() {
               )}
               <div className="premium-table">
                 <div className="table-row employee-head table-head"><span>Employee</span><span>Opening Days</span><span>Opening Amount</span><span>Status</span><span>Action</span></div>
-                {filteredEmployees.map((employee) => (
-                  <div className="table-row employee-head" key={employee.EmployeeID}>
-                    <span><strong>{employee.FullName}</strong><small>{employee.EmployeeCode} / {employee.Department || "-"}</small></span>
-                    <span>{closingBalanceDays(employee).toFixed(2)}</span>
-                    <span>{money.format(calculateExcelTotal(employee))}</span>
-                    <span className="pill">{employee.Status}</span>
+                {filteredOpeningBalanceRows.length === 0 && (
+                  <div className="notice">
+                    <span />
+                    <div>
+                      <strong>No opening balance rows for {activeOpeningYearNumber}</strong>
+                      <p>Switch year, import Excel, or add a balance for the selected year.</p>
+                    </div>
+                  </div>
+                )}
+                {filteredOpeningBalanceRows.map((row) => (
+                  <div className="table-row employee-head" key={`${row.EmployeeID}-${row.BalanceYear}`}>
+                    <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / {row.Department || "-"}</small></span>
+                    <span>{Number(row.OpeningDays || 0).toFixed(2)}</span>
+                    <span>{money.format(Number(row.OpeningBHD || 0))}</span>
+                    <span className="pill">{row.IsActive === false ? "Inactive" : "Active"}</span>
                     <span className="row-actions">
+                      {(() => {
+                        const employee = employeeMasterAll.find((item) => item.EmployeeID === Number(row.EmployeeID)) || employees.find((item) => item.EmployeeID === Number(row.EmployeeID));
+                        return (
                       <button className="mini-soft" onClick={() => setOpeningForm({
-                        employeeId: String(employee.EmployeeID),
-                        year: openingForm.year,
-                        openingDays: String(closingBalanceDays(employee)),
-                        openingBhd: String(calculateExcelTotal(employee)),
-                        maximumPayout: String(employee.MaximumPayout || 150)
+                        employeeId: String(row.EmployeeID),
+                        year: String(row.BalanceYear || activeOpeningYearNumber),
+                        openingDays: String(Number(row.OpeningDays || 0)),
+                        openingBhd: String(Number(row.OpeningBHD || 0)),
+                        maximumPayout: String(row.MaximumPayout || employee?.MaximumPayout || 150)
                       })}>Edit</button>
+                        );
+                      })()}
                     </span>
                   </div>
                 ))}
@@ -5523,7 +5656,11 @@ export default function DashboardPage() {
                     {(employeeMasterAll.length ? employeeMasterAll : employees).map((employee) => <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}{isAirfareEligibleEmployeeStatus(employee.Status) ? "" : " (inactive)"}</option>)}
                   </select>
                 </Field>
-                <Field label="Opening year"><input type="number" value={openingForm.year} onChange={(event) => setOpeningForm({ ...openingForm, year: event.target.value })} /></Field>
+                <Field label="Opening year"><input type="number" min="2000" max="2100" value={openingForm.year} onChange={(event) => {
+                  const value = event.target.value;
+                  setOpeningForm({ ...openingForm, year: value });
+                  setActiveOpeningYear(value);
+                }} onBlur={(event) => void handleOpeningYearChange(event.target.value)} /></Field>
                 <Field label="Opening days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => {
                   const days = event.target.value;
                   const amount = days.trim() === "" ? "" : roundMoney((toNumber(openingForm.maximumPayout, AIRFARE_DEFAULT_PAYOUT) / AIRFARE_MAX_DAYS) * Math.min(AIRFARE_MAX_DAYS, toNumber(days))).toFixed(2);
