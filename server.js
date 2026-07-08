@@ -5434,6 +5434,59 @@ app.get('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'ma
     }
 });
 
+app.get('/api/airfare-policy-rates/:policyRateId(\\d+)/references', authenticateToken, requireRole('admin', 'manager', 'hr'), async (req, res) => {
+    try {
+        const policyRateId = Number(req.params.policyRateId);
+        if (!Number.isInteger(policyRateId) || policyRateId <= 0) {
+            return res.status(400).json({ error: 'Valid policy rate is required.' });
+        }
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const [policyResult, referenceResult] = await Promise.all([
+            withSqlRetry(() => db.request()
+                .input('PreferenceID', sql.BigInt, policyRateId)
+                .query(`
+                    SELECT TOP (1)
+                        r.PolicyRateID,
+                        r.CompanyID,
+                        c.CompanyName,
+                        r.EmployeeID,
+                        e.EmployeeCode,
+                        e.FullName,
+                        r.Department,
+                        r.EmpGroup,
+                        r.EffectiveFrom,
+                        r.EffectiveTo,
+                        r.MaxPayoutAmount,
+                        r.CycleDays,
+                        CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
+                        CAST(dbo.fn_Preference_CanDelete(r.PolicyRateID) AS BIT) AS CanDelete,
+                        dbo.fn_Preference_LockReason(r.PolicyRateID) AS LockReason
+                    FROM dbo.AirfarePolicyRates r
+                    LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
+                    LEFT JOIN dbo.Employees e ON e.EmployeeID = r.EmployeeID
+                    WHERE r.PolicyRateID = @PreferenceID
+                `), 'get airfare policy delete preview'),
+            withSqlRetry(() => db.request()
+                .input('PreferenceID', sql.BigInt, policyRateId)
+                .query('SELECT ModuleName, RecordCount, RecordIDs, CAST(IsBlocking AS BIT) AS IsBlocking, AutoHandleAction FROM dbo.fn_Preference_GetReferenceReport(@PreferenceID) ORDER BY IsBlocking DESC, RecordCount DESC, ModuleName'), 'get airfare policy reference report')
+        ]);
+
+        const policy = policyResult.recordset?.[0];
+        if (!policy) return res.status(404).json({ error: 'Preference not found.' });
+
+        res.json({
+            policyRateId,
+            canDelete: Boolean(policy.CanDelete),
+            lockReason: policy.LockReason || 'Preference is locked.',
+            references: referenceResult.recordset || []
+        });
+    } catch (err) {
+        logger.error('Get airfare policy reference report error:', err);
+        res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
+    }
+});
+
 app.post('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
     const schema = Joi.object({
         ruleType: Joi.string().valid('global', 'company', 'employee', 'department', 'payGroup').default('global'),

@@ -881,6 +881,13 @@ IF COL_LENGTH('dbo.AirfarePolicyRates', 'LockEvaluatedAt') IS NULL ALTER TABLE d
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'LockReleasedAt') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD LockReleasedAt DATETIME2(0) NULL;
 GO
 
+IF OBJECT_ID('dbo.OpeningBalances', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.OpeningBalances', 'ArchivedPreferenceID') IS NULL ALTER TABLE dbo.OpeningBalances ADD ArchivedPreferenceID BIGINT NULL;
+    IF COL_LENGTH('dbo.OpeningBalances', 'ArchivedPreferenceAt') IS NULL ALTER TABLE dbo.OpeningBalances ADD ArchivedPreferenceAt DATETIME2(0) NULL;
+END;
+GO
+
 IF OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NOT NULL
    AND COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyRateID') IS NOT NULL
    AND NOT EXISTS (
@@ -942,6 +949,320 @@ WHERE PolicyStatus IS NULL
    END;
 GO
 
+CREATE OR ALTER FUNCTION dbo.fn_Preference_GetReferenceReport
+(
+    @PreferenceID BIGINT
+)
+RETURNS @report TABLE
+(
+    ModuleName NVARCHAR(80) NOT NULL,
+    RecordCount BIGINT NOT NULL,
+    RecordIDs NVARCHAR(MAX) NULL,
+    IsBlocking BIT NOT NULL,
+    AutoHandleAction NVARCHAR(400) NULL
+)
+AS
+BEGIN
+    DECLARE @employeeId INT = NULL;
+    DECLARE @companyId INT = NULL;
+    DECLARE @companyName NVARCHAR(200) = NULL;
+    DECLARE @companyCode NVARCHAR(30) = NULL;
+    DECLARE @effectiveFrom DATE = NULL;
+    DECLARE @department NVARCHAR(100) = NULL;
+    DECLARE @empGroup NVARCHAR(100) = NULL;
+    DECLARE @isActive BIT = 0;
+    DECLARE @effectiveTo DATE = NULL;
+    DECLARE @isDeleted BIT = 0;
+    DECLARE @count BIGINT = 0;
+    DECLARE @ids NVARCHAR(MAX) = NULL;
+    DECLARE @hasGlobalFallback BIT = 0;
+    DECLARE @isCurrent BIT = 0;
+
+    SELECT TOP (1)
+        @employeeId = r.EmployeeID,
+        @companyId = r.CompanyID,
+        @companyName = c.CompanyName,
+        @companyCode = c.CompanyCode,
+        @effectiveFrom = r.EffectiveFrom,
+        @department = NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N''),
+        @empGroup = NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N''),
+        @isActive = ISNULL(r.IsActive, 0),
+        @effectiveTo = r.EffectiveTo,
+        @isDeleted = ISNULL(r.IsDeleted, 0)
+    FROM dbo.AirfarePolicyRates r
+    LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
+    WHERE r.PolicyRateID = @PreferenceID;
+
+    IF @effectiveFrom IS NULL RETURN;
+
+    SET @isCurrent = CASE WHEN @isDeleted = 0 AND @isActive = 1 AND @effectiveTo IS NULL THEN 1 ELSE 0 END;
+
+    DECLARE @scopeEmployees TABLE
+    (
+        EmployeeID INT PRIMARY KEY,
+        EmployeeCode NVARCHAR(50) NULL,
+        FullName NVARCHAR(200) NULL
+    );
+
+    IF @employeeId IS NOT NULL
+    BEGIN
+        INSERT INTO @scopeEmployees (EmployeeID, EmployeeCode, FullName)
+        SELECT e.EmployeeID, e.EmployeeCode, e.FullName
+        FROM dbo.Employees e
+        WHERE e.EmployeeID = @employeeId;
+    END
+    ELSE IF @department IS NOT NULL
+    BEGIN
+        INSERT INTO @scopeEmployees (EmployeeID, EmployeeCode, FullName)
+        SELECT e.EmployeeID, e.EmployeeCode, e.FullName
+        FROM dbo.Employees e
+        WHERE LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Department, N''))), N'')) = LOWER(@department)
+          AND (
+                @companyId IS NULL
+                OR (
+                    NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'') IS NOT NULL
+                    AND (
+                        LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(@companyName, N''))
+                        OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(@companyCode, N''))
+                    )
+                )
+              );
+    END
+    ELSE IF @empGroup IS NOT NULL
+    BEGIN
+        INSERT INTO @scopeEmployees (EmployeeID, EmployeeCode, FullName)
+        SELECT e.EmployeeID, e.EmployeeCode, e.FullName
+        FROM dbo.Employees e
+        WHERE LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.EmpGroup, N''))), N'')) = LOWER(@empGroup)
+          AND (
+                @companyId IS NULL
+                OR (
+                    NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'') IS NOT NULL
+                    AND (
+                        LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(@companyName, N''))
+                        OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(@companyCode, N''))
+                    )
+                )
+              );
+    END
+    ELSE IF @companyId IS NOT NULL
+    BEGIN
+        INSERT INTO @scopeEmployees (EmployeeID, EmployeeCode, FullName)
+        SELECT e.EmployeeID, e.EmployeeCode, e.FullName
+        FROM dbo.Employees e
+        WHERE NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'') IS NOT NULL
+          AND (
+                LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(@companyName, N''))
+                OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(@companyCode, N''))
+              );
+    END;
+
+    IF @isCurrent = 1
+       AND @companyId IS NULL
+       AND @employeeId IS NULL
+       AND @department IS NULL
+       AND @empGroup IS NULL
+    BEGIN
+        SELECT @count = COUNT(*)
+        FROM dbo.AirfarePolicyRates r
+        WHERE ISNULL(r.IsDeleted, 0) = 0
+          AND ISNULL(r.IsActive, 0) = 1
+          AND r.EffectiveTo IS NULL
+          AND r.CompanyID IS NULL
+          AND r.EmployeeID IS NULL
+          AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+          AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL;
+
+        IF @count <= 1
+        BEGIN
+            INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+            VALUES (N'Global default guard', 1, CONCAT(N'Policy #', @PreferenceID), 1, N'Create a replacement active global default before deleting this rule.');
+        END;
+    END;
+
+    IF @isCurrent = 1 AND @companyId IS NOT NULL AND @employeeId IS NULL AND @department IS NULL AND @empGroup IS NULL
+    BEGIN
+        SELECT @hasGlobalFallback = CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.AirfarePolicyRates r
+            WHERE ISNULL(r.IsDeleted, 0) = 0
+              AND ISNULL(r.IsActive, 0) = 1
+              AND r.EffectiveTo IS NULL
+              AND r.CompanyID IS NULL
+              AND r.EmployeeID IS NULL
+              AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+              AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
+              AND r.PolicyRateID <> @PreferenceID
+        ) THEN 1 ELSE 0 END;
+
+        IF @hasGlobalFallback = 0
+        BEGIN
+            INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+            VALUES (N'Fallback chain', 1, COALESCE(@companyName, CONCAT(N'Company #', @companyId)), 1, N'Create or activate a global default before deleting this company rule.');
+        END;
+    END;
+
+    SELECT @count = COUNT(*)
+    FROM @scopeEmployees;
+
+    IF @count > 0
+    BEGIN
+        SELECT @ids = STRING_AGG(x.EmployeeCode, N', ')
+        FROM (
+            SELECT TOP (5) COALESCE(se.EmployeeCode, CONVERT(NVARCHAR(20), se.EmployeeID)) AS EmployeeCode
+            FROM @scopeEmployees se
+            ORDER BY se.EmployeeCode, se.EmployeeID
+        ) x;
+
+        INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+        VALUES (N'Employee Master', @count, @ids, 0, N'Employee keeps master data and falls back to inherited default policy.');
+    END;
+
+    SELECT @count = COUNT(*)
+    FROM dbo.Allocations a
+    WHERE a.PolicyRateID = @PreferenceID;
+
+    IF @count > 0
+    BEGIN
+        SELECT @ids = STRING_AGG(x.ReferenceID, N', ')
+        FROM (
+            SELECT TOP (5) CONCAT(N'AF-', CONVERT(NVARCHAR(20), a.AllocationID)) AS ReferenceID
+            FROM dbo.Allocations a
+            WHERE a.PolicyRateID = @PreferenceID
+            ORDER BY a.AllocationDate DESC, a.AllocationID DESC
+        ) x;
+
+        INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+        VALUES (N'Airfare Allocation', @count, @ids, 1, N'Delete or reassign the linked airfare allocation rows first.');
+    END;
+
+    SELECT @count = COUNT(*)
+    FROM dbo.Loans l
+    INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
+    WHERE a.PolicyRateID = @PreferenceID
+      AND ISNULL(l.RemainingBalance, 0) > 0
+      AND ISNULL(l.Status, N'active') <> N'settled';
+
+    IF @count > 0
+    BEGIN
+        SELECT @ids = STRING_AGG(x.ReferenceID, N', ')
+        FROM (
+            SELECT TOP (5) CONCAT(N'Loan #', CONVERT(NVARCHAR(20), l.LoanID)) AS ReferenceID
+            FROM dbo.Loans l
+            INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
+            WHERE a.PolicyRateID = @PreferenceID
+              AND ISNULL(l.RemainingBalance, 0) > 0
+              AND ISNULL(l.Status, N'active') <> N'settled'
+            ORDER BY l.LoanID DESC
+        ) x;
+
+        INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+        VALUES (N'Loan Management (active)', @count, @ids, 1, N'Close, settle, or reassign the active loan rows before deleting this preference.');
+    END;
+
+    SELECT @count = COUNT(*)
+    FROM dbo.Loans l
+    INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
+    WHERE a.PolicyRateID = @PreferenceID
+      AND (ISNULL(l.RemainingBalance, 0) <= 0 OR ISNULL(l.Status, N'active') = N'settled');
+
+    IF @count > 0
+    BEGIN
+        SELECT @ids = STRING_AGG(x.ReferenceID, N', ')
+        FROM (
+            SELECT TOP (5) CONCAT(N'Loan #', CONVERT(NVARCHAR(20), l.LoanID)) AS ReferenceID
+            FROM dbo.Loans l
+            INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
+            WHERE a.PolicyRateID = @PreferenceID
+              AND (ISNULL(l.RemainingBalance, 0) <= 0 OR ISNULL(l.Status, N'active') = N'settled')
+            ORDER BY l.LoanID DESC
+        ) x;
+
+        INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+        VALUES (N'Loan Management (closed)', @count, @ids, 0, N'Closed loan history stays preserved. No blocking action is required.');
+    END;
+
+    IF OBJECT_ID(N'dbo.OpeningBalances', N'U') IS NOT NULL
+    BEGIN
+        SELECT @count = COUNT(*)
+        FROM dbo.OpeningBalances ob
+        INNER JOIN @scopeEmployees se ON se.EmployeeID = ob.EmployeeID;
+
+        IF @count > 0
+        BEGIN
+            SELECT @ids = STRING_AGG(x.ReferenceID, N', ')
+            FROM (
+                SELECT TOP (5) CONCAT(COALESCE(se.EmployeeCode, CONVERT(NVARCHAR(20), se.EmployeeID)), N'/', CONVERT(NVARCHAR(10), ob.BalanceYear)) AS ReferenceID
+                FROM dbo.OpeningBalances ob
+                INNER JOIN @scopeEmployees se ON se.EmployeeID = ob.EmployeeID
+                ORDER BY ob.BalanceYear DESC, ob.BalanceID DESC
+            ) x;
+
+            INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+            VALUES (N'Opening Balance', @count, @ids, 0, N'Opening balance history stays intact and is tagged with this preference during delete.');
+        END;
+    END;
+
+    IF OBJECT_ID(N'dbo.ext_employee_allowance_requests', N'U') IS NOT NULL
+    BEGIN
+        SELECT @count = COUNT(*)
+        FROM dbo.ext_employee_allowance_requests r
+        INNER JOIN @scopeEmployees se ON se.EmployeeID = r.EmployeeID
+        WHERE r.ApprovalStatus IN (N'Submitted', N'ManagerApproved', N'HRApproved', N'FinanceApproved');
+
+        IF @count > 0
+        BEGIN
+            SELECT @ids = STRING_AGG(x.ReferenceID, N', ')
+            FROM (
+                SELECT TOP (5) COALESCE(r.RequestNo, CONCAT(N'REQ-', CONVERT(NVARCHAR(20), r.RequestID))) AS ReferenceID
+                FROM dbo.ext_employee_allowance_requests r
+                INNER JOIN @scopeEmployees se ON se.EmployeeID = r.EmployeeID
+                WHERE r.ApprovalStatus IN (N'Submitted', N'ManagerApproved', N'HRApproved', N'FinanceApproved')
+                ORDER BY r.RequestID DESC
+            ) x;
+
+            INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+            VALUES (N'Self-Service Request (active)', @count, @ids, 1, N'Process, reject, or cancel the linked self-service requests before deleting this preference.');
+        END;
+
+        SELECT @count = COUNT(*)
+        FROM dbo.ext_employee_allowance_requests r
+        INNER JOIN @scopeEmployees se ON se.EmployeeID = r.EmployeeID
+        WHERE r.ApprovalStatus IN (N'Rejected', N'Cancelled', N'Issued');
+
+        IF @count > 0
+        BEGIN
+            SELECT @ids = STRING_AGG(x.ReferenceID, N', ')
+            FROM (
+                SELECT TOP (5) COALESCE(r.RequestNo, CONCAT(N'REQ-', CONVERT(NVARCHAR(20), r.RequestID))) AS ReferenceID
+                FROM dbo.ext_employee_allowance_requests r
+                INNER JOIN @scopeEmployees se ON se.EmployeeID = r.EmployeeID
+                WHERE r.ApprovalStatus IN (N'Rejected', N'Cancelled', N'Issued')
+                ORDER BY r.RequestID DESC
+            ) x;
+
+            INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+            VALUES (N'Self-Service Request (historical)', @count, @ids, 0, N'Processed, cancelled, or rejected requests remain preserved as history only.');
+        END;
+    END;
+
+    IF OBJECT_ID(N'dbo.AirfarePolicyRateArchive', N'U') IS NOT NULL
+    BEGIN
+        SELECT @count = COUNT(*)
+        FROM dbo.AirfarePolicyRateArchive a
+        WHERE a.PolicyRateID = @PreferenceID;
+
+        IF @count > 0
+        BEGIN
+            INSERT INTO @report (ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction)
+            VALUES (N'Year-End Archive', @count, CONCAT(N'Policy #', @PreferenceID), 0, N'Archived snapshots stay immutable and do not block delete.');
+        END;
+    END;
+
+    RETURN;
+END;
+GO
+
 CREATE OR ALTER FUNCTION dbo.fn_Preference_CanDelete
 (
     @PreferenceID BIGINT
@@ -950,21 +1271,13 @@ RETURNS BIT
 AS
 BEGIN
     DECLARE @canDelete BIT = 0;
-    DECLARE @employeeId INT = NULL;
-    DECLARE @companyId INT = NULL;
     DECLARE @effectiveFrom DATE = NULL;
-    DECLARE @department NVARCHAR(100) = NULL;
-    DECLARE @empGroup NVARCHAR(100) = NULL;
     DECLARE @isActive BIT = 0;
     DECLARE @effectiveTo DATE = NULL;
     DECLARE @isDeleted BIT = 0;
 
     SELECT TOP (1)
-        @employeeId = r.EmployeeID,
-        @companyId = r.CompanyID,
         @effectiveFrom = r.EffectiveFrom,
-        @department = NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N''),
-        @empGroup = NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N''),
         @isActive = ISNULL(r.IsActive, 0),
         @effectiveTo = r.EffectiveTo,
         @isDeleted = ISNULL(r.IsDeleted, 0)
@@ -974,25 +1287,11 @@ BEGIN
     IF @effectiveFrom IS NULL RETURN 0;
     IF @isDeleted = 1 OR @isActive = 0 OR @effectiveTo IS NOT NULL RETURN 0;
 
-    IF @companyId IS NULL
-       AND @employeeId IS NULL
-       AND @department IS NULL
-       AND @empGroup IS NULL
-       AND @effectiveFrom IN ('19000101', '20260618')
-        RETURN 0;
-
-    IF @employeeId IS NOT NULL
-       AND EXISTS (SELECT 1 FROM dbo.Employees e WHERE e.EmployeeID = @employeeId)
-        RETURN 0;
-
-    IF EXISTS (SELECT 1 FROM dbo.Allocations a WHERE a.PolicyRateID = @PreferenceID)
-        RETURN 0;
-
     IF EXISTS (
         SELECT 1
-        FROM dbo.Loans l
-        INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
-        WHERE a.PolicyRateID = @PreferenceID
+        FROM dbo.fn_Preference_GetReferenceReport(@PreferenceID) rr
+        WHERE rr.IsBlocking = 1
+          AND rr.RecordCount > 0
     )
         RETURN 0;
 
@@ -1009,24 +1308,17 @@ RETURNS NVARCHAR(400)
 AS
 BEGIN
     DECLARE @reason NVARCHAR(400) = N'History locked';
-    DECLARE @employeeId INT = NULL;
-    DECLARE @companyId INT = NULL;
     DECLARE @effectiveFrom DATE = NULL;
-    DECLARE @department NVARCHAR(100) = NULL;
-    DECLARE @empGroup NVARCHAR(100) = NULL;
     DECLARE @isActive BIT = 0;
     DECLARE @effectiveTo DATE = NULL;
     DECLARE @isDeleted BIT = 0;
-    DECLARE @employeeCode NVARCHAR(50) = NULL;
-    DECLARE @allocationCount INT = 0;
-    DECLARE @loanCount INT = 0;
+    DECLARE @blockerName NVARCHAR(80) = NULL;
+    DECLARE @blockerCount BIGINT = 0;
+    DECLARE @blockerIds NVARCHAR(MAX) = NULL;
+    DECLARE @nonBlockingCount BIGINT = 0;
 
     SELECT TOP (1)
-        @employeeId = r.EmployeeID,
-        @companyId = r.CompanyID,
         @effectiveFrom = r.EffectiveFrom,
-        @department = NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N''),
-        @empGroup = NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N''),
         @isActive = ISNULL(r.IsActive, 0),
         @effectiveTo = r.EffectiveTo,
         @isDeleted = ISNULL(r.IsDeleted, 0)
@@ -1037,39 +1329,33 @@ BEGIN
     IF @isDeleted = 1 RETURN N'Historical policy version. Open History to review the audit trail.';
     IF @isActive = 0 OR @effectiveTo IS NOT NULL RETURN N'Historical policy version. Open History to review the audit trail.';
 
-    IF @companyId IS NULL
-       AND @employeeId IS NULL
-       AND @department IS NULL
-       AND @empGroup IS NULL
-       AND @effectiveFrom IN ('19000101', '20260618')
-        RETURN N'History locked - system default policy. This rule stays protected even when unused.';
+    SELECT TOP (1)
+        @blockerName = rr.ModuleName,
+        @blockerCount = rr.RecordCount,
+        @blockerIds = rr.RecordIDs
+    FROM dbo.fn_Preference_GetReferenceReport(@PreferenceID) rr
+    WHERE rr.IsBlocking = 1
+      AND rr.RecordCount > 0
+    ORDER BY CASE WHEN rr.ModuleName IN (N'Global default guard', N'Fallback chain') THEN 0 ELSE 1 END, rr.RecordCount DESC, rr.ModuleName;
 
-    IF @employeeId IS NOT NULL
+    IF @blockerName IS NOT NULL
     BEGIN
-        SELECT TOP (1) @employeeCode = e.EmployeeCode
-        FROM dbo.Employees e
-        WHERE e.EmployeeID = @employeeId;
-
-        IF @employeeCode IS NOT NULL
-            RETURN N'History locked - used by Employee ' + @employeeCode + N'. Delete the employee from Employee Master to unlock.';
+        IF @blockerName = N'Global default guard'
+            RETURN N'System locked - create a replacement global default before deleting this rule.';
+        IF @blockerName = N'Fallback chain'
+            RETURN N'Locked - company rule has no higher-level fallback. Create a global default first.';
+        RETURN N'Locked - ' + @blockerName + N' has ' + CONVERT(NVARCHAR(20), @blockerCount) + N' blocking record(s)' + CASE WHEN NULLIF(COALESCE(@blockerIds, N''), N'') IS NULL THEN N'.' ELSE N': ' + LEFT(@blockerIds, 180) + N'.' END;
     END;
 
-    SELECT @allocationCount = COUNT(*)
-    FROM dbo.Allocations a
-    WHERE a.PolicyRateID = @PreferenceID;
+    SELECT @nonBlockingCount = COUNT(*)
+    FROM dbo.fn_Preference_GetReferenceReport(@PreferenceID) rr
+    WHERE rr.IsBlocking = 0
+      AND rr.RecordCount > 0;
 
-    IF @allocationCount > 0
-        RETURN N'History locked - used by ' + CONVERT(NVARCHAR(20), @allocationCount) + N' active allocation record(s). Delete source data to unlock.';
+    IF @nonBlockingCount > 0
+        RETURN N'Safe to delete - non-blocking references will be auto-handled and history will stay preserved.';
 
-    SELECT @loanCount = COUNT(*)
-    FROM dbo.Loans l
-    INNER JOIN dbo.Allocations a ON a.AllocationID = l.AllocationID
-    WHERE a.PolicyRateID = @PreferenceID;
-
-    IF @loanCount > 0
-        RETURN N'History locked - used by ' + CONVERT(NVARCHAR(20), @loanCount) + N' linked loan record(s). Delete source data to unlock.';
-
-    RETURN N'Safe to delete - no active references found.';
+    RETURN N'Safe to delete - no blocking references found.';
 END;
 GO
 
@@ -1487,6 +1773,70 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'dbo.ext_employee_allowance_requests', N'U') IS NOT NULL
+BEGIN
+    EXEC(N'
+    CREATE OR ALTER TRIGGER dbo.trg_PreferenceLock_SelfService_Refresh
+    ON dbo.ext_employee_allowance_requests
+    AFTER INSERT, UPDATE, DELETE
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+
+        DECLARE @ids TABLE (PolicyRateID BIGINT PRIMARY KEY);
+
+        INSERT INTO @ids (PolicyRateID)
+        SELECT DISTINCT r.PolicyRateID
+        FROM dbo.AirfarePolicyRates r
+        LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
+        INNER JOIN dbo.Employees e ON
+            (r.EmployeeID IS NOT NULL AND r.EmployeeID = e.EmployeeID)
+            OR (
+                r.EmployeeID IS NULL
+                AND r.Department IS NOT NULL
+                AND LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Department, N''''))), N'''')) = LOWER(NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''''))), N''''))
+            )
+            OR (
+                r.EmployeeID IS NULL
+                AND r.Department IS NULL
+                AND r.EmpGroup IS NOT NULL
+                AND LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.EmpGroup, N''''))), N'''')) = LOWER(NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''''))), N''''))
+            )
+            OR (
+                r.EmployeeID IS NULL
+                AND r.Department IS NULL
+                AND r.EmpGroup IS NULL
+                AND r.CompanyID IS NOT NULL
+                AND NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''''))), N'''') IS NOT NULL
+                AND (
+                    LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''''))), N'''')) = LOWER(COALESCE(c.CompanyName, N''''))
+                    OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''''))), N'''')) = LOWER(COALESCE(c.CompanyCode, N''''))
+                )
+            )
+        INNER JOIN (
+            SELECT EmployeeID FROM inserted
+            UNION
+            SELECT EmployeeID FROM deleted
+        ) req ON req.EmployeeID = e.EmployeeID
+        WHERE r.PolicyRateID IS NOT NULL;
+
+        DECLARE @policyRateId BIGINT;
+        DECLARE refresh_cursor CURSOR LOCAL FAST_FORWARD FOR
+            SELECT PolicyRateID FROM @ids;
+
+        OPEN refresh_cursor;
+        FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            EXEC dbo.sp_Preference_RefreshLockState @PreferenceID = @policyRateId;
+            FETCH NEXT FROM refresh_cursor INTO @policyRateId;
+        END
+        CLOSE refresh_cursor;
+        DEALLOCATE refresh_cursor;
+    END;');
+END;
+GO
+
 CREATE OR ALTER PROCEDURE dbo.sp_Preference_DeleteSoft
     @PreferenceID BIGINT,
     @DeletedBy INT = NULL,
@@ -1505,6 +1855,11 @@ BEGIN
 
         DECLARE @canDelete BIT = dbo.fn_Preference_CanDelete(@PreferenceID);
         DECLARE @lockReason NVARCHAR(400) = dbo.fn_Preference_LockReason(@PreferenceID);
+        DECLARE @referenceReportJson NVARCHAR(MAX) = (
+            SELECT ModuleName, RecordCount, RecordIDs, IsBlocking, AutoHandleAction
+            FROM dbo.fn_Preference_GetReferenceReport(@PreferenceID)
+            FOR JSON PATH
+        );
         DECLARE @policy TABLE
         (
             PolicyRateID BIGINT NULL,
@@ -1591,9 +1946,67 @@ BEGIN
                 CAST(N'locked' AS NVARCHAR(40)) AS DeleteStatus,
                 CAST(0 AS BIT) AS CanDelete,
                 @PreferenceID AS PolicyRateID,
-                @lockReason AS LockReason;
+                @lockReason AS LockReason,
+                COALESCE(@referenceReportJson, N'[]') AS ReferenceReportJson;
             RETURN;
         END;
+
+        DECLARE @scopeEmployees TABLE
+        (
+            EmployeeID INT PRIMARY KEY
+        );
+
+        INSERT INTO @scopeEmployees (EmployeeID)
+        SELECT e.EmployeeID
+        FROM dbo.Employees e
+        CROSS JOIN @policy p
+        LEFT JOIN dbo.Companies c ON c.CompanyID = p.CompanyID
+        WHERE (
+                p.EmployeeID IS NOT NULL
+                AND e.EmployeeID = p.EmployeeID
+              )
+           OR (
+                p.EmployeeID IS NULL
+                AND p.Department IS NOT NULL
+                AND LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Department, N''))), N'')) = LOWER(p.Department)
+                AND (
+                    p.CompanyID IS NULL
+                    OR (
+                        NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'') IS NOT NULL
+                        AND (
+                            LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(c.CompanyName, N''))
+                            OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(c.CompanyCode, N''))
+                        )
+                    )
+                )
+              )
+           OR (
+                p.EmployeeID IS NULL
+                AND p.Department IS NULL
+                AND p.EmpGroup IS NOT NULL
+                AND LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.EmpGroup, N''))), N'')) = LOWER(p.EmpGroup)
+                AND (
+                    p.CompanyID IS NULL
+                    OR (
+                        NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'') IS NOT NULL
+                        AND (
+                            LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(c.CompanyName, N''))
+                            OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(c.CompanyCode, N''))
+                        )
+                    )
+                )
+              )
+           OR (
+                p.EmployeeID IS NULL
+                AND p.Department IS NULL
+                AND p.EmpGroup IS NULL
+                AND p.CompanyID IS NOT NULL
+                AND NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'') IS NOT NULL
+                AND (
+                    LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(c.CompanyName, N''))
+                    OR LOWER(NULLIF(LTRIM(RTRIM(COALESCE(e.Company, N''))), N'')) = LOWER(COALESCE(c.CompanyCode, N''))
+                )
+              );
 
         UPDATE r
            SET IsActive = 0,
@@ -1607,10 +2020,20 @@ BEGIN
                DeletedBy = @DeletedBy,
                DeleteReason = COALESCE(@AuditReason, N'Preference removed from current preferences. Historical transactions preserved.'),
                ArchivedAt = SYSUTCDATETIME(),
-               DependencySnapshotJson = COALESCE(r.DependencySnapshotJson, N'{"strategy":"sql_soft_delete"}'),
+               DependencySnapshotJson = COALESCE(@referenceReportJson, r.DependencySnapshotJson, N'[]'),
                PolicyStatus = N'archived'
         FROM dbo.AirfarePolicyRates r
         WHERE r.PolicyRateID = @PreferenceID;
+
+        IF OBJECT_ID(N'dbo.OpeningBalances', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.OpeningBalances', N'ArchivedPreferenceID') IS NOT NULL
+        BEGIN
+            UPDATE ob
+               SET ArchivedPreferenceID = COALESCE(ob.ArchivedPreferenceID, @PreferenceID),
+                   ArchivedPreferenceAt = COALESCE(ob.ArchivedPreferenceAt, SYSUTCDATETIME())
+            FROM dbo.OpeningBalances ob
+            INNER JOIN @scopeEmployees se ON se.EmployeeID = ob.EmployeeID
+            WHERE ob.ArchivedPreferenceID IS NULL;
+        END;
 
         DECLARE @policySnapshotJson NVARCHAR(MAX) = (
             SELECT TOP (1)
@@ -1644,7 +2067,7 @@ BEGIN
             p.PolicyRateID, p.CompanyID, p.EmployeeID, p.Department, p.EmpGroup, p.EffectiveFrom, p.EffectiveTo,
             p.MaxPayoutAmount, p.CycleDays, p.WorkingDaysPerMonth, p.AirfareDaysPerMonth, p.CreatedAt, p.CreatedBy,
             @DeletedBy, COALESCE(@AuditReason, N'Preference removed from current preferences. Historical transactions preserved.'),
-            COALESCE(p.DependencySnapshotJson, N'{"strategy":"sql_soft_delete"}'),
+            COALESCE(@referenceReportJson, p.DependencySnapshotJson, N'[]'),
             COALESCE(@policySnapshotJson, N'{}'),
             N'soft_delete'
         FROM @policy p;
@@ -1714,6 +2137,7 @@ BEGIN
             CAST(N'soft_delete' AS NVARCHAR(40)) AS DeleteAction,
             CAST(N'deactivated' AS NVARCHAR(40)) AS DeleteStatus,
             CAST(1 AS BIT) AS CanDelete,
+            COALESCE(@referenceReportJson, N'[]') AS ReferenceReportJson,
             *
         FROM @policy;
     END TRY

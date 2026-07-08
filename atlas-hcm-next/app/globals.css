@@ -2732,6 +2732,78 @@ h3 { font-size: 20px; letter-spacing: 0; }
   padding-top: 8px;
   background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.96) 36%);
 }
+.preference-delete-modal {
+  width: min(980px, 100%);
+  max-height: calc(100dvh - 28px);
+  overflow: auto;
+  padding: clamp(14px, 1.4vw, 18px);
+  box-shadow: 0 18px 48px rgba(15,23,42,.18), inset 0 1px 0 rgba(255,255,255,.86);
+}
+.preference-delete-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.preference-delete-summary span {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, .24);
+  background: #fff;
+}
+.preference-delete-summary small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.preference-delete-summary strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.preference-delete-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.preference-delete-column {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.preference-delete-list {
+  gap: 10px;
+}
+.preference-delete-list .notice {
+  align-items: start;
+}
+.preference-delete-list .notice em {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-style: normal;
+}
+.notice-danger {
+  border-color: rgba(225, 29, 72, .18);
+  background: #fff7f8;
+}
+.notice-success {
+  border-color: rgba(16, 185, 129, .18);
+  background: #f0fdf4;
+}
+.preference-delete-confirm {
+  margin-top: 12px;
+}
+.preference-delete-actions {
+  position: sticky;
+  bottom: -1px;
+  z-index: 2;
+  margin: 10px -2px -2px;
+  padding-top: 8px;
+  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.96) 36%);
+}
 .modal-head {
   display: flex;
   justify-content: space-between;
@@ -2972,6 +3044,9 @@ h3 { font-size: 20px; letter-spacing: 0; }
   white-space: nowrap;
   align-self: center;
   max-width: 100%;
+}
+.preference-lock-button {
+  cursor: pointer;
 }
 .loan-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .metric { padding: 11px 12px; min-height: 84px; display: grid; align-content: space-between; }
@@ -4405,6 +4480,10 @@ h3 { font-size: 20px; letter-spacing: 0; }
   }
   .preference-lock-pill {
     width: auto;
+  }
+  .preference-delete-summary,
+  .preference-delete-grid {
+    grid-template-columns: 1fr;
   }
   .attachment-row small {
     min-width: 0;

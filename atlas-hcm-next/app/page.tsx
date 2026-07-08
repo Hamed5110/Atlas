@@ -81,6 +81,8 @@ import {
   Employee,
   Loan,
   LoanSummary,
+  PreferenceDeletePreview,
+  PreferenceReferenceRow,
   YearSummary
 } from "../lib/atlas-api";
 
@@ -102,6 +104,7 @@ type AirfarePolicyDeleteResult = {
   policyRate: AirfarePolicyRate | null;
   alreadyRemoved?: boolean;
   alreadyHistorical?: boolean;
+  referenceReportJson?: string;
 };
 type UpdateCheckStatus = {
   state: UpdateCheckState;
@@ -1011,6 +1014,10 @@ export default function DashboardPage() {
   const [policyEmployeeSearch, setPolicyEmployeeSearch] = useState("");
   const [policyEmployeesLoading, setPolicyEmployeesLoading] = useState(false);
   const [selectedPolicyRateIds, setSelectedPolicyRateIds] = useState<Set<number>>(new Set());
+  const [policyDeleteTarget, setPolicyDeleteTarget] = useState<AirfarePolicyRate | null>(null);
+  const [policyDeletePreview, setPolicyDeletePreview] = useState<PreferenceDeletePreview | null>(null);
+  const [policyDeleteConfirmText, setPolicyDeleteConfirmText] = useState("");
+  const [policyDeleteLoading, setPolicyDeleteLoading] = useState(false);
   const [allocationFile, setAllocationFile] = useState<File | null>(null);
   const [allocationEligibilityReview, setAllocationEligibilityReview] = useState<AllocationEligibilityReview | null>(null);
   const [selfServiceForm, setSelfServiceForm] = useState({
@@ -2357,6 +2364,14 @@ export default function DashboardPage() {
       : rate.CompanyID ? `company ${rate.CompanyName || rate.CompanyID}` : "global default";
   }
 
+  function getPolicyTypeLabel(rate: AirfarePolicyRate) {
+    return rate.EmployeeID
+      ? "Employee Exception Profile"
+      : rate.EmpGroup ? "Paygroup Matrix"
+      : rate.Department ? "Department Matrix"
+      : rate.CompanyID ? "Company Rule" : "Global Default";
+  }
+
   function isCurrentAirfarePolicyRate(rate: AirfarePolicyRate) {
     return Boolean(rate.IsActive && !rate.EffectiveTo);
   }
@@ -2377,6 +2392,31 @@ export default function DashboardPage() {
     if (activeReferenceCount > 0) return `History locked - used by ${activeReferenceCount} active record${activeReferenceCount === 1 ? "" : "s"}. Delete source data to unlock.`;
     if (isCurrentAirfarePolicyRate(rate)) return "Current preference is protected right now. Refresh after linked source data is removed.";
     return "Historical policy version. Open History to review the audit trail.";
+  }
+
+  async function openAirfarePolicyDeleteModal(rate: AirfarePolicyRate) {
+    if (!session) return setMessage("Please sign in first.");
+    if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can review preference delete details.");
+    setPolicyDeleteTarget(rate);
+    setPolicyDeletePreview(null);
+    setPolicyDeleteConfirmText("");
+    setPolicyDeleteLoading(true);
+    try {
+      const preview = await atlasFetch<PreferenceDeletePreview>(`/airfare-policy-rates/${rate.PolicyRateID}/references`, session.token, session.sessionId);
+      setPolicyDeletePreview(preview);
+    } catch (error) {
+      setMessage(`Unable to load preference delete details: ${error instanceof Error ? error.message : "Unknown error."}`);
+      setPolicyDeleteTarget(null);
+    } finally {
+      setPolicyDeleteLoading(false);
+    }
+  }
+
+  function closeAirfarePolicyDeleteModal() {
+    setPolicyDeleteTarget(null);
+    setPolicyDeletePreview(null);
+    setPolicyDeleteConfirmText("");
+    setPolicyDeleteLoading(false);
   }
 
   function handleEditAirfarePolicyRate(rate: AirfarePolicyRate) {
@@ -2440,27 +2480,33 @@ export default function DashboardPage() {
     setMessage(`Opened preference history for policy #${rate.PolicyRateID}.`);
   }
 
-  async function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
-    if (!session) return setMessage("Please sign in first.");
-    if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can delete preference policy rules.");
-    const scopeLabel = getPolicyScopeLabel(rate);
-    const typed = window.prompt([
-      `Delete ${scopeLabel} airfare policy #${rate.PolicyRateID} from current preferences?`,
-      "This is a soft delete only. Historical transactions will stay unchanged.",
-      'Type DELETE to confirm.'
-    ].join("\n"));
-    if (typed !== "DELETE") return setMessage("Preference delete cancelled. Type DELETE exactly to confirm.");
+  function handleDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
+    void openAirfarePolicyDeleteModal(rate);
+  }
+
+  async function confirmAirfarePolicyDelete() {
+    if (!session || !policyDeleteTarget || !policyDeletePreview) return;
+    if (!policyDeletePreview.canDelete) {
+      closeAirfarePolicyDeleteModal();
+      return;
+    }
+    if (policyDeleteConfirmText !== "DELETE") {
+      setMessage("Type DELETE exactly before confirming preference delete.");
+      return;
+    }
+    const scopeLabel = getPolicyScopeLabel(policyDeleteTarget);
     setBusy(true);
     setMessage("");
     try {
-      const result = await deleteAirfarePolicyRate(rate.PolicyRateID);
+      const result = await deleteAirfarePolicyRate(policyDeleteTarget.PolicyRateID);
       setSelectedPolicyRateIds((current) => {
         const next = new Set(current);
-        next.delete(rate.PolicyRateID);
+        next.delete(policyDeleteTarget.PolicyRateID);
         return next;
       });
       await loadLiveData();
-      setMessage(formatAirfarePolicyDeleteMessage(scopeLabel, rate.PolicyRateID, result));
+      closeAirfarePolicyDeleteModal();
+      setMessage(formatAirfarePolicyDeleteMessage(scopeLabel, policyDeleteTarget.PolicyRateID, result));
     } catch (error) {
       setMessage(`Airfare policy delete failed: ${error instanceof Error ? error.message : "Unable to delete airfare policy."}`);
     } finally {
@@ -5407,6 +5453,16 @@ export default function DashboardPage() {
     { name: "Opening", value: Math.max(metrics.opening, 0.01), color: "#a78bfa" },
     { name: "Loans", value: Math.max(metrics.loanBalance, 0.01), color: "#fb7185" }
   ];
+  const policyDeleteReferences = policyDeletePreview?.references || [];
+  const policyDeleteBlockingRefs = policyDeleteReferences.filter((row) => row.IsBlocking && Number(row.RecordCount || 0) > 0);
+  const policyDeleteAutoHandledRefs = policyDeleteReferences.filter((row) => !row.IsBlocking && Number(row.RecordCount || 0) > 0);
+  const policyDeleteScenario = !policyDeletePreview
+    ? "loading"
+    : policyDeleteBlockingRefs.length > 0
+      ? "blocked"
+      : policyDeleteAutoHandledRefs.length > 0
+        ? "auto-handled"
+        : "safe";
 
   if (!session) {
     return (
@@ -6098,7 +6154,101 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {typeof document !== "undefined" && openingEditModalOpen && openingFormIsUpdate && activeView === "Opening Balance" && createPortal((
+        {typeof document !== "undefined" && policyDeleteTarget && activeView === "Preferences" && createPortal(
+          <div className="modal-backdrop" role="presentation" onClick={closeAirfarePolicyDeleteModal}>
+            <section className="glass-panel preference-delete-modal" role="dialog" aria-modal="true" aria-labelledby="preference-delete-title" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <strong id="preference-delete-title">
+                    {policyDeleteScenario === "blocked"
+                      ? "Cannot delete - active data exists"
+                      : policyDeleteScenario === "auto-handled"
+                        ? "Delete preference - with auto-handled references"
+                        : "Delete preference"}
+                  </strong>
+                  <span>
+                    {policyDeleteLoading
+                      ? "Checking linked modules..."
+                      : policyDeleteScenario === "blocked"
+                        ? (policyDeletePreview?.lockReason || "This preference still has blocking live data.")
+                        : policyDeleteScenario === "auto-handled"
+                          ? "No blocking references found. Non-blocking rows will be preserved automatically."
+                          : "No blocking references found. Safe to delete from current preferences."}
+                  </span>
+                </div>
+                <button className="mini-soft icon-only" type="button" onClick={closeAirfarePolicyDeleteModal} aria-label="Close preference delete popup"><X size={16} /></button>
+              </div>
+              <div className="preference-delete-summary">
+                <span><small>Policy</small><strong>#{policyDeleteTarget.PolicyRateID}</strong></span>
+                <span><small>Type</small><strong>{getPolicyTypeLabel(policyDeleteTarget)}</strong></span>
+                <span><small>Scope</small><strong>{getPolicyScopeLabel(policyDeleteTarget)}</strong></span>
+                <span><small>Amount</small><strong>{money.format(policyDeleteTarget.MaxPayoutAmount || 0)}</strong></span>
+              </div>
+              {policyDeleteLoading ? (
+                <p className="muted">Loading delete references from SQL...</p>
+              ) : (
+                <div className="preference-delete-grid">
+                  <div className="preference-delete-column">
+                    <div className="card-title"><AlertTriangle size={18} /> Blocking references</div>
+                    {policyDeleteBlockingRefs.length === 0 ? (
+                      <p className="muted">No blocking references found.</p>
+                    ) : (
+                      <div className="stack-list preference-delete-list">
+                        {policyDeleteBlockingRefs.map((row) => (
+                          <div className="notice notice-danger" key={`${row.ModuleName}-${row.RecordIDs || row.RecordCount}`}>
+                            <span />
+                            <div>
+                              <strong>{row.ModuleName}</strong>
+                              <p>{row.RecordCount} linked record{row.RecordCount === 1 ? "" : "s"}{row.RecordIDs ? `: ${row.RecordIDs}` : ""}</p>
+                              {row.AutoHandleAction ? <em>{row.AutoHandleAction}</em> : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="preference-delete-column">
+                    <div className="card-title"><CheckCircle size={18} /> Auto-handled references</div>
+                    {policyDeleteAutoHandledRefs.length === 0 ? (
+                      <p className="muted">Nothing needs auto-handling for this preference.</p>
+                    ) : (
+                      <div className="stack-list preference-delete-list">
+                        {policyDeleteAutoHandledRefs.map((row) => (
+                          <div className="notice notice-success" key={`${row.ModuleName}-${row.RecordIDs || row.RecordCount}`}>
+                            <span />
+                            <div>
+                              <strong>{row.ModuleName}</strong>
+                              <p>{row.RecordCount} linked record{row.RecordCount === 1 ? "" : "s"}{row.RecordIDs ? `: ${row.RecordIDs}` : ""}</p>
+                              {row.AutoHandleAction ? <em>{row.AutoHandleAction}</em> : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!policyDeleteLoading && policyDeletePreview?.canDelete ? (
+                <div className="form-grid one preference-delete-confirm">
+                  <Field label='Type "DELETE" to confirm'>
+                    <input value={policyDeleteConfirmText} onChange={(event) => setPolicyDeleteConfirmText(event.target.value)} placeholder="DELETE" />
+                  </Field>
+                </div>
+              ) : null}
+              <div className="button-row preference-delete-actions">
+                <button className="soft-button" type="button" onClick={closeAirfarePolicyDeleteModal}>{policyDeletePreview?.canDelete ? "Cancel" : "Close"}</button>
+                {policyDeletePreview?.canDelete ? (
+                  <button className="danger-button" type="button" disabled={busy || policyDeleteLoading || policyDeleteConfirmText !== "DELETE"} onClick={() => void confirmAirfarePolicyDelete()}>
+                    <Trash2 size={16} /> Confirm Delete
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          </div>,
+          document.body
+        )}
+
+        {typeof document !== "undefined" && openingEditModalOpen && openingFormIsUpdate && activeView === "Opening Balance" && createPortal(
           <div className="modal-backdrop" role="presentation">
             <section className="glass-panel opening-edit-modal" role="dialog" aria-modal="true" aria-labelledby="opening-edit-title">
               <div className="modal-head">
@@ -6130,8 +6280,9 @@ export default function DashboardPage() {
                 <button className="soft-button" disabled={busy} onClick={() => resetOpeningBalanceForm(openingForm.year)}>Cancel edit</button>
               </div>
             </section>
-          </div>
-        ), document.body)}
+          </div>,
+          document.body
+        )}
 
         {activeView === "Airfare" && (
           <section className={`calc-grid airfare-layout ${recentAllocationsOpen ? "recent-open" : "recent-closed"}`}>
@@ -7435,7 +7586,7 @@ export default function DashboardPage() {
                       {canDeleteAirfarePolicyRate(rate) ? (
                         <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /> Delete</button>
                       ) : (
-                        <span className="pill warning preference-lock-pill" title={getAirfarePolicyLockMessage(rate)}>{getAirfarePolicyLockBadge(rate)}</span>
+                        <button className="pill warning preference-lock-pill preference-lock-button" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title={getAirfarePolicyLockMessage(rate)}>{getAirfarePolicyLockBadge(rate)}</button>
                       )}
                       <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /> History</button>
                     </span>
@@ -7606,7 +7757,7 @@ export default function DashboardPage() {
                         {canDeleteAirfarePolicyRate(rate) ? (
                           <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete current preference rule"><Trash2 size={14} /></button>
                         ) : (
-                          <span className="pill warning preference-lock-pill" title={getAirfarePolicyLockMessage(rate)}>{getAirfarePolicyLockBadge(rate)}</span>
+                          <button className="pill warning preference-lock-pill preference-lock-button" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title={getAirfarePolicyLockMessage(rate)}>{getAirfarePolicyLockBadge(rate)}</button>
                         )}
                         <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /></button>
                       </span>

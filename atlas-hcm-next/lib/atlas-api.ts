@@ -200,6 +200,21 @@ export type AirfarePolicyRate = {
   HistoryUsageCount?: number;
 };
 
+export type PreferenceReferenceRow = {
+  ModuleName: string;
+  RecordCount: number;
+  RecordIDs?: string;
+  IsBlocking: boolean;
+  AutoHandleAction?: string;
+};
+
+export type PreferenceDeletePreview = {
+  policyRateId: number;
+  canDelete: boolean;
+  lockReason: string;
+  references: PreferenceReferenceRow[];
+};
+
 export type Company = {
   CompanyID: number;
   CompanyCode: string;

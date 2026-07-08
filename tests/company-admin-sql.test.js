@@ -62,10 +62,13 @@ const phase1PolicyRepairText = fs.readFileSync(path.join(__dirname, '..', 'datab
 assert.match(hcmSqlText, /AirfarePolicyRateArchive/i, 'Airfare policy safe delete should archive policy snapshots');
 assert.match(hcmSqlText, /DeleteAction/i, 'Airfare policy safe delete should report the delete action');
 assert.match(hcmSqlText, /CREATE OR ALTER FUNCTION dbo\.fn_Preference_CanDelete/i, 'Airfare policy delete eligibility should live in a named MSSQL function');
+assert.match(hcmSqlText, /CREATE OR ALTER FUNCTION dbo\.fn_Preference_GetReferenceReport/i, 'Airfare policy delete should expose a named MSSQL reference report function');
 assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_Preference_DeleteSoft/i, 'Airfare policy soft delete should live in a named MSSQL procedure');
 assert.match(hcmSqlText, /CREATE OR ALTER PROCEDURE dbo\.sp_Preference_RefreshLockState/i, 'Airfare policy lock refresh should live in a named MSSQL procedure');
 assert.match(hcmSqlText, /CREATE OR ALTER TRIGGER dbo\.trg_PreferenceLock_Employees_Delete/i, 'Employee deletion should trigger preference lock refresh');
 assert.match(hcmSqlText, /CREATE OR ALTER TRIGGER dbo\.trg_PreferenceLock_Allocations_Refresh/i, 'Allocation changes should trigger preference lock refresh');
+assert.match(hcmSqlText, /trg_PreferenceLock_SelfService_Refresh/i, 'Self-service changes should trigger preference lock refresh');
+assert.match(hcmSqlText, /ArchivedPreferenceID/i, 'Opening balance rows should preserve archived preference linkage');
 assert.match(hcmSqlText, /ATLAS_CompanyResetLog/i, 'Company reset should write reset history');
 assert.match(hcmSqlText, /sp_ATLAS_ResetCompanyState/i, 'Company reset stored procedure should exist');
 assert.match(hcmSqlText, /NOCHECK CONSTRAINT/i, 'Company reset should disable foreign key constraints during purge');
