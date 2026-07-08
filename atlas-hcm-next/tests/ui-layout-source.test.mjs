@@ -114,9 +114,13 @@ assert.match(source, /Fiscal year switch/, "year end should expose a visible fis
 assert.match(source, /activeFiscalYear/, "application should expose a global fiscal year context");
 assert.match(source, /handleFiscalYearSwitch/, "application should reload year-sensitive data from one fiscal switch");
 assert.match(source, /Fiscal year/, "sidebar should show the global fiscal year switch");
+assert.match(source, /aria-label="Global fiscal year"/, "global fiscal year should use a proper select control");
+assert.match(source, /Previous fiscal year/, "global fiscal selector should provide previous-year navigation");
+assert.match(source, /Next fiscal year/, "global fiscal selector should provide next-year navigation");
 assert.match(source, /Update next year/, "opening balance rows should offer next-year update preparation");
 assert.match(css, /\.fiscal-context-switcher/, "global fiscal switcher should be styled");
 assert.match(css, /\.fiscal-context-chip/, "topbar should show selected fiscal year");
+assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
 assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
 assert.match(source, /Run preview first/, "year end should show a clear confirmation message before closing");

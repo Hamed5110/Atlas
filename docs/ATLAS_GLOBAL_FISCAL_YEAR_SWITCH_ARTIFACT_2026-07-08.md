@@ -30,6 +30,14 @@ The previous implementation exposed year switching inside individual screens, bu
 | Opening Balance row | `Update next year` prepares the same employee balance for the next year and switches the workspace to that year. User must review and save intentionally. |
 | Year End next-year opening | `Open next-year opening balance` uses the global fiscal switch and opens the selected next-year register. |
 
+## Corrected Selector UI Rule
+
+| Issue found | Corrected behavior |
+| --- | --- |
+| Three full year buttons overflowed the sidebar and clipped the right-side year. | Sidebar now uses a compact selector: previous arrow, centered fiscal-year dropdown, next arrow. |
+| Year choice looked like loose buttons rather than an application context selector. | Fiscal year is selected through a proper dropdown, matching ERP-style fiscal context selection. |
+| Narrow sidebar alignment could break on HD and laptop widths. | Selector grid is fixed-arrow / flexible-select / fixed-arrow with hidden overflow protection. |
+
 ## Verification Requirements
 
 | Check | Pass condition |
@@ -37,6 +45,6 @@ The previous implementation exposed year switching inside individual screens, bu
 | Global switch source | `activeFiscalYear` exists as the central year context. |
 | Data reload | `loadLiveData` accepts fiscal year and uses it for allocations, year summary, system integrity, airfare payable, and opening balances. |
 | UI visibility | Sidebar contains `Fiscal year`; top bar contains `FY <year>` context chip. |
+| Selector alignment | Sidebar fiscal selector uses dropdown and arrow buttons without horizontal overflow. |
 | Update to next year | Opening Balance register contains `Update next year`; allocation edit message explains year update. |
 | No formula change | Existing airfare formulas and preference runtime lookup remain unchanged. |
-

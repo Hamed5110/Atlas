@@ -15,11 +15,16 @@ assert.match(page, /reports\/year-summary\/\$\{reportYear\}/, 'year summary must
 assert.match(page, /reports\/airfare-payable\?year=\$\{reportYear\}/, 'airfare payable must load from selected fiscal year');
 assert.match(page, /opening-balances\?year=\$\{openingYear\}/, 'opening balances must load from selected fiscal year');
 assert.match(page, /Fiscal year/, 'sidebar fiscal year switch must be visible');
+assert.match(page, /<select[\s\S]*aria-label="Global fiscal year"/, 'global fiscal year must use a proper dropdown selector');
+assert.match(page, /ChevronLeft[\s\S]*Previous fiscal year/, 'previous fiscal year arrow control missing');
+assert.match(page, /ChevronRight[\s\S]*Next fiscal year/, 'next fiscal year arrow control missing');
 assert.match(page, /Update next year/, 'opening balance next-year update option missing');
 assert.match(page, /updated\. Fiscal year/, 'allocation edit save confirmation must name fiscal year');
 assert.match(css, /\.fiscal-context-switcher/, 'global fiscal switcher styling missing');
 assert.match(css, /\.fiscal-context-chip/, 'topbar fiscal context chip styling missing');
+assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, 'fiscal selector must fit inside sidebar without overflow');
 assert.match(artifact, /Fiscal year is a workspace-level context/, 'artifact must document corrected system rule');
+assert.match(artifact, /Corrected Selector UI Rule/, 'artifact must document corrected selector UI rule');
 assert.match(artifact, /Edit \/ Update to Next Year Rule/, 'artifact must document next-year update behavior');
 
 console.log('ATLAS global fiscal switch artifact checks passed');

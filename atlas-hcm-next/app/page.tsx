@@ -25,6 +25,8 @@ import {
   CalendarClock,
   CheckCircle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   CreditCard,
   Database,
@@ -1316,6 +1318,16 @@ export default function DashboardPage() {
   const yearEndNegativeBalances = (yearEndPreview?.employees || []).filter((row) => Number(row.ClosingDays || 0) < 0 || Number(row.ClosingBHD || 0) < 0).length;
   const yearEndCalendarYear = new Date().getFullYear();
   const activeFiscalYearNumber = normalizeOpeningYear(activeFiscalYear);
+  const fiscalYearOptions = Array.from(new Set([
+    yearEndCalendarYear - 2,
+    yearEndCalendarYear - 1,
+    yearEndCalendarYear,
+    yearEndCalendarYear + 1,
+    yearEndCalendarYear + 2,
+    activeFiscalYearNumber - 1,
+    activeFiscalYearNumber,
+    activeFiscalYearNumber + 1
+  ])).filter((year) => year >= 2000 && year <= 2100).sort((left, right) => left - right);
   const yearEndSelectedYear = normalizeOpeningYear(yearEndForm.year || activeFiscalYearNumber);
   const yearEndNextYear = yearEndSelectedYear + 1;
   const yearEndYearOptions = Array.from(new Set([
@@ -5227,20 +5239,18 @@ export default function DashboardPage() {
           <div className="company-switcher fiscal-context-switcher">
             <span>Fiscal year</span>
             <div className="fiscal-stepper">
-              <button type="button" disabled={busy || activeFiscalYearNumber <= 2000} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber - 1)}>
-                {activeFiscalYearNumber - 1}
+              <button type="button" disabled={busy || activeFiscalYearNumber <= 2000} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber - 1)} title="Previous fiscal year" aria-label="Previous fiscal year">
+                <ChevronLeft size={16} />
               </button>
-              <input
-                type="number"
-                min="2000"
-                max="2100"
+              <select
                 value={activeFiscalYear}
-                onChange={(event) => setActiveFiscalYear(event.target.value)}
-                onBlur={(event) => void handleFiscalYearSwitch(event.target.value)}
+                onChange={(event) => void handleFiscalYearSwitch(event.target.value)}
                 aria-label="Global fiscal year"
-              />
-              <button type="button" disabled={busy || activeFiscalYearNumber >= 2100} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber + 1)}>
-                {activeFiscalYearNumber + 1}
+              >
+                {fiscalYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+              <button type="button" disabled={busy || activeFiscalYearNumber >= 2100} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber + 1)} title="Next fiscal year" aria-label="Next fiscal year">
+                <ChevronRight size={16} />
               </button>
             </div>
             <small className="sidebar-text">All application data reloads for FY {activeFiscalYearNumber}</small>
