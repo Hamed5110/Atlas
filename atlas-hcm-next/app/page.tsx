@@ -86,11 +86,12 @@ import {
   YearSummary
 } from "../lib/atlas-api";
 
-type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance";
+type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance" | "Import / Export Center";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
-type ThemeMode = "light" | "dark";
-type ThemeAccent = "blue" | "emerald" | "slate";
+type ThemeMode = "light" | "dark" | "contrast";
+type ThemeAccent = "blue" | "emerald" | "slate" | "ocean" | "sunset";
 type UiDensity = "comfortable" | "standard" | "compact";
+type ThemePreset = "corporate-light" | "corporate-dark" | "ocean-blue" | "forest-green" | "sunset-orange" | "high-contrast";
 type UpdateCheckState = "Not checked" | "Checking" | "Up to date" | "Needs review" | "Offline";
 
 type ReportRow = Record<string, unknown> & {
@@ -519,20 +520,21 @@ type LoanEmiReturnPreview = {
   }>;
 };
 
-const nav: { label: ViewKey; icon: React.ElementType }[] = [
-  { label: "Overview", icon: LayoutDashboard },
-  { label: "Employees", icon: Users },
-  { label: "Opening Balance", icon: ListPlus },
-  { label: "Airfare", icon: Plane },
-  { label: "Employee Self-Service", icon: ClipboardCheck },
-  { label: "Loans", icon: WalletCards },
-  { label: "Year End", icon: CalendarClock },
-  { label: "Reports", icon: FileDown },
-  { label: "Companies", icon: Building2 },
-  { label: "Preferences", icon: Settings },
-  { label: "AI Insights", icon: Bot },
-  { label: "Security", icon: ShieldCheck },
-  { label: "Support", icon: HelpCircle }
+const nav: { label: string; view: ViewKey; icon: React.ElementType }[] = [
+  { label: "Overview", view: "Overview", icon: LayoutDashboard },
+  { label: "Employees", view: "Employees", icon: Users },
+  { label: "Opening Balance", view: "Opening Balance", icon: ListPlus },
+  { label: "Airfare Allocation", view: "Airfare", icon: Plane },
+  { label: "Employee Self-Service", view: "Employee Self-Service", icon: ClipboardCheck },
+  { label: "Loans", view: "Loans", icon: WalletCards },
+  { label: "Year End", view: "Year End", icon: CalendarClock },
+  { label: "Reports & Analytics", view: "Reports", icon: FileDown },
+  { label: "Multi-Company Management", view: "Companies", icon: Building2 },
+  { label: "Preferences", view: "Preferences", icon: Settings },
+  { label: "Import / Export Center", view: "Import / Export Center", icon: Download },
+  { label: "AI Insights", view: "AI Insights", icon: Bot },
+  { label: "User Management", view: "Security", icon: ShieldCheck },
+  { label: "Support", view: "Support", icon: HelpCircle }
 ];
 
 const money = new Intl.NumberFormat("en-BH", { style: "currency", currency: "BHD", maximumFractionDigits: 2 });
@@ -546,6 +548,21 @@ const AIRFARE_ENTITLEMENT_CYCLE_DAYS = 720;
 const AIRFARE_MAX_DAYS = 60;
 const AIRFARE_DEFAULT_PAYOUT = 150;
 const ESS_ONLY_VIEW: ViewKey = "Employee Self-Service";
+const THEME_PRESETS: Record<ThemePreset, { label: string; mode: ThemeMode; accent: ThemeAccent; density: UiDensity }> = {
+  "corporate-light": { label: "Light Professional", mode: "light", accent: "blue", density: "standard" },
+  "corporate-dark": { label: "Dark Professional", mode: "dark", accent: "slate", density: "standard" },
+  "ocean-blue": { label: "Ocean Blue", mode: "light", accent: "ocean", density: "standard" },
+  "forest-green": { label: "Forest Green", mode: "light", accent: "emerald", density: "standard" },
+  "sunset-orange": { label: "Sunset Orange", mode: "light", accent: "sunset", density: "comfortable" },
+  "high-contrast": { label: "High Contrast", mode: "contrast", accent: "blue", density: "compact" }
+};
+
+function resolveThemePreset(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity): ThemePreset {
+  const match = (Object.entries(THEME_PRESETS) as Array<[ThemePreset, (typeof THEME_PRESETS)[ThemePreset]]>).find(([, preset]) => (
+    preset.mode === themeMode && preset.accent === themeAccent && preset.density === uiDensity
+  ));
+  return match?.[0] || "corporate-light";
+}
 
 function syncWorkspaceThemeDom(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity) {
   if (typeof window === "undefined") return;
@@ -554,7 +571,7 @@ function syncWorkspaceThemeDom(themeMode: ThemeMode, themeAccent: ThemeAccent, u
   root.dataset.accent = themeAccent;
   root.dataset.density = uiDensity;
   root.dataset.themeRevision = String(Date.now());
-  root.style.colorScheme = themeMode;
+  root.style.colorScheme = themeMode === "dark" ? "dark" : "light";
   window.dispatchEvent(new CustomEvent("atlas:theme-preference-change", {
     detail: { themeMode, themeAccent, uiDensity }
   }));
@@ -951,6 +968,7 @@ export default function DashboardPage() {
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [themeAccent, setThemeAccent] = useState<ThemeAccent>("blue");
   const [uiDensity, setUiDensity] = useState<UiDensity>("standard");
+  const [themePreset, setThemePreset] = useState<ThemePreset>("corporate-light");
   const themeTelemetryReadyRef = useRef(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
@@ -1083,27 +1101,42 @@ export default function DashboardPage() {
   function updateThemeMode(nextMode: ThemeMode) {
     syncWorkspaceThemeDom(nextMode, themeAccent, uiDensity);
     setThemeMode(nextMode);
+    setThemePreset(resolveThemePreset(nextMode, themeAccent, uiDensity));
   }
 
   function updateThemeAccent(nextAccent: ThemeAccent) {
     syncWorkspaceThemeDom(themeMode, nextAccent, uiDensity);
     setThemeAccent(nextAccent);
+    setThemePreset(resolveThemePreset(themeMode, nextAccent, uiDensity));
   }
 
   function updateUiDensity(nextDensity: UiDensity) {
     syncWorkspaceThemeDom(themeMode, themeAccent, nextDensity);
     setUiDensity(nextDensity);
+    setThemePreset(resolveThemePreset(themeMode, themeAccent, nextDensity));
+  }
+
+  function applyThemePreset(nextPreset: ThemePreset) {
+    const preset = THEME_PRESETS[nextPreset];
+    syncWorkspaceThemeDom(preset.mode, preset.accent, preset.density);
+    setThemePreset(nextPreset);
+    setThemeMode(preset.mode);
+    setThemeAccent(preset.accent);
+    setUiDensity(preset.density);
+    setMessage(`${preset.label} theme applied and saved for this browser.`);
   }
 
   function resetWorkspaceAppearance() {
-    syncWorkspaceThemeDom("light", "blue", "standard");
-    setThemeMode("light");
-    setThemeAccent("blue");
-    setUiDensity("standard");
+    const preset = THEME_PRESETS["corporate-light"];
+    syncWorkspaceThemeDom(preset.mode, preset.accent, preset.density);
+    setThemePreset("corporate-light");
+    setThemeMode(preset.mode);
+    setThemeAccent(preset.accent);
+    setUiDensity(preset.density);
     setSidebarCollapsed(false);
     setRightPanelsCollapsed(false);
     setShowSyncStatus(true);
-    setMessage("Workspace appearance reset to standard.");
+    setMessage("Workspace appearance reset to Light Professional.");
   }
   const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null);
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
@@ -1155,7 +1188,7 @@ export default function DashboardPage() {
   const userFormEmployeeOptions = employeeMasterAll.filter((employee) => isAirfareEligibleEmployeeStatus(employee.Status));
   const selectedUserFormEmployee = userFormEmployeeOptions.find((employee) => employee.EmployeeID === Number(userForm.employeeId));
   const isEmployeePortalSession = session?.user.role === "employee";
-  const visibleNav = isEmployeePortalSession ? nav.filter((item) => item.label === ESS_ONLY_VIEW) : nav;
+  const visibleNav = isEmployeePortalSession ? nav.filter((item) => item.view === ESS_ONLY_VIEW) : nav;
   const selectedPolicyDate = allocationForm.date ? new Date(`${allocationForm.date}T00:00:00`) : new Date();
   const currentAirfarePolicyRates = airfarePolicyRates.filter((rate) => rate.IsActive && !rate.EffectiveTo);
   const selectedEffectivePolicyRate = [...airfarePolicyRates]
@@ -1469,6 +1502,7 @@ export default function DashboardPage() {
       const raw = window.localStorage.getItem(UI_PREFERENCES_STORAGE_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as {
+        themePreset?: ThemePreset;
         themeMode?: ThemeMode;
         themeAccent?: ThemeAccent;
         uiDensity?: UiDensity;
@@ -1476,10 +1510,14 @@ export default function DashboardPage() {
         rightPanelsCollapsed?: boolean;
         showSyncStatus?: boolean;
       };
-      const nextThemeMode = saved.themeMode === "light" || saved.themeMode === "dark" ? saved.themeMode : "light";
-      const nextThemeAccent = saved.themeAccent === "blue" || saved.themeAccent === "emerald" || saved.themeAccent === "slate" ? saved.themeAccent : "blue";
+      const nextThemeMode = saved.themeMode === "light" || saved.themeMode === "dark" || saved.themeMode === "contrast" ? saved.themeMode : "light";
+      const nextThemeAccent = saved.themeAccent === "blue" || saved.themeAccent === "emerald" || saved.themeAccent === "slate" || saved.themeAccent === "ocean" || saved.themeAccent === "sunset" ? saved.themeAccent : "blue";
       const nextUiDensity = saved.uiDensity === "comfortable" || saved.uiDensity === "standard" || saved.uiDensity === "compact" ? saved.uiDensity : "standard";
+      const nextThemePreset = saved.themePreset && saved.themePreset in THEME_PRESETS
+        ? saved.themePreset
+        : resolveThemePreset(nextThemeMode, nextThemeAccent, nextUiDensity);
       syncWorkspaceThemeDom(nextThemeMode, nextThemeAccent, nextUiDensity);
+      setThemePreset(nextThemePreset);
       setThemeMode(nextThemeMode);
       setThemeAccent(nextThemeAccent);
       setUiDensity(nextUiDensity);
@@ -1516,6 +1554,7 @@ export default function DashboardPage() {
     if (typeof window === "undefined") return;
     syncWorkspaceThemeDom(themeMode, themeAccent, uiDensity);
     window.localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify({
+      themePreset,
       themeMode,
       themeAccent,
       uiDensity,
@@ -1528,7 +1567,7 @@ export default function DashboardPage() {
       return;
     }
     void atlasHealth().catch(() => undefined);
-  }, [themeMode, themeAccent, uiDensity, sidebarCollapsed, rightPanelsCollapsed, showSyncStatus]);
+  }, [themePreset, themeMode, themeAccent, uiDensity, sidebarCollapsed, rightPanelsCollapsed, showSyncStatus]);
 
   useEffect(() => {
     const saved = restoreSavedSession();
@@ -2000,10 +2039,24 @@ export default function DashboardPage() {
 
   async function handleLogin(event?: { preventDefault?: () => void }) {
     event?.preventDefault?.();
+    const username = loginForm.username.trim();
+    const password = loginForm.password;
+    if (!loginForm.company) {
+      setMessage("Select a company before signing in.");
+      return;
+    }
+    if (!username) {
+      setMessage("Enter your username or email to sign in.");
+      return;
+    }
+    if (!password) {
+      setMessage("Enter your password to sign in.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
-      const loggedIn = await atlasLogin(loginForm.username.trim(), loginForm.password);
+      const loggedIn = await atlasLogin(username, password);
       setSession(loggedIn);
       if (loggedIn.user.role === "employee") setActiveView(ESS_ONLY_VIEW);
       saveSession(loggedIn, selectedCompanyId);
@@ -5608,11 +5661,11 @@ export default function DashboardPage() {
             const Icon = item.icon;
             return (
               <button
-                className={activeView === item.label ? "nav-item active" : "nav-item"}
-                key={item.label}
+                className={activeView === item.view ? "nav-item active" : "nav-item"}
+                key={`${item.view}-${item.label}`}
                 type="button"
                 onClick={() => {
-                  setActiveView(item.label);
+                  setActiveView(item.view);
                   window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
                 }}
               >
@@ -5685,10 +5738,9 @@ export default function DashboardPage() {
             </button>
             <button className="icon-button" onClick={() => setShowNotifications((current) => !current)} title="Validation notifications"><Bell size={18} /><span>{notificationCount}</span></button>
             <button className="icon-button" onClick={() => {
-              const nextTheme = themeMode === "light" ? "dark" : "light";
-              updateThemeMode(nextTheme);
-              setMessage(nextTheme === "dark" ? "Dark mode enabled." : "Normal mode enabled.");
-            }} title={themeMode === "light" ? "Switch to dark mode" : "Switch to normal mode"}>
+              const nextPreset: ThemePreset = themeMode === "dark" ? "corporate-light" : "corporate-dark";
+              applyThemePreset(nextPreset);
+            }} title={themeMode === "dark" ? "Switch to Light Professional" : "Switch to Dark Professional"}>
               {themeMode === "light" ? <Moon size={18} /> : <Sun size={18} />}
             </button>
             <div className="profile-menu-wrap">
@@ -7279,6 +7331,40 @@ export default function DashboardPage() {
           </section>
         )}
 
+        {activeView === "Import / Export Center" && (
+          <section className="table-grid">
+            <div className="glass-panel table-card">
+              <div className="card-title"><Download size={18} /> Import and export center</div>
+              <div className="standard-note">
+                <div>
+                  <strong>All movement tools in one place.</strong>
+                  <span>Use the same live 3355 actions for employee master, opening balance, allocation, loan, dashboard, and report data without opening a separate shell.</span>
+                </div>
+                <span className="pill">Live on 3355</span>
+              </div>
+              <div className="report-grid">
+                <button className="soft-button" disabled={busy || !session} onClick={() => employeeImportRef.current?.click()}><Upload size={16} /> Import employee Excel</button>
+                <button className="soft-button" disabled={busy || !session} onClick={() => openingImportRef.current?.click()}><Upload size={16} /> Import opening balances</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportEmployeeMaster}><Download size={16} /> Export employee master</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportOpeningBalances}><Download size={16} /> Export opening balances</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportAirfareReport}><Download size={16} /> Export airfare payable</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportAllocations}><Download size={16} /> Export allocation register</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportLoans}><Download size={16} /> Export loans</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportDashboardSummary}><Download size={16} /> Export dashboard summary</button>
+                <button className="soft-button" disabled={busy} onClick={printCurrentScreen}><Printer size={16} /> Print current screen</button>
+              </div>
+            </div>
+            <div className="glass-panel form-card">
+              <div className="card-title"><ClipboardCheck size={18} /> Workflow guidance</div>
+              <div className="stack-list">
+                <div className="notice notice-info"><span /><div><strong>1. Import source data</strong><p>Start with Employees, then Opening Balance, then continue with live airfare and loan work.</p></div></div>
+                <div className="notice notice-warning"><span /><div><strong>2. Review before commit</strong><p>SQL validation messages still need review before the register is updated.</p></div></div>
+                <div className="notice notice-success"><span /><div><strong>3. Export by fiscal year</strong><p>The global fiscal year selector controls which year is printed and exported from this workspace.</p></div></div>
+              </div>
+            </div>
+          </section>
+        )}
+
         {activeView === "Reports" && (
           <section className={`reports-workspace ${reportChecksCollapsed ? "checks-collapsed" : ""}`}>
             <div className="glass-panel table-card">
@@ -7546,19 +7632,29 @@ export default function DashboardPage() {
               </div>
               <div className="appearance-panel">
                 <div className="card-title"><Palette size={18} /> Appearance and workspace</div>
-                <p className="muted">These preferences are saved on this browser, so refresh and restart keep the same workspace style.</p>
+                <p className="muted">These preferences are saved on this browser, so refresh and restart keep the same workspace style. Light Professional is the default recovery theme.</p>
                 <div className="form-grid two">
+                  <Field label="Theme preset">
+                    <select value={themePreset} onChange={(event) => applyThemePreset(event.target.value as ThemePreset)}>
+                      {(Object.entries(THEME_PRESETS) as Array<[ThemePreset, (typeof THEME_PRESETS)[ThemePreset]]>).map(([value, preset]) => (
+                        <option key={value} value={value}>{preset.label}</option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="Theme mode">
                     <select value={themeMode} onChange={(event) => updateThemeMode(event.target.value as ThemeMode)}>
                       <option value="light">Light glass</option>
                       <option value="dark">Dark glass</option>
+                      <option value="contrast">High contrast</option>
                     </select>
                   </Field>
                   <Field label="Theme accent">
                     <select value={themeAccent} onChange={(event) => updateThemeAccent(event.target.value as ThemeAccent)}>
                       <option value="blue">Blue professional</option>
-                      <option value="emerald">Emerald calm</option>
                       <option value="slate">Slate focused</option>
+                      <option value="ocean">Ocean blue</option>
+                      <option value="emerald">Forest green</option>
+                      <option value="sunset">Sunset orange</option>
                     </select>
                   </Field>
                   <Field label="Application density">
@@ -7572,6 +7668,7 @@ export default function DashboardPage() {
                 <div className="button-row">
                   <button className="soft-button" onClick={() => setSidebarCollapsed((current) => !current)}>{sidebarCollapsed ? "Expand left menu" : "Collapse left menu"}</button>
                   <button className="soft-button" onClick={() => setRightPanelsCollapsed((current) => !current)}>{rightPanelsCollapsed ? "Show right panels" : "Hide right panels"}</button>
+                  <button className="soft-button" onClick={() => setMessage(`${THEME_PRESETS[themePreset].label} is already saved for this browser.`)}>Save theme choice</button>
                   <button className="soft-button" onClick={resetWorkspaceAppearance}>Reset workspace</button>
                 </div>
               </div>

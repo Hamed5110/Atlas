@@ -28,6 +28,8 @@ assert.match(css, /--shell-max:\s*2560px/, "shell should be constrained for HD a
 assert.match(css, /--control-h:\s*54px/, "controls should share a stable HD height token");
 assert.match(css, /\[data-theme="light"\][\s\S]*--surface-glass:[\s\S]*--shadow-extruded:[\s\S]*--bg-app:/, "light theme should compile the design token contract");
 assert.match(css, /\[data-theme="dark"\][\s\S]*--surface-glass:[\s\S]*--shadow-extruded:[\s\S]*--bg-app:/, "dark theme should compile the same design token contract");
+assert.match(css, /\[data-theme="contrast"\][\s\S]*--surface-glass:[\s\S]*--shadow-extruded:[\s\S]*--bg-app:/, "high contrast theme should compile the same design token contract");
+assert.match(source, /THEME_PRESETS[\s\S]*Light Professional[\s\S]*Dark Professional[\s\S]*Ocean Blue[\s\S]*Forest Green[\s\S]*Sunset Orange[\s\S]*High Contrast/, "theme selector should expose six saved workspace theme options");
 assert.match(css, /\.shell\s*{[\s\S]*perspective:\s*1600px[\s\S]*transform-style:\s*preserve-3d/, "app shell should establish the 3D perspective layer");
 assert.match(css, /\.icon-button:active\s*{[\s\S]*translateZ\(2px\)/, "icon buttons should physically compress on active press");
 assert.match(css, /\.shine-button:active\s*{[\s\S]*translateZ\(2px\)/, "primary buttons should physically compress on active press");

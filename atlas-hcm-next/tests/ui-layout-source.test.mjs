@@ -126,7 +126,8 @@ assert.match(source, /opening-register-toolbar/, "opening balance should use a c
 assert.doesNotMatch(source, /Company-wise year switcher/, "opening balance should not show the bulky company-wise year switcher panel");
 assert.match(css, /\.fiscal-context-switcher/, "global fiscal switcher should be styled");
 assert.match(css, /\.fiscal-context-chip/, "topbar should show selected fiscal year");
-assert.match(css, /\.table-row\.opening-balance-row\s*{[\s\S]*minmax\(292px,\s*1\.05fr\)/, "opening balance action column should prevent edit/update/delete text clipping");
+assert.match(css, /\.table-row\.opening-balance-row\s*{[\s\S]*minmax\(168px,\s*\.56fr\)/, "opening balance action column should reserve a stable stacked action lane");
+assert.match(css, /\.opening-balance-row \.row-actions\s*{[\s\S]*grid-template-columns:\s*1fr/, "opening balance actions should stack cleanly inside their own column");
 assert.match(css, /\.modal-backdrop/, "opening balance edit popup should have an overlay");
 assert.match(css, /\.opening-edit-modal/, "opening balance edit popup should be styled");
 assert.match(source, /openingEditModalOpen[\s\S]*createPortal\([\s\S]*document\.body/, "opening balance modal should be portaled to the document body");
