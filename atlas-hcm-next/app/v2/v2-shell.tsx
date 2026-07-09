@@ -2,11 +2,13 @@
 
 import { Disclosure } from "@headlessui/react";
 import {
+  Bot,
   Bell,
   Building2,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
+  CircleHelp,
   LayoutDashboard,
   Moon,
   PanelLeftClose,
@@ -17,7 +19,8 @@ import {
   Sparkles,
   Sun,
   Users,
-  WalletCards
+  WalletCards,
+  Wrench
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import V2AirfareModule from "./v2-airfare-module";
@@ -25,6 +28,7 @@ import V2EmployeesModule from "./v2-employees-module";
 import V2OverviewModule from "./v2-overview-module";
 import { clearSavedSession, restoreSavedSession } from "./v2-session";
 import V2SignInModule from "./v2-sign-in-module";
+import V2StagedModule from "./v2-staged-module";
 import styles from "./v2-shell.module.css";
 
 type ThemeId =
@@ -37,10 +41,18 @@ type ThemeId =
 type NavKey =
   | "overview"
   | "employees"
+  | "opening-balance"
   | "airfare"
+  | "employee-self-service"
+  | "loans"
+  | "year-end"
   | "reports"
+  | "companies"
   | "preferences"
-  | "security";
+  | "ai-insights"
+  | "security"
+  | "system-maintenance"
+  | "support";
 
 type ThemeOption = {
   id: ThemeId;
@@ -58,6 +70,7 @@ type NavItem = {
 };
 
 const THEME_STORAGE_KEY = "atlas.v2.theme";
+const LEGACY_MODULE_COUNT = 14;
 
 const themeOptions: ThemeOption[] = [
   {
@@ -100,9 +113,17 @@ const navItems: NavItem[] = [
     key: "employees",
     label: "Employees",
     icon: Users,
-    eyebrow: "Module staging",
+    eyebrow: "People operations",
     title: "Employee workspace lane",
-    detail: "This area is reserved for the first module migrations once shell verification passes."
+    detail: "Employee register, edit flow, selection actions, and live master data now sit inside the `/v2` shell."
+  },
+  {
+    key: "opening-balance",
+    label: "Opening Balance",
+    icon: WalletCards,
+    eyebrow: "Balance carry-forward",
+    title: "Opening balance staging lane",
+    detail: "Opening balances, opening loan balances, year switching, and carry-forward review will migrate here without changing legacy formulas."
   },
   {
     key: "airfare",
@@ -113,12 +134,44 @@ const navItems: NavItem[] = [
     detail: "Airfare allocation and self-service review will plug into this shell without changing backend contracts."
   },
   {
+    key: "employee-self-service",
+    label: "Employee Self-Service",
+    icon: Users,
+    eyebrow: "Request workflow",
+    title: "Employee self-service lane",
+    detail: "Allowance requests, approvals, and linked employee journeys will move here with the same session and workflow contracts."
+  },
+  {
+    key: "loans",
+    label: "Loans",
+    icon: WalletCards,
+    eyebrow: "Recovery workflow",
+    title: "Loan management lane",
+    detail: "Loan register, settlement, deferment, and EMI execution remain protected while the user experience is rebuilt."
+  },
+  {
+    key: "year-end",
+    label: "Year End",
+    icon: CalendarClock,
+    eyebrow: "Fiscal close",
+    title: "Year-end process lane",
+    detail: "Close preview, carry-forward, and fiscal switching need careful migration, so this screen is mounted first and activated module by module."
+  },
+  {
     key: "reports",
     label: "Reports",
     icon: CalendarClock,
     eyebrow: "Evidence surfaces",
     title: "Report and audit lane",
     detail: "Dense reporting screens will inherit the same spacing, breadcrumb, and theme logic from this shell."
+  },
+  {
+    key: "companies",
+    label: "Companies",
+    icon: Building2,
+    eyebrow: "Tenant administration",
+    title: "Company administration lane",
+    detail: "Company setup, cleanup, and backup/restore tools will migrate here without changing isolated company behavior."
   },
   {
     key: "preferences",
@@ -129,12 +182,36 @@ const navItems: NavItem[] = [
     detail: "All five user-selectable themes remain available here, with Light Professional as the default."
   },
   {
+    key: "ai-insights",
+    label: "AI Insights",
+    icon: Bot,
+    eyebrow: "Recommendation center",
+    title: "AI insights lane",
+    detail: "Integrity checks, recommendations, and assistant-driven review surfaces will be redesigned here with a calmer enterprise hierarchy."
+  },
+  {
     key: "security",
     label: "Security",
     icon: ShieldCheck,
     eyebrow: "Admin controls",
     title: "Identity and access lane",
     detail: "User management and security administration can be migrated into this shell without disturbing the original interface."
+  },
+  {
+    key: "system-maintenance",
+    label: "System Maintenance",
+    icon: Wrench,
+    eyebrow: "Environment control",
+    title: "System maintenance lane",
+    detail: "Update checks, diagnostics, and service health workflows belong here in the final admin surface."
+  },
+  {
+    key: "support",
+    label: "Support",
+    icon: CircleHelp,
+    eyebrow: "Operator guidance",
+    title: "Support and guide lane",
+    detail: "Support content, guides, and workflow notes are mounted here so the `/v2` shell matches the full legacy screen count."
   }
 ];
 
@@ -235,6 +312,7 @@ export default function V2Shell({ initialTheme }: { initialTheme?: ThemeId }) {
   );
   const themeSelectionChanged = pendingTheme !== activeTheme;
   const overviewActive = activeNav === "overview";
+  const liveModuleCount = 4;
 
   function handleSignedIn() {
     setHasSavedSession(true);
@@ -412,8 +490,140 @@ export default function V2Shell({ initialTheme }: { initialTheme?: ThemeId }) {
             <V2OverviewModule />
           ) : activeNav === "employees" ? (
             <V2EmployeesModule />
+          ) : activeNav === "opening-balance" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Opening Balance"
+              carryForward={["Opening balance register", "Opening loan balance register", "Year switch matrix", "Edit and delete modals"]}
+            />
           ) : activeNav === "airfare" ? (
             <V2AirfareModule />
+          ) : activeNav === "employee-self-service" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Employee Self-Service"
+              carryForward={["Request form", "Approval transitions", "Allocation linking", "Status and notification messages"]}
+            />
+          ) : activeNav === "loans" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Loans"
+              carryForward={["Loan register", "Settlement and deferment", "EMI preview", "Batch run confirmation"]}
+            />
+          ) : activeNav === "year-end" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Year End"
+              carryForward={["Preview close", "Carry-forward evidence", "Historical year switch", "Company-wise isolation rules"]}
+            />
+          ) : activeNav === "reports" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Reports"
+              carryForward={["Payable reports", "Drill-down panels", "Print and export controls", "Responsive report fit modes"]}
+            />
+          ) : activeNav === "companies" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Companies"
+              carryForward={["Company CRUD", "Empty company cleanup", "Backup and restore", "Logo and branding state"]}
+            />
+          ) : activeNav === "preferences" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Preferences"
+              carryForward={["Policy list", "Delete preview modal", "Theme settings", "Dynamic reference checks"]}
+            />
+          ) : activeNav === "ai-insights" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="AI Insights"
+              carryForward={["Control-center cards", "Recommendations", "Integrity checks", "Target-view shortcuts"]}
+            />
+          ) : activeNav === "security" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Security"
+              carryForward={["User register", "Role controls", "Account edit flows", "Admin-only validation"]}
+            />
+          ) : activeNav === "system-maintenance" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="System Maintenance"
+              carryForward={["Update placement", "Port 3355 health checks", "Installer guidance", "Diagnostic notices"]}
+            />
+          ) : activeNav === "support" ? (
+            <V2StagedModule
+              eyebrow={activeNavItem.eyebrow}
+              title={activeNavItem.title}
+              detail={activeNavItem.detail}
+              statusLabel="Mounted for parity"
+              legacyModuleCount={LEGACY_MODULE_COUNT}
+              v2ModuleCount={navItems.length}
+              liveModuleCount={liveModuleCount}
+              nextSlice="Support"
+              carryForward={["Support guide links", "Workflow instructions", "Validation notes", "Operator recovery hints"]}
+            />
           ) : (
             <>
               <section className={styles.hero}>
