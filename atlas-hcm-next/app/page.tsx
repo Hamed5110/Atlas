@@ -2469,9 +2469,9 @@ export default function DashboardPage() {
   function formatAirfarePolicyDeleteMessage(scopeLabel: string, policyRateId: number, result: AirfarePolicyDeleteResult) {
     const policy = result.policyRate;
     if (result.alreadyRemoved || result.alreadyHistorical || policy?.AlreadyRemoved || policy?.AlreadyHistorical) {
-      return `${scopeLabel} airfare policy #${policyRateId} was already archived in preferences history.`;
+      return `${scopeLabel} airfare policy #${policyRateId} was already removed.`;
     }
-    return `${scopeLabel} airfare policy #${policyRateId} deleted from current preferences. Historical transactions remain unchanged.`;
+    return `${scopeLabel} airfare policy #${policyRateId} deleted completely.`;
   }
 
   function openAirfarePolicyHistory(rate: AirfarePolicyRate) {
@@ -2529,7 +2529,7 @@ export default function DashboardPage() {
     if (!selectedRates.length) return setMessage("Select at least one deletable current preference rule to delete.");
     const typed = window.prompt([
       `Delete ${selectedRates.length} selected current airfare policy rule(s)?`,
-      "This is a soft delete only. Historical transactions will stay unchanged.",
+      "This delete removes the policy completely when SQL marks it safe.",
       'Type DELETE to confirm.'
     ].join("\n"));
     if (typed !== "DELETE") return setMessage("Selected preference delete cancelled. Type DELETE exactly to confirm.");
@@ -2543,7 +2543,7 @@ export default function DashboardPage() {
       }
       setSelectedPolicyRateIds(new Set());
       await loadLiveData();
-      setMessage(results.length === 1 ? results[0] : `Deleted ${results.length} selected preference rule(s) from current preferences. Protected history stayed locked.`);
+      setMessage(results.length === 1 ? results[0] : `Deleted ${results.length} selected preference rule(s) completely.`);
     } catch (error) {
       setMessage(`Selected airfare policy delete failed: ${error instanceof Error ? error.message : "Unable to delete selected airfare policies."}`);
     } finally {
@@ -6180,7 +6180,7 @@ export default function DashboardPage() {
                       : policyDeleteScenario === "blocked"
                         ? (policyDeletePreview?.lockReason || "This preference still has blocking live data.")
                         : policyDeleteScenario === "auto-handled"
-                          ? "No blocking references found. Non-blocking rows will be preserved automatically."
+                          ? "No blocking references found. Non-blocking rows will be handled automatically during delete."
                           : "No blocking references found. Safe to delete from current preferences."}
                   </span>
                 </div>

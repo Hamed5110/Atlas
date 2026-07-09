@@ -998,7 +998,7 @@ async function fallbackDeactivateAirfarePolicyRate(db, policyRateId, deletedBy, 
     const result = await db.request()
         .input('PolicyRateID', sql.BigInt, policyRateId)
         .input('DeletedBy', sql.Int, deletedBy || null)
-        .input('DeleteReason', sql.NVarChar(400), deleteReason || 'Policy removed from current preferences. Historical transactions preserved.')
+        .input('DeleteReason', sql.NVarChar(400), deleteReason || 'Policy removed completely.')
         .batch(`
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -1040,45 +1040,52 @@ BEGIN TRY
         COMMIT TRANSACTION;
         SELECT
             CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-            CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
+            CAST('delete' AS NVARCHAR(40)) AS DeleteAction,
             CAST('already_removed' AS NVARCHAR(40)) AS DeleteStatus,
             CAST(1 AS BIT) AS AlreadyRemoved,
             CAST(0 AS BIT) AS AlreadyHistorical,
             CAST(0 AS BIT) AS Deactivated,
-            CAST(0 AS BIT) AS HardDeleted,
-            CAST(0 AS BIT) AS Purged,
+            CAST(1 AS BIT) AS HardDeleted,
+            CAST(1 AS BIT) AS Purged,
             CAST(@PolicyRateID AS BIGINT) AS PolicyRateID,
             CAST(1 AS BIT) AS FallbackUsed;
         RETURN;
     END;
 
-    UPDATE dbo.AirfarePolicyRates
-       SET IsActive = 0,
-           IsDeleted = 1,
-           EffectiveTo = CASE
-               WHEN EffectiveTo IS NOT NULL THEN EffectiveTo
-               WHEN CAST(SYSUTCDATETIME() AS DATE) < EffectiveFrom THEN EffectiveFrom
-               ELSE CAST(SYSUTCDATETIME() AS DATE)
-           END,
-           DeletedAt = SYSUTCDATETIME(),
-           DeletedBy = @DeletedBy,
-           DeleteReason = COALESCE(@DeleteReason, N'Policy removed from current preferences. Historical transactions preserved.'),
-           ArchivedAt = SYSUTCDATETIME(),
-           DependencySnapshotJson = COALESCE(DependencySnapshotJson, N'{"strategy":"runtime_soft_delete"}'),
-           PolicyStatus = N'archived'
-     WHERE PolicyRateID = @PolicyRateID;
+    IF OBJECT_ID(N'dbo.OpeningBalances', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.OpeningBalances', N'ArchivedPreferenceID') IS NOT NULL
+    BEGIN
+        UPDATE dbo.OpeningBalances
+           SET ArchivedPreferenceID = NULL,
+               ArchivedPreferenceAt = NULL
+         WHERE ArchivedPreferenceID = @PolicyRateID;
+        SET @dynamicRowsCleared = @dynamicRowsCleared + @@ROWCOUNT;
+    END;
+
+    IF OBJECT_ID(N'dbo.AirfarePolicyRateArchive', N'U') IS NOT NULL
+    BEGIN
+        DELETE FROM dbo.AirfarePolicyRateArchive WHERE PolicyRateID = @PolicyRateID;
+        SET @archiveRowsDeleted = @@ROWCOUNT;
+    END;
+
+    IF OBJECT_ID(N'dbo.AuditLog', N'U') IS NOT NULL
+    BEGIN
+        DELETE FROM dbo.AuditLog WHERE EntityType = N'AirfarePolicyRate' AND EntityID = @PolicyRateID;
+        SET @auditRowsDeleted = @@ROWCOUNT;
+    END;
+
+    DELETE FROM dbo.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID;
 
     COMMIT TRANSACTION;
 
     SELECT
         CAST('success' AS NVARCHAR(40)) AS ApiStatus,
-        CAST('soft_delete' AS NVARCHAR(40)) AS DeleteAction,
-        CAST('deactivated' AS NVARCHAR(40)) AS DeleteStatus,
+        CAST('delete' AS NVARCHAR(40)) AS DeleteAction,
+        CAST('deleted' AS NVARCHAR(40)) AS DeleteStatus,
         CAST(0 AS BIT) AS AlreadyRemoved,
         CAST(0 AS BIT) AS AlreadyHistorical,
-        CAST(1 AS BIT) AS Deactivated,
-        CAST(0 AS BIT) AS HardDeleted,
-        CAST(0 AS BIT) AS Purged,
+        CAST(0 AS BIT) AS Deactivated,
+        CAST(1 AS BIT) AS HardDeleted,
+        CAST(1 AS BIT) AS Purged,
         CAST(1 AS BIT) AS FallbackUsed,
         @PolicyRateID AS PolicyRateID,
         @allocationLinksCleared AS AllocationLinksCleared,
@@ -5579,7 +5586,7 @@ async function deactivateAirfarePolicyRate(req, res) {
         res.json({
             status: 'success',
             action,
-            message: 'Airfare policy rule deleted from current preferences. Historical transactions remain unchanged.',
+            message: 'Airfare policy rule deleted completely.',
             policyRate: deletedPolicy
         });
     } catch (err) {
