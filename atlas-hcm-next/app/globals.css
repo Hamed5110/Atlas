@@ -459,10 +459,10 @@ input, select, button { max-width: 100%; }
 }
 .sidebar-toggle {
   position: absolute;
-  right: 14px;
-  top: 22px;
-  width: 34px;
-  height: 34px;
+  right: 12px;
+  top: 14px;
+  width: 32px;
+  height: 32px;
   border: 1px solid rgba(21,94,239,.28);
   border-radius: 8px;
   background: #eff6ff;
@@ -477,7 +477,7 @@ input, select, button { max-width: 100%; }
   background: #111827;
   color: #93c5fd;
 }
-.brand-mark { display: flex; align-items: center; gap: 12px; }
+.brand-mark { display: flex; align-items: center; gap: 12px; min-height: 44px; padding-right: 46px; }
 .brand-mark strong { display: block; letter-spacing: 0; font-size: 16px; }
 .brand-mark span { color: var(--muted); font-size: 12px; }
 .brand-orb {
@@ -1649,32 +1649,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   font-size: 15px;
   overflow-wrap: anywhere;
 }
-.year-end-year-switcher {
-  margin: 0 0 16px;
-  border-color: rgba(37,99,235,.2);
-  background: linear-gradient(135deg, rgba(239,246,255,.96), rgba(240,253,250,.94));
-  box-shadow: 0 18px 42px rgba(15, 23, 42, .08);
-}
-.year-switcher-controls {
-  display: grid;
-  grid-template-columns: auto minmax(150px, 220px) auto minmax(220px, 1fr);
-  gap: 10px;
-  align-items: end;
-}
-.year-end-switcher-controls {
-  grid-template-columns: minmax(160px, auto) minmax(150px, 210px) minmax(140px, auto) minmax(220px, 1fr);
-}
-.year-switcher-controls .field {
-  min-width: 0;
-}
-.year-chip-grid {
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  align-items: end;
-}
-.year-chip-grid .mini-soft.active {
-  border-color: rgba(5,150,105,.38);
-  color: #047857;
-  background: #ecfdf5;
+.year-end-global-note {
+  margin: 2px 0 14px;
 }
 .year-command-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -3856,7 +3832,7 @@ h3 { font-size: 20px; letter-spacing: 0; }
   transform: translateX(-2px);
 }
 [dir="rtl"] .sidebar-toggle {
-  left: 14px;
+  left: 12px;
   right: auto;
 }
 [dir="rtl"] .sidebar-collapsed .sidebar-toggle {

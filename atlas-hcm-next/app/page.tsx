@@ -1410,14 +1410,6 @@ export default function DashboardPage() {
   ])).filter((year) => year >= 2000 && year <= 2100).sort((left, right) => left - right);
   const yearEndSelectedYear = normalizeOpeningYear(yearEndForm.year || activeFiscalYearNumber);
   const yearEndNextYear = yearEndSelectedYear + 1;
-  const yearEndYearOptions = Array.from(new Set([
-    yearEndCalendarYear - 1,
-    yearEndCalendarYear,
-    yearEndCalendarYear + 1,
-    yearEndSelectedYear - 1,
-    yearEndSelectedYear,
-    yearEndSelectedYear + 1
-  ])).filter((year) => year >= 2000 && year <= 2100).sort((left, right) => left - right);
   const yearEndIsHistorical = Boolean(yearEndPreview?.yearEndId || yearEndSelectedYear < yearEndCalendarYear);
   const yearEndModeLabel = yearEndIsHistorical ? "Historical lock review" : yearEndSelectedYear === yearEndCalendarYear ? "Current closing year" : "Future setup year";
   const yearEndLockStatus = yearEndPreview?.yearEndId ? "Closed snapshot locked" : yearEndIsHistorical ? "Historical review only" : "Open for preview";
@@ -7182,48 +7174,12 @@ export default function DashboardPage() {
           <section className="table-grid">
             <div className="glass-panel table-card">
               <div className="card-title"><CalendarClock size={18} /> Year End Process</div>
-              <div className="year-switcher-panel year-end-year-switcher">
-                <div className="matrix-head">
-                  <div>
-                    <strong>Fiscal year switch</strong>
-                    <span>Pick the year before preview or close. Like ERP fiscal-year controls, switching year clears stale preview evidence and reloads the closing context.</span>
-                  </div>
-                  <span className={`pill ${yearEndIsHistorical ? "warning" : "success"}`}>{yearEndModeLabel}</span>
+              <div className="standard-note year-end-global-note">
+                <div>
+                  <strong>Use one fiscal year switch only.</strong>
+                  <span>The left sidebar controls fiscal year for all modules. Year End now follows that global selection, so you do not need a second year switch here.</span>
                 </div>
-                <div className="year-switcher-controls year-end-switcher-controls">
-                  <button className="soft-button" disabled={busy || yearEndSelectedYear <= 2000} onClick={() => handleYearEndYearChange(yearEndSelectedYear - 1, true)}><CalendarClock size={16} /> Previous {yearEndSelectedYear - 1}</button>
-                  <Field label="Selected fiscal year">
-                    <input type="number" min="2000" max="2100" value={yearEndForm.year} onChange={(event) => {
-                      const year = event.target.value;
-                      setYearEndForm({ ...yearEndForm, year, closingDate: year ? `${year}-12-31` : yearEndForm.closingDate });
-                      setYearEndPreview(null);
-                    }} onBlur={(event) => handleYearEndYearChange(event.target.value, true)} />
-                  </Field>
-                  <button className="soft-button" disabled={busy || yearEndSelectedYear >= 2100} onClick={() => handleYearEndYearChange(yearEndSelectedYear + 1, true)}><CalendarClock size={16} /> Next {yearEndSelectedYear + 1}</button>
-                  <div className="year-chip-grid">
-                    {yearEndYearOptions.map((year) => (
-                      <button
-                        key={year}
-                        className={year === yearEndSelectedYear ? "mini-soft active" : "mini-soft"}
-                        disabled={busy}
-                        onClick={() => handleYearEndYearChange(year, true)}
-                      >
-                        {year}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="matrix-grid year-command-grid">
-                  <span><small>Close year</small><strong>{yearEndSelectedYear}</strong><em>{yearEndLockStatus}</em></span>
-                  <span><small>Next opening year</small><strong>{yearEndNextYear}</strong><em>Closing balances map into this opening register after close.</em></span>
-                  <span><small>Preview command</small><strong>{yearEndPreview ? "Verified" : "Required"}</strong><em>Preview must be refreshed after each year change.</em></span>
-                  <span><small>Confirmation message</small><strong>{yearEndPreview ? "Ready to print/close" : "Run preview first"}</strong><em>Final close stays blocked until preview evidence exists.</em></span>
-                </div>
-                <div className="button-row compact year-command-actions">
-                  <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleYearEndPreview}>Preview {yearEndSelectedYear}</button>
-                  <button className="soft-button" disabled={!yearEndPreview} onClick={printCurrentScreen}><Printer size={16} /> Print evidence</button>
-                  <button className="soft-button" disabled={busy} onClick={() => void openOpeningBalanceForYear(yearEndNextYear)}>Open {yearEndNextYear} opening balance</button>
-                </div>
+                <span className={`pill ${yearEndIsHistorical ? "warning" : "success"}`}>{yearEndModeLabel}</span>
               </div>
               <div className="metric-strip">
                 <span><small>Close year</small><strong>{yearEndForm.year}</strong></span>
@@ -7302,11 +7258,9 @@ export default function DashboardPage() {
             <div className="glass-panel form-card">
               <div className="card-title"><ShieldCheck size={18} /> Closing setup</div>
               <div className="form-grid one">
-                <Field label="Year to close"><input type="number" value={yearEndForm.year} onChange={(event) => {
-                  const year = event.target.value;
-                  setYearEndForm({ ...yearEndForm, year, closingDate: year ? `${year}-12-31` : yearEndForm.closingDate });
-                  setYearEndPreview(null);
-                }} onBlur={(event) => handleYearEndYearChange(event.target.value, true)} /></Field>
+                <Field label="Selected fiscal year">
+                  <input type="text" value={`${yearEndForm.year} (from left sidebar)`} readOnly />
+                </Field>
                 <Field label="Closing date"><input type="date" value={yearEndForm.closingDate} onChange={(event) => {
                   setYearEndForm({ ...yearEndForm, closingDate: event.target.value });
                   setYearEndPreview(null);
@@ -7323,10 +7277,11 @@ export default function DashboardPage() {
                 <Field label="Remarks"><input placeholder="Closing remarks" value={yearEndForm.remarks} onChange={(event) => setYearEndForm({ ...yearEndForm, remarks: event.target.value })} /></Field>
               </div>
               <div className="button-row">
-                <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleYearEndPreview}>Preview year end</button>
+                <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleYearEndPreview}>Preview {yearEndSelectedYear}</button>
                 <button className="soft-button" disabled={!yearEndPreview} onClick={printCurrentScreen}><Printer size={16} /> Print preview</button>
+                <button className="soft-button" disabled={busy} onClick={() => void openOpeningBalanceForYear(yearEndNextYear)}>Open {yearEndNextYear} opening balance</button>
               </div>
-              <p className="muted">Year End carries closing balance into next year as opening balance. Always preview first, then close after checking employee balances.</p>
+              <p className="muted">Year End carries closing balance into next year as opening balance. Switch year once from the left sidebar, then preview and close from this panel.</p>
             </div>
           </section>
         )}

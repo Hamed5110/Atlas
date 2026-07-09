@@ -110,7 +110,7 @@ assert.match(source, /employee exception, pay group matrix, department matrix, c
 assert.match(source, /handleYearEndPreview/, "year end screen should support preview before closing");
 assert.match(source, /handleYearEndClose/, "year end screen should support controlled final close");
 assert.match(source, /Year End readiness gate/, "year end screen should show readiness checks before closing");
-assert.match(source, /Fiscal year switch/, "year end should expose a visible fiscal year switcher above the process metrics");
+assert.match(source, /Use one fiscal year switch only\./, "year end should direct users to the single global fiscal year control");
 assert.match(source, /activeFiscalYear/, "application should expose a global fiscal year context");
 assert.match(source, /handleFiscalYearSwitch/, "application should reload year-sensitive data from one fiscal switch");
 assert.match(source, /Fiscal year/, "sidebar should show the global fiscal year switch");
@@ -138,12 +138,12 @@ assert.match(css, /\.opening-register-toolbar\s*{[\s\S]*grid-template-columns:\s
 assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
 assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
-assert.match(source, /Run preview first/, "year end should show a clear confirmation message before closing");
+assert.match(source, /Switch year once from the left sidebar, then preview and close from this panel\./, "year end should explain the one-place year switching rule before closing");
 assert.match(source, /Company-wise and year-wise shifting matrix/, "year end should show company/year matrix boundaries");
 assert.match(source, /yearEndMatrixRows/, "year end should generate company-year isolation matrix rows");
 assert.match(source, /Opening year/, "opening balance should expose a compact opening-year filter");
 assert.match(css, /\.opening-year-control\s*{[\s\S]*grid-template-columns/, "opening balance year filter should use a compact responsive grid");
-assert.match(css, /\.year-end-year-switcher\s*{[\s\S]*box-shadow/, "year end fiscal switcher should be visually prominent");
+assert.match(css, /\.year-end-global-note\s*{[\s\S]*margin:\s*2px 0 14px/, "year end should style the single global fiscal year guidance note");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.opening-register-facts[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "opening balance compact facts should collapse cleanly on mobile");
 assert.match(source, /yearEndReadinessChecks/, "year end readiness checks should be generated from live preview state");
 assert.match(source, /Pending loans/, "year end preview should show pending loans before final close");
