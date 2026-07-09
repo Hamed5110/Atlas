@@ -2484,6 +2484,14 @@ export default function DashboardPage() {
     void openAirfarePolicyDeleteModal(rate);
   }
 
+  function getAirfarePolicyDeleteButtonLabel(rate: AirfarePolicyRate) {
+    if (canDeleteAirfarePolicyRate(rate)) return "Delete";
+    if (rate.IsSystem) return "Delete";
+    return "Delete";
+  }
+
+  const deletePreferenceRuleTitle = "Delete preference rule";
+
   async function confirmAirfarePolicyDelete() {
     if (!session || !policyDeleteTarget || !policyDeletePreview) return;
     if (!policyDeletePreview.canDelete) {
@@ -7583,11 +7591,15 @@ export default function DashboardPage() {
                     <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
                     <span className="row-actions preference-row-actions">
                       <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit preference as draft"><Pencil size={14} /> Edit</button>
-                      {canDeleteAirfarePolicyRate(rate) ? (
-                        <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete preference rule"><Trash2 size={14} /> Delete</button>
-                      ) : (
-                        <button className="pill warning preference-lock-pill preference-lock-button" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title={getAirfarePolicyLockMessage(rate)}>{getAirfarePolicyLockBadge(rate)}</button>
-                      )}
+                      <button
+                        className={canDeleteAirfarePolicyRate(rate) ? "mini-danger" : "mini-danger preference-delete-locked preference-lock-pill"}
+                        type="button"
+                        disabled={busy || !session || !["admin", "manager"].includes(session.user.role)}
+                        onClick={() => handleDeleteAirfarePolicyRate(rate)}
+                        title={getAirfarePolicyLockMessage(rate)}
+                      >
+                        <Trash2 size={14} /> {getAirfarePolicyDeleteButtonLabel(rate)}
+                      </button>
                       <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /> History</button>
                     </span>
                   </div>
@@ -7754,11 +7766,15 @@ export default function DashboardPage() {
                       <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
                       <span className="row-actions">
                         <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit as draft"><Pencil size={14} /></button>
-                        {canDeleteAirfarePolicyRate(rate) ? (
-                          <button className="mini-danger" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title="Delete current preference rule"><Trash2 size={14} /></button>
-                        ) : (
-                          <button className="pill warning preference-lock-pill preference-lock-button" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleDeleteAirfarePolicyRate(rate)} title={getAirfarePolicyLockMessage(rate)}>{getAirfarePolicyLockBadge(rate)}</button>
-                        )}
+                        <button
+                          className={canDeleteAirfarePolicyRate(rate) ? "mini-danger" : "mini-danger preference-delete-locked preference-lock-pill"}
+                          type="button"
+                          disabled={busy || !session || !["admin", "manager"].includes(session.user.role)}
+                          onClick={() => handleDeleteAirfarePolicyRate(rate)}
+                          title={getAirfarePolicyLockMessage(rate)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                         <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /></button>
                       </span>
                     </div>

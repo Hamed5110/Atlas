@@ -2785,6 +2785,16 @@ h3 { font-size: 20px; letter-spacing: 0; }
   color: var(--muted);
   font-style: normal;
 }
+.preference-delete-locked {
+  background: #fff7f8;
+  border-color: rgba(225, 29, 72, .24);
+  color: #c2410c;
+  box-shadow: 0 8px 22px rgba(244, 63, 94, .10);
+}
+.preference-delete-locked:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(244, 63, 94, .14);
+}
 .notice-danger {
   border-color: rgba(225, 29, 72, .18);
   background: #fff7f8;
