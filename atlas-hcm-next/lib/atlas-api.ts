@@ -290,9 +290,23 @@ export function atlasApiBase() {
       return "/api";
     }
 
+    if (
+      configured.startsWith("/") &&
+      /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname) &&
+      window.location.port &&
+      window.location.port !== "3355"
+    ) {
+      return `http://127.0.0.1:3355${configured}`;
+    }
+
     return configured;
   }
   return CONFIGURED_API_BASE || "http://localhost:3355/api";
+}
+
+export function atlasPublicBase() {
+  const apiBase = atlasApiBase();
+  return apiBase.replace(/\/api\/?$/i, "");
 }
 
 function atlasUrl(path: string) {

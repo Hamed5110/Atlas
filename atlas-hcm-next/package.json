@@ -1,47 +1,48 @@
 {
-    "name":  "atlas-hcm-next",
-    "version":  "1.0.0",
-    "type":  "module",
-    "private":  true,
-    "scripts":  {
-                    "dev":  "next dev -H 0.0.0.0",
-                    "build":  "next build",
-                    "start":  "next start -H 0.0.0.0",
-                    "lint":  "next lint",
-                    "test:formula":  "node tests/airfare-formula.test.mjs",
-                    "test:import":  "node tests/employee-import-preview.test.mjs",
-                    "test:dropdowns":  "node tests/employee-dropdown-options.test.mjs",
-                    "test:loans":  "node tests/loan-dashboard-source.test.mjs",
-                    "test:airfare-attachments":  "node tests/airfare-attachments-source.test.mjs",
-                    "test:airfare-company":  "node tests/airfare-excess-reports-company-source.test.mjs",
-                    "test:opening-balance":  "node tests/opening-balance-source.test.mjs",
-                    "test:ui-layout":  "node tests/ui-layout-source.test.mjs",
-                    "test:frontend-verification":  "node tests/frontend-verification.test.mjs",
-                    "test":  "npm run test:formula \u0026\u0026 npm run test:import \u0026\u0026 npm run test:dropdowns \u0026\u0026 npm run test:loans \u0026\u0026 npm run test:airfare-attachments \u0026\u0026 npm run test:airfare-company \u0026\u0026 npm run test:opening-balance \u0026\u0026 npm run test:ui-layout \u0026\u0026 npm run test:frontend-verification",
-                    "dev-public":  "next dev -H 0.0.0.0",
-                    "start-public":  "next start -H 0.0.0.0"
-                },
-    "dependencies":  {
-                         "@next/eslint-plugin-next":  "latest",
-                         "clsx":  "latest",
-                         "framer-motion":  "latest",
-                         "lucide-react":  "latest",
-                         "next":  "latest",
-                         "react":  "latest",
-                         "react-dom":  "latest",
-                         "read-excel-file":  "^9.2.0",
-                         "recharts":  "latest",
-                         "write-excel-file":  "^4.1.1"
-                     },
-    "devDependencies":  {
-                            "@types/node":  "latest",
-                            "@types/react":  "latest",
-                            "@types/react-dom":  "latest",
-                            "eslint":  "latest",
-                            "eslint-config-next":  "latest",
-                            "typescript":  "latest"
-                        },
-    "overrides":  {
-                      "postcss":  "^8.5.10"
-                  }
+    "name": "atlas-hcm-next",
+    "version": "1.0.0",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "dev": "next dev -H 0.0.0.0",
+        "build": "next build",
+        "start": "next start -H 0.0.0.0",
+        "lint": "next lint",
+        "test:formula": "node tests/airfare-formula.test.mjs",
+        "test:import": "node tests/employee-import-preview.test.mjs",
+        "test:dropdowns": "node tests/employee-dropdown-options.test.mjs",
+        "test:loans": "node tests/loan-dashboard-source.test.mjs",
+        "test:airfare-attachments": "node tests/airfare-attachments-source.test.mjs",
+        "test:airfare-company": "node tests/airfare-excess-reports-company-source.test.mjs",
+        "test:opening-balance": "node tests/opening-balance-source.test.mjs",
+        "test:ui-layout": "node tests/ui-layout-source.test.mjs",
+        "test:frontend-verification": "node tests/frontend-verification.test.mjs",
+        "test": "npm run test:formula && npm run test:import && npm run test:dropdowns && npm run test:loans && npm run test:airfare-attachments && npm run test:airfare-company && npm run test:opening-balance && npm run test:ui-layout && npm run test:frontend-verification",
+        "dev-public": "next dev -H 0.0.0.0",
+        "start-public": "next start -H 0.0.0.0"
+    },
+    "dependencies": {
+        "@headlessui/react": "^2.2.10",
+        "@next/eslint-plugin-next": "latest",
+        "clsx": "latest",
+        "framer-motion": "latest",
+        "lucide-react": "latest",
+        "next": "latest",
+        "react": "latest",
+        "react-dom": "latest",
+        "read-excel-file": "^9.2.0",
+        "recharts": "latest",
+        "write-excel-file": "^4.1.1"
+    },
+    "devDependencies": {
+        "@types/node": "latest",
+        "@types/react": "latest",
+        "@types/react-dom": "latest",
+        "eslint": "latest",
+        "eslint-config-next": "latest",
+        "typescript": "latest"
+    },
+    "overrides": {
+        "postcss": "^8.5.10"
+    }
 }
