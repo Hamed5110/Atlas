@@ -1285,7 +1285,7 @@ BEGIN
     WHERE r.PolicyRateID = @PreferenceID;
 
     IF @effectiveFrom IS NULL RETURN 0;
-    IF @isDeleted = 1 OR @isActive = 0 OR @effectiveTo IS NOT NULL RETURN 0;
+    IF @isDeleted = 1 RETURN 0;
 
     IF EXISTS (
         SELECT 1
@@ -1326,8 +1326,7 @@ BEGIN
     WHERE r.PolicyRateID = @PreferenceID;
 
     IF @effectiveFrom IS NULL RETURN N'Preference not found';
-    IF @isDeleted = 1 RETURN N'Historical policy version. Open History to review the audit trail.';
-    IF @isActive = 0 OR @effectiveTo IS NOT NULL RETURN N'Historical policy version. Open History to review the audit trail.';
+    IF @isDeleted = 1 RETURN N'Preference already deleted. Open History to review the audit trail.';
 
     SELECT TOP (1)
         @blockerName = rr.ModuleName,

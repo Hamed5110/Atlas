@@ -2377,7 +2377,7 @@ export default function DashboardPage() {
   }
 
   function canDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
-    return Boolean(isCurrentAirfarePolicyRate(rate) && rate.CanDelete);
+    return Boolean(rate.CanDelete);
   }
 
   function getAirfarePolicyLockBadge(rate: AirfarePolicyRate) {

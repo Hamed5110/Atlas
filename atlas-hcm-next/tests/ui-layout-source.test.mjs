@@ -252,8 +252,8 @@ assert.match(source, /Delete selected \(\{selectedPolicyRateIds\.size\}\)/, "pre
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}[\s\S]*"DELETE"/, "preferences delete should use the original stable policy DELETE endpoint");
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*"POST"/, "preferences delete should retry through POST fallback when DELETE is blocked by a proxy or client security layer");
 assert.match(source, /fallbackError[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}[\s\S]*"POST"/, "preferences delete should retry through a direct POST fallback if the /delete compatibility route is missing");
-assert.match(source, /function isCurrentAirfarePolicyRate[\s\S]*rate\.IsActive && !rate\.EffectiveTo/, "preferences should only delete current policy rules");
-assert.match(source, /function canDeleteAirfarePolicyRate[\s\S]*rate\.CanDelete/, "preferences delete actions should follow the backend can-delete contract");
+assert.match(source, /function isCurrentAirfarePolicyRate[\s\S]*rate\.IsActive && !rate\.EffectiveTo/, "preferences should still detect current policy rows for status display");
+assert.match(source, /function canDeleteAirfarePolicyRate[\s\S]*Boolean\(rate\.CanDelete\)/, "preferences delete actions should follow the backend can-delete contract for current and historical rows");
 assert.match(source, /function getAirfarePolicyLockBadge[\s\S]*System locked[\s\S]*Locked/, "preferences should show short horizontal lock badges on protected rows");
 assert.match(source, /function getAirfarePolicyLockMessage[\s\S]*rate\.LockReason[\s\S]*system default policy[\s\S]*Delete source data to unlock/, "preferences should explain whether a policy is protected by SQL lock reasons or fallback scope messages");
 assert.match(server, /AS ActiveReferenceCount/, "airfare policy API should expose active reference counts for delete safety");
