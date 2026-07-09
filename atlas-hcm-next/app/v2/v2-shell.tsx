@@ -25,6 +25,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import V2AirfareModule from "./v2-airfare-module";
 import V2EmployeesModule from "./v2-employees-module";
+import V2OpeningBalanceModule from "./v2-opening-balance-module";
 import V2OverviewModule from "./v2-overview-module";
 import { clearSavedSession, restoreSavedSession } from "./v2-session";
 import V2SignInModule from "./v2-sign-in-module";
@@ -491,17 +492,7 @@ export default function V2Shell({ initialTheme }: { initialTheme?: ThemeId }) {
           ) : activeNav === "employees" ? (
             <V2EmployeesModule />
           ) : activeNav === "opening-balance" ? (
-            <V2StagedModule
-              eyebrow={activeNavItem.eyebrow}
-              title={activeNavItem.title}
-              detail={activeNavItem.detail}
-              statusLabel="Mounted for parity"
-              legacyModuleCount={LEGACY_MODULE_COUNT}
-              v2ModuleCount={navItems.length}
-              liveModuleCount={liveModuleCount}
-              nextSlice="Opening Balance"
-              carryForward={["Opening balance register", "Opening loan balance register", "Year switch matrix", "Edit and delete modals"]}
-            />
+            <V2OpeningBalanceModule />
           ) : activeNav === "airfare" ? (
             <V2AirfareModule />
           ) : activeNav === "employee-self-service" ? (

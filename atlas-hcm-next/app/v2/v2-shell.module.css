@@ -937,6 +937,22 @@
   flex-wrap: wrap;
 }
 
+.yearStepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 14px;
+  border: 1px solid var(--v2-border);
+  background: var(--v2-surface-strong);
+}
+
+.yearStepper strong {
+  min-width: 56px;
+  text-align: center;
+  font-size: 16px;
+}
+
 .moduleToolbarMeta {
   display: flex;
   align-items: center;
@@ -1558,6 +1574,75 @@
   line-height: 1.5;
 }
 
+.noticeBanner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--v2-border);
+  background: var(--v2-surface);
+  box-shadow: var(--v2-shadow), var(--v2-ring);
+}
+
+.noticeBanner[data-tone="success"] {
+  border-color: color-mix(in srgb, #10b981 22%, var(--v2-border));
+  background: color-mix(in srgb, #10b981 7%, var(--v2-surface-strong));
+}
+
+.noticeBanner[data-tone="error"] {
+  border-color: color-mix(in srgb, var(--v2-danger) 24%, var(--v2-border));
+  background: color-mix(in srgb, var(--v2-danger) 8%, var(--v2-surface-strong));
+}
+
+.noticeBanner[data-tone="info"] {
+  border-color: color-mix(in srgb, var(--v2-accent) 22%, var(--v2-border));
+  background: color-mix(in srgb, var(--v2-accent) 7%, var(--v2-surface-strong));
+}
+
+.noticeBanner div {
+  display: grid;
+  gap: 4px;
+}
+
+.noticeBanner strong {
+  font-size: 14px;
+}
+
+.noticeBanner span {
+  color: var(--v2-text-muted);
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.calcResult {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--v2-border);
+  background: color-mix(in srgb, var(--v2-accent) 6%, var(--v2-surface-strong));
+}
+
+.calcResult span {
+  display: grid;
+  gap: 4px;
+}
+
+.calcResult small {
+  color: var(--v2-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.calcResult strong {
+  font-size: 14px;
+}
+
 .standardNote {
   display: flex;
   align-items: flex-start;
@@ -1671,6 +1756,7 @@
 
   .metrics,
   .overviewMetricGrid,
+  .calcResult,
   .airfareFacts,
   .airfareBreakdown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1739,6 +1825,7 @@
 
   .metrics,
   .overviewMetricGrid,
+  .calcResult,
   .airfareFacts,
   .airfareBreakdown {
     grid-template-columns: 1fr;
