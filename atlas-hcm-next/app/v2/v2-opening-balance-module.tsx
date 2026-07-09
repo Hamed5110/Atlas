@@ -487,7 +487,7 @@ export default function V2OpeningBalanceModule() {
         </article>
       </section>
 
-      <section className={styles.moduleColumns}>
+      <section className={`${styles.moduleColumns} ${styles.openingBalanceColumns}`}>
         <article className={styles.panel}>
           <div className={styles.panelTitle}>
             <ListPlus size={18} />
@@ -513,8 +513,8 @@ export default function V2OpeningBalanceModule() {
             </label>
           </div>
 
-          <div className={styles.employeeTable}>
-            <div className={styles.employeeTableHeader}>
+          <div className={`${styles.employeeTable} ${styles.openingBalanceTable}`}>
+            <div className={`${styles.employeeTableHeader} ${styles.openingBalanceTableHeader}`}>
               <span><input type="checkbox" aria-label="Select all opening balance rows" checked={allSelected} disabled={!rows.length} onChange={(event) => toggleAllRows(event.target.checked)} /></span>
               <span>Employee</span>
               <span>Opening days</span>
@@ -529,26 +529,28 @@ export default function V2OpeningBalanceModule() {
               </div>
             ) : (
               rows.map((row) => (
-                <div className={styles.employeeTableRow} key={openingBalanceKey(row)}>
+                <div className={`${styles.employeeTableRow} ${styles.openingBalanceTableRow}`} key={openingBalanceKey(row)}>
                   <span><input type="checkbox" aria-label={`Select ${row.EmployeeCode} opening balance`} checked={selectedKeys.has(openingBalanceKey(row))} onChange={(event) => toggleRow(row, event.target.checked)} /></span>
                   <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / {row.Department || "-"}</small></span>
                   <span>{Number(row.OpeningDays || 0).toFixed(2)}</span>
                   <span>{moneyFormat(Number(row.OpeningBHD || 0))}</span>
                   <span><span className={styles.signalBadge} data-status={row.IsActive === false ? "warning" : "pass"}>{row.IsActive === false ? "Inactive" : "Active"}</span></span>
-                  <span className={styles.tableActionGroup}>
-                    <button type="button" className={styles.secondaryActionButton} onClick={() => openEditRow(row)} disabled={!canManage}>
-                      <Pencil size={14} />
-                      <span>Edit</span>
-                    </button>
-                    <button type="button" className={styles.secondaryActionButton} onClick={() => prepareNextYear(row)} disabled={!canManage}>
-                      <CalendarClock size={14} />
-                      <span>Update next year</span>
-                    </button>
-                    <button type="button" className={styles.secondaryActionButtonDanger} onClick={() => void handleDelete(row)} disabled={!canManage || actionBusy}>
-                      <Trash2 size={14} />
-                      <span>Delete</span>
-                    </button>
-                  </span>
+                  <div className={`${styles.employeeActionCell} ${styles.openingBalanceActionCell}`}>
+                    <span className={`${styles.tableActionGroup} ${styles.openingBalanceActionGroup}`}>
+                      <button type="button" className={styles.secondaryActionButton} onClick={() => openEditRow(row)} disabled={!canManage}>
+                        <Pencil size={14} />
+                        <span>Edit</span>
+                      </button>
+                      <button type="button" className={styles.secondaryActionButton} onClick={() => prepareNextYear(row)} disabled={!canManage}>
+                        <CalendarClock size={14} />
+                        <span>Update next year</span>
+                      </button>
+                      <button type="button" className={styles.dangerActionButton} onClick={() => void handleDelete(row)} disabled={!canManage || actionBusy}>
+                        <Trash2 size={14} />
+                        <span>Delete</span>
+                      </button>
+                    </span>
+                  </div>
                 </div>
               ))
             )}
@@ -624,7 +626,7 @@ export default function V2OpeningBalanceModule() {
             </OpeningField>
           </div>
 
-          <div className={styles.calcResult}>
+          <div className={`${styles.calcResult} ${styles.openingBalanceCalcResult}`}>
             <span><small>Formula source</small><strong>dbo.fn_ATLAS_AirfareAmount</strong></span>
             <span><small>SQL amount</small><strong>{moneyFormat(toNumber(form.openingBhd))}</strong></span>
             <span><small>Rate source</small><strong>MSSQL</strong></span>
@@ -657,8 +659,8 @@ export default function V2OpeningBalanceModule() {
           <WalletCards size={18} />
           <span>Opening loan balance</span>
         </div>
-        <div className={styles.employeeTable}>
-          <div className={styles.employeeTableHeader}>
+        <div className={`${styles.employeeTable} ${styles.openingLoanTable}`}>
+          <div className={`${styles.employeeTableHeader} ${styles.openingLoanTableHeader}`}>
             <span>Employee</span>
             <span>Opening loan amount</span>
             <span>Pending loans</span>
@@ -673,7 +675,7 @@ export default function V2OpeningBalanceModule() {
             </div>
           ) : (
             loanRows.map((row) => (
-              <div className={styles.employeeTableRow} key={row.OpeningLoanBalanceID}>
+              <div className={`${styles.employeeTableRow} ${styles.openingLoanTableRow}`} key={row.OpeningLoanBalanceID}>
                 <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / {row.Department || "-"}</small></span>
                 <span>{moneyFormat(Number(row.OpeningLoanAmount || 0))}</span>
                 <span>{row.PendingLoanCount}</span>

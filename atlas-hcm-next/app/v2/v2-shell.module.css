@@ -1066,6 +1066,11 @@
   gap: 12px;
 }
 
+.openingBalanceColumns {
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
+  align-items: start;
+}
+
 .chartWrap {
   width: 100%;
   min-height: 280px;
@@ -1226,6 +1231,7 @@
 .employeeTable {
   display: grid;
   gap: 0;
+  min-width: 0;
 }
 
 .employeeTableHeader,
@@ -1234,6 +1240,51 @@
   grid-template-columns: 34px minmax(220px, 1.8fr) minmax(140px, 1fr) minmax(130px, 0.9fr) minmax(120px, 0.9fr) minmax(100px, 0.7fr) minmax(120px, 0.8fr) minmax(164px, 1fr);
   gap: 12px;
   align-items: center;
+}
+
+.openingBalanceTable {
+  min-width: 0;
+}
+
+.openingBalanceTableHeader,
+.openingBalanceTableRow {
+  grid-template-columns: 34px minmax(190px, 1.65fr) minmax(96px, 0.58fr) minmax(122px, 0.78fr) minmax(108px, 0.68fr) minmax(184px, 0.98fr);
+}
+
+.openingBalanceTableHeader > span,
+.openingBalanceTableRow > span,
+.openingBalanceTableRow > div {
+  min-width: 0;
+}
+
+.openingBalanceActionCell {
+  width: 100%;
+  min-width: 0;
+}
+
+.openingBalanceActionGroup {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.openingBalanceActionGroup button {
+  min-width: 0;
+  padding-inline: 10px;
+}
+
+.openingBalanceActionGroup button span {
+  white-space: nowrap;
+}
+
+.openingLoanTable {
+  min-width: 0;
+}
+
+.openingLoanTableHeader,
+.openingLoanTableRow {
+  grid-template-columns: minmax(220px, 1.8fr) minmax(150px, 0.95fr) minmax(110px, 0.75fr) minmax(130px, 0.85fr) minmax(110px, 0.7fr) minmax(140px, 0.9fr);
 }
 
 .employeeTableHeader {
@@ -1641,6 +1692,11 @@
 
 .calcResult strong {
   font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.openingBalanceCalcResult {
+  grid-template-columns: minmax(0, 1.45fr) minmax(120px, 0.9fr) minmax(100px, 0.72fr);
 }
 
 .standardNote {
@@ -1748,6 +1804,7 @@
   .hero,
   .contentGrid,
   .moduleColumns,
+  .openingBalanceColumns,
   .overviewHero,
   .employeeToolbar,
   .employeeModalGrid {
@@ -1760,6 +1817,18 @@
   .airfareFacts,
   .airfareBreakdown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .openingBalanceTableHeader,
+  .openingBalanceTableRow,
+  .openingLoanTableHeader,
+  .openingLoanTableRow {
+    grid-template-columns: 1fr;
+  }
+
+  .openingBalanceActionGroup,
+  .openingBalanceCalcResult {
+    grid-template-columns: 1fr;
   }
 }
 
