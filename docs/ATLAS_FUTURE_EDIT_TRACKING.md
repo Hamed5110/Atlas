@@ -6,13 +6,13 @@
 | --- | --- |
 | Local repository | `C:\Airfare_Allowance` |
 | Active branch | `codex/atlas-installer-2.2.8` |
-| Latest tracked commit | `0b0953531e7c995d4f18b786628078d05bd96923` |
+| Latest tracked commit | `5bd2db2` |
 | App URL | `http://127.0.0.1:3355/` |
 | Health URL | `http://127.0.0.1:3355/api/health` |
 | Backup branch | `backup/old-layout-baseline` |
 | Backup baseline commit | `ed0a8d4` |
-| Latest EXE patch | `C:\Airfare_Allowance\artifacts\patch-2.3.54\ATLAS-Airfare-Allowance-UpdateOnly-2.3.54-x64.exe` |
-| Latest MSI payload | `C:\Airfare_Allowance\artifacts\patch-2.3.54\ATLAS-Airfare-Allowance-2.3.54-x64.msi` |
+| Latest EXE patch | `C:\Airfare_Allowance\artifacts\patch-2.3.55\ATLAS-Airfare-Allowance-UpdateOnly-2.3.55-x64.exe` |
+| Latest MSI payload | `C:\Airfare_Allowance\artifacts\patch-2.3.55\ATLAS-Airfare-Allowance-2.3.55-x64.msi` |
 
 ## Main Edit Map
 
@@ -25,7 +25,7 @@
 | Database SQL | `database\*.sql`, `extensions\employee-portal\sql\*.sql` | Schema, procedures, functions, repair scripts | Critical | SQL-specific tests plus live health check |
 | Installer MSI | `installer\Build-ATLAS-MSI.ps1` | Builds MSI payload and file manifest | High | Build MSI, verify SHA256 |
 | Installer EXE patch | `installer\bootstrapper\deploy.ps1`, `installer\bootstrapper\Bundle.wxs` | Update-only patch, dependency logs, overwrite verification | High | `node tests/atlas-patch-artifact.test.js`, build EXE |
-| Patch documentation | `docs\ATLAS_Patch_2.3.53_Artifact.md` | Release evidence and artifact hashes | Low | Manual review |
+| Patch documentation | `docs\ATLAS_Patch_2.3.55_Artifact.md` | Release evidence and artifact hashes | Low | Manual review |
 
 ## Recent Change History
 
