@@ -11,8 +11,8 @@
 | Health URL | `http://127.0.0.1:3355/api/health` |
 | Backup branch | `backup/old-layout-baseline` |
 | Backup baseline commit | `ed0a8d4` |
-| Latest EXE patch | `C:\Airfare_Allowance\artifacts\patch-2.3.53\ATLAS-Airfare-Allowance-UpdateOnly-2.3.53-x64.exe` |
-| Latest MSI payload | `C:\Airfare_Allowance\artifacts\patch-2.3.53\ATLAS-Airfare-Allowance-2.3.53-x64.msi` |
+| Latest EXE patch | `C:\Airfare_Allowance\artifacts\patch-2.3.54\ATLAS-Airfare-Allowance-UpdateOnly-2.3.54-x64.exe` |
+| Latest MSI payload | `C:\Airfare_Allowance\artifacts\patch-2.3.54\ATLAS-Airfare-Allowance-2.3.54-x64.msi` |
 
 ## Main Edit Map
 
@@ -125,4 +125,3 @@ flowchart TD
 | Port `3355` behavior | Existing deployment and shortcuts rely on it |
 | `.env` and registry preservation | Patch must keep installed machine configuration |
 | Backup branch | Rollback reference for old layout baseline |
-
