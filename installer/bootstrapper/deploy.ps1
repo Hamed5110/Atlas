@@ -1476,8 +1476,8 @@ function Assert-PayableReportPatchInstalled {
         throw "Patched backend verification failed: server.js is missing from $InstallPath."
     }
     $serverText = Get-Content -LiteralPath $serverPath -Raw
-    if ($serverText -notmatch "payableFromProcedure" -or $serverText -notmatch "mssql-procedure-payable-bhd") {
-        throw "Patched backend verification failed: installed server.js does not contain the Payable Amount MSSQL procedure fix."
+    if ($serverText -notmatch '(?s)payableReportSource\s*:\s*.*?mssql-procedure-payable-bhd') {
+        throw "Patched backend verification failed: installed server.js does not expose the payable-report health contract."
     }
     if (-not (Test-AtlasHealth -PortNumber $PortNumber -RequirePayableReportPatch -RequireSelfServicePatch)) {
         throw "Patched runtime verification failed: ATLAS is healthy but the running backend is not the Payable Amount patched build. Restart ATLAS or close old node.exe processes and retry the patch."
