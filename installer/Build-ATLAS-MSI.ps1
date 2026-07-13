@@ -130,6 +130,9 @@ Copy-Tree -Source $Root -Destination $Payload -ExcludeDirs @(
 ) -ExcludeFiles @(
     ".env",
     ".env.*",
+    "DIAGNOSIS.md",
+    "DIAGNOSIS_REPORT.md",
+    "MODULE_BUILD_QUEUE.md",
     "*.bak",
     "*.log",
     "*.tmp"
