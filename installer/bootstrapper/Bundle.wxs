@@ -206,7 +206,9 @@
         RepairArguments="$(var.AtlasConfigureRepairArgs)"
         UninstallArguments="Backup -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
         <Payload SourceFile="$(var.DeployScript)" Name="tools\configure-deploy.ps1" />
+        <?ifndef UpdateOnly ?>
         <Payload SourceFile="$(var.SqlExpressSetupExe)" Name="tools\SQLEXPR_x64_ENU.exe" />
+        <?endif ?>
       </ExePackage>
 
       <ExePackage

@@ -21,6 +21,7 @@ assert.match(bundleText, /UpdateOnly[\s\S]*ATLAS Airfare Allowance Update Patch/
 assert.match(bundleText, /Copying patched ATLAS application files/, 'bundle should show application file copy/replace progress');
 assert.match(bundleText, /Restarting ATLAS and verifying update/, 'bundle should show finalize verification progress');
 assert.match(bundleText, /Condition="ATLASAPPINSTALLED OR WixBundleInstalled"/, 'update patch should require an existing installation');
+assert.match(bundleText, /<\?ifndef UpdateOnly \?>\s*<Payload SourceFile="\$\(var\.SqlExpressSetupExe\)" Name="tools\\SQLEXPR_x64_ENU\.exe" \/>\s*<\?endif \?>/, 'update patch must omit SQL Express media while the full installer retains it');
 
 assert.match(msiBuildText, /atlas-payload-manifest\.json/, 'MSI payload manifest generation is required for cross-machine verification');
 assert.match(msiBuildText, /Get-FileHash -Algorithm SHA256/, 'MSI manifest should include SHA256 hashes');
