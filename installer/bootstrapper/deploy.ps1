@@ -19,7 +19,8 @@ param(
     [string]$SqlExpressSetupExe = "C:\Airfare_Allowance\redist\SQLEXPR_x64_ENU.exe",
     [string]$Output = "C:\Airfare_Allowance\artifacts\fresh-2.3.40\ATLAS-Airfare-Allowance-Setup-2.3.40-x64.exe",
     [string]$ProductVersion = "2.3.40",
-    [string]$UpdateManifest = ""
+    [string]$UpdateManifest = "",
+    [string]$ConfigPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -361,8 +362,11 @@ function Get-BootstrapConfigPath {
 }
 
 function Read-BootstrapConfig {
-    param([string]$DataPath)
-    $path = Get-BootstrapConfigPath -DataPath $DataPath
+    param(
+        [string]$DataPath,
+        [string]$Path = ""
+    )
+    $path = if (-not [string]::IsNullOrWhiteSpace($Path)) { $Path } else { Get-BootstrapConfigPath -DataPath $DataPath }
     if (-not (Test-Path $path)) { return $null }
     try {
         return (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
@@ -1902,7 +1906,7 @@ function Invoke-InstallOrRepair {
     Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
     New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
 
-    $saved = Read-BootstrapConfig -DataPath $DataRoot
+    $saved = Read-BootstrapConfig -DataPath $DataRoot -Path $ConfigPath
     $SqlPort = 1433
     if ($saved) {
         if ($saved.Port) { $Port = [int]$saved.Port }
@@ -1937,9 +1941,6 @@ function Invoke-InstallOrRepair {
     Install-SqlExpressIfMissing -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
     $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $effectiveSqlInstance
     Ensure-SqlService -InstanceName $effectiveSqlInstance
-    if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
-        throw "MSSQL login verification failed during configuration."
-    }
     $SqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort $SqlPort
     if (-not (Test-TcpPort -Server "127.0.0.1" -PortNumber $SqlPort)) {
         throw "MSSQL TCP port 127.0.0.1:$SqlPort is not reachable after configuration. Enable SQL Server TCP/IP or choose the correct MSSQL port."
@@ -1948,6 +1949,9 @@ function Invoke-InstallOrRepair {
         throw "MSSQL sa login over TCP failed on 127.0.0.1:$SqlPort. Re-run setup and enter the correct SQL port/password."
     }
     Write-Step "MSSQL TCP login confirmed on 127.0.0.1:$SqlPort."
+    if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
+        Write-Step "Warning: MSSQL instance-name login check failed after TCP verification; continuing with verified TCP endpoint 127.0.0.1:$SqlPort."
+    }
     Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
     Ensure-AtlasDatabase `
         -InstanceName $effectiveSqlInstance `
