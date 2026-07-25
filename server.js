@@ -1112,6 +1112,7 @@ async function cleanupQaTemporaryCompanies(db) {
                     OR c.CompanyName LIKE 'QA Temporary Company%'
                     OR c.DatabaseName LIKE 'ATLAS_QA_%'
                 )
+              AND COALESCE(c.UpdatedAt, c.CreatedAt, SYSUTCDATETIME()) < DATEADD(MINUTE, -30, SYSUTCDATETIME())
               AND NOT EXISTS (
                     SELECT 1
                     FROM dbo.Employees e
@@ -6029,7 +6030,10 @@ app.delete('/api/companies/empty', authenticateToken, requireRole('admin'), asyn
 
         const ids = rows.map((row) => Number(row.CompanyID)).filter(Number.isFinite);
         const idList = ids.join(',');
-        await db.request().query(`DELETE FROM dbo.Companies WHERE CompanyID IN (${idList})`);
+        await db.request().query(`
+            DELETE FROM dbo.YearEndPreviewEvidence WHERE CompanyID IN (${idList});
+            DELETE FROM dbo.Companies WHERE CompanyID IN (${idList});
+        `);
 
         await logAudit(req.user.userId, req.user.username, 'DELETE_EMPTY', 'Company', null, rows, null,
             `Deleted ${rows.length} empty company record(s)`, req);
@@ -6079,15 +6083,17 @@ app.delete('/api/companies/:id(\\d+)', authenticateToken, requireRole('admin'), 
                         UPPER(LTRIM(RTRIM(ISNULL(@CompanyName, '')))),
                         UPPER(LTRIM(RTRIM(ISNULL(@DatabaseName, ''))))
                      )) AS Employees,
-                    (SELECT COUNT(*) FROM dbo.AirfarePolicyRates WHERE CompanyID = @CompanyID) AS PolicyRates
+                    (SELECT COUNT(*) FROM dbo.AirfarePolicyRates WHERE CompanyID = @CompanyID) AS PolicyRates,
+                    (SELECT COUNT(*) FROM dbo.YearEndHistory WHERE CompanyID = @CompanyID) AS YearEndHistory
             `);
         const linked = usage.recordset[0] || {};
-        if (Number(linked.Employees || 0) > 0 || Number(linked.PolicyRates || 0) > 0) {
+        if (Number(linked.Employees || 0) > 0 || Number(linked.PolicyRates || 0) > 0 || Number(linked.YearEndHistory || 0) > 0) {
             return res.status(409).json({
-                error: 'Company is linked to employees or policy values. Remove links before deleting.',
+                error: 'Company is linked to employees, policy values, or closed Year End history. Remove links before deleting.',
                 details: {
                     employees: Number(linked.Employees || 0),
-                    policyRates: Number(linked.PolicyRates || 0)
+                    policyRates: Number(linked.PolicyRates || 0),
+                    yearEndHistory: Number(linked.YearEndHistory || 0)
                 }
             });
         }
@@ -6104,7 +6110,10 @@ app.delete('/api/companies/:id(\\d+)', authenticateToken, requireRole('admin'), 
 
         await db.request()
             .input('CompanyID', sql.Int, companyId)
-            .query('DELETE FROM dbo.Companies WHERE CompanyID = @CompanyID');
+            .query(`
+                DELETE FROM dbo.YearEndPreviewEvidence WHERE CompanyID = @CompanyID;
+                DELETE FROM dbo.Companies WHERE CompanyID = @CompanyID;
+            `);
 
         await logAudit(req.user.userId, req.user.username, 'DELETE', 'Company', companyId, company, null,
             `Deleted company ${company.CompanyName} and dropped database ${databaseName}`, req);
