@@ -100,6 +100,9 @@ assert.match(deployText, /\[string\]\$ConfigPath/i, 'Bootstrapper should support
 assert.match(deployText, /Read-BootstrapConfig -DataPath \$DataRoot -Path \$ConfigPath/i, 'Bootstrapper install should ingest an explicit config JSON when supplied');
 assert.match(deployText, /Resolve-SqlTcpPort[\s\S]*Test-SqlLoginTcp[\s\S]*Test-SqlLogin -InstanceName/i, 'Bootstrapper should verify the requested TCP endpoint before falling back to instance-name login checks');
 assert.match(deployText, /continuing with verified TCP endpoint 127\.0\.0\.1:\$SqlPort/i, 'Bootstrapper should not fail a verified TCP install only because instance-name discovery is unavailable');
+assert.match(deployText, /\[int\]\$SqlPort = 1433/i, 'Bootstrapper should accept a SQL port from Burn or scripted calls');
+assert.match(deployText, /SQL Express setup file was not found locally\. Downloading from Microsoft/i, 'Bootstrapper should download SQL Express during install only when needed');
+assert.match(deployText, /sql-server-downloads/i, 'Bootstrapper should provide an official SQL Express download link when online retrieval fails');
 assert.match(deployText, /-not \$settings\.Contains\("DB_SERVER"\).*?\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/s, 'Update patch should default DB_SERVER only when it is missing or blank');
 assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sanitize Burn-quoted install/data paths before use');
 assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should preserve existing .env and confirmed SQL port before MSI copy');
@@ -130,6 +133,9 @@ assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
 assert.match(bundleText, /<\?define ProductVersion = "2\.3\.40" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');
+assert.match(bundleText, /-SqlPort &quot;\[ATLASDBPORT\]&quot;/, 'Full bootstrapper configure step should pass the selected SQL port');
+assert.match(bundleText, /-ConfigPath &quot;\[ATLASDATAROOT\]\\bootstrapper-config\.json&quot;/, 'Full bootstrapper configure step should pass the exact preflight config path');
+assert.doesNotMatch(bundleText, /<Payload SourceFile="\$\(var\.SqlExpressSetupExe\)"/, 'Full bootstrapper must not embed SQL Express setup payload');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
 assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');

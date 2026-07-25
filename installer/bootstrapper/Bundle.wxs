@@ -9,7 +9,7 @@
     AppMsi          Full path to the ATLAS application MSI.
     DeployScript    Full path to deploy.ps1.
     RunnerExe       Full path to AtlasBootstrapperRunner.exe.
-    SqlExpressSetupExe Full path to SQL2022-SSEI-Expr.exe or SQLEXPR_x64_ENU.exe.
+    SqlExpressSetupExe Optional local SQL Express setup path. SQL Express is not embedded; deploy.ps1 downloads it from Microsoft if needed.
 -->
 <Wix
   xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -51,8 +51,8 @@
     <?define DisableRollback = "no" ?>
     <?define AtlasPreflightInstallArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasPreflightRepairArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
-    <?define AtlasConfigureInstallArgs = "Install -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
-    <?define AtlasConfigureRepairArgs = "Repair -Port &quot;[ATLASPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
+    <?define AtlasConfigureInstallArgs = "Install -Port &quot;[ATLASPORT]&quot; -SqlPort &quot;[ATLASDBPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot; -ConfigPath &quot;[ATLASDATAROOT]\bootstrapper-config.json&quot;" ?>
+    <?define AtlasConfigureRepairArgs = "Repair -Port &quot;[ATLASPORT]&quot; -SqlPort &quot;[ATLASDBPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot; -ConfigPath &quot;[ATLASDATAROOT]\bootstrapper-config.json&quot;" ?>
   <?endif ?>
 
   <Bundle
@@ -206,9 +206,6 @@
         RepairArguments="$(var.AtlasConfigureRepairArgs)"
         UninstallArguments="Backup -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;">
         <Payload SourceFile="$(var.DeployScript)" Name="tools\configure-deploy.ps1" />
-        <?ifndef UpdateOnly ?>
-        <Payload SourceFile="$(var.SqlExpressSetupExe)" Name="tools\SQLEXPR_x64_ENU.exe" />
-        <?endif ?>
       </ExePackage>
 
       <ExePackage

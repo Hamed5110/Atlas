@@ -383,7 +383,7 @@ namespace AtlasBootstrapperRunner
 
             var sqlInfo = instances.Count > 0
                 ? "Existing SQL Server detected. SQL Express will be skipped."
-                : "No local SQL Server detected. Bundled SQL Express will be installed.";
+                : "No local SQL Server detected. SQL Express will be downloaded from Microsoft if needed.";
             var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 400, Width = 560, Height = 22 };
 
             statusLabel.Left = 20;
@@ -504,7 +504,7 @@ namespace AtlasBootstrapperRunner
                     return;
                 }
                 statusLabel.ForeColor = Color.Green;
-                statusLabel.Text = setupAction + " confirmed. SQL Express will be installed and the app admin will be created.";
+                statusLabel.Text = setupAction + " confirmed. SQL Express will be downloaded from Microsoft if needed and the app admin will be created.";
             }
             else
             {

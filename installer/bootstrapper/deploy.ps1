@@ -3,6 +3,7 @@ param(
     [string]$Mode = "Build",
 
     [int]$Port = 3355,
+    [int]$SqlPort = 1433,
     [string]$SqlInstance = "ATLAS",
     [string]$SqlSaPassword = "",
     [string]$CompanyCode = "ATLAS",
@@ -758,9 +759,22 @@ function Test-StrongSqlPassword {
 }
 
 function Get-SqlExpressPayload {
-    $candidates = Get-ChildItem -Path $PSScriptRoot -Recurse -File -Filter "SQLEXPR*.exe" -ErrorAction SilentlyContinue |
+    $candidates = @()
+    $searchRoots = @(
+        $PSScriptRoot,
+        (Join-Path $DataRoot "downloads"),
+        (Split-Path -Parent $SqlExpressSetupExe)
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
+
+    foreach ($root in $searchRoots) {
+        if (Test-Path -LiteralPath $root) {
+            $candidates += Get-ChildItem -Path $root -Recurse -File -Filter "SQLEXPR*.exe" -ErrorAction SilentlyContinue
+        }
+    }
+
+    return @($candidates |
         Sort-Object Length -Descending
-    return @($candidates | Select-Object -First 1)[0]
+        Select-Object -First 1)[0]
 }
 
 function Install-SqlExpressIfMissing {
@@ -775,7 +789,13 @@ function Install-SqlExpressIfMissing {
 
     $payload = Get-SqlExpressPayload
     if (-not $payload) {
-        throw "Bundled SQL Express installer was not found in bootstrapper cache."
+        $downloadDestination = Join-Path (Join-Path $DataRoot "downloads") "SQLEXPR_x64_ENU.exe"
+        Write-Step "SQL Express setup file was not found locally. Downloading from Microsoft."
+        Save-SqlExpressRedistributable -Destination $downloadDestination
+        $payload = Get-SqlExpressPayload
+    }
+    if (-not $payload) {
+        throw "SQL Express setup file was not found and online retrieval failed. Download SQL Server Express from https://www.microsoft.com/sql-server/sql-server-downloads and re-run setup."
     }
 
     Write-Step "No local SQL Server detected. Installing SQL Express instance '$InstanceName'."
@@ -1907,7 +1927,7 @@ function Invoke-InstallOrRepair {
     New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
 
     $saved = Read-BootstrapConfig -DataPath $DataRoot -Path $ConfigPath
-    $SqlPort = 1433
+    $SqlPort = [int]$script:SqlPort
     if ($saved) {
         if ($saved.Port) { $Port = [int]$saved.Port }
         if ($saved.SqlPort) { $SqlPort = [int]$saved.SqlPort }
@@ -2090,13 +2110,6 @@ function Invoke-Build {
     $bundle = Join-Path $PSScriptRoot "Bundle.wxs"
     $deploy = Join-Path $PSScriptRoot "deploy.ps1"
     if (-not (Test-Path $AppMsi)) { throw "Missing app MSI: $AppMsi" }
-    if (-not (Test-Path $SqlExpressSetupExe)) {
-        Write-Step "SQL Server Express redistributable is missing. Downloading from Microsoft..."
-        Save-SqlExpressRedistributable -Destination $SqlExpressSetupExe
-    }
-    if (-not (Test-Path $SqlExpressSetupExe)) {
-        throw "SQL Server Express redistributable is still missing: $SqlExpressSetupExe"
-    }
     $runnerExe = Build-AtlasRunner
 
     $wixVersionText = (& wix --version)
