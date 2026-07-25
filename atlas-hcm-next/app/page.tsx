@@ -443,6 +443,10 @@ type AirfarePayableReportRow = {
   VerificationNote?: string;
 };
 type YearEndPreview = {
+  companyId?: number;
+  companyName?: string;
+  previewId?: string;
+  previewHash?: string;
   closedYear: number;
   nextYear: number;
   closingDate: string;
@@ -4492,11 +4496,11 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
-      const params = new URLSearchParams();
-      if (yearEndForm.closingDate) params.set("closingDate", yearEndForm.closingDate);
-      if (yearEndForm.employeeId) params.set("employeeId", yearEndForm.employeeId);
-      const suffix = params.toString() ? `?${params.toString()}` : "";
-      const preview = await atlasFetch<YearEndPreview>(`/year-end/preview/${year}${suffix}`, session.token, session.sessionId);
+      if (!selectedCompanyId) throw new Error("Select a company before previewing Year End.");
+      const preview = await atlasMutation<YearEndPreview>(`/year-end/preview/${year}`, session.token, session.sessionId, "POST", {
+        closingDate: yearEndForm.closingDate,
+        companyId: Number(selectedCompanyId)
+      });
       setYearEndPreview(preview);
       setMessage(`Year-end preview ready for ${preview.closedYear}. ${preview.balancesCarried} opening balance record(s) will move to ${preview.nextYear}.`);
     } catch (error) {
@@ -4535,6 +4539,7 @@ export default function DashboardPage() {
     if (session.user.role !== "admin") return setMessage("Year-end closing is available for administrators only.");
     const year = Number(yearEndForm.year);
     if (!yearEndPreview || yearEndPreview.closedYear !== year) return setMessage("Run preview before closing year.");
+    if (!yearEndPreview.previewId || !yearEndPreview.previewHash) return setMessage("Run preview again before closing year.");
     const ok = window.confirm(`Close ${year} and create opening balances for ${year + 1}?`);
     if (!ok) return;
     setBusy(true);
@@ -4543,7 +4548,9 @@ export default function DashboardPage() {
       const result = await atlasMutation<YearEndPreview>("/year-end/close", session.token, session.sessionId, "POST", {
         year,
         closingDate: yearEndForm.closingDate,
-        employeeId: yearEndForm.employeeId ? Number(yearEndForm.employeeId) : null,
+        companyId: Number(selectedCompanyId),
+        previewId: yearEndPreview.previewId,
+        previewHash: yearEndPreview.previewHash,
         remarks: yearEndForm.remarks,
         dryRun: false
       });
@@ -4829,6 +4836,7 @@ export default function DashboardPage() {
     const company = companies.find((item) => String(item.CompanyID) === value) || companies[0];
     const nextCompanyId = company?.CompanyID ? String(company.CompanyID) : "";
     setSelectedCompanyId(nextCompanyId);
+    setYearEndPreview(null);
     setBackupForm((current) => ({ ...current, databaseName: company?.DatabaseName || current.databaseName }));
     setMessage(company ? `Company workspace changed to ${company.CompanyName}.` : "Company workspace unavailable.");
   }
@@ -7220,7 +7228,7 @@ export default function DashboardPage() {
                   <span><strong>Final close</strong><small>Create next year opening balances and audit history.</small></span>
                   <span>{yearEndPreview ? `${yearEndPreview.balancesCarried} employee(s)` : "Preview required"}</span>
                   <span className="pill">{yearEndPreview?.yearEndId ? "Closed" : "Pending"}</span>
-                  <span className="row-actions"><button className="danger-button" disabled={busy || session?.user.role !== "admin" || !yearEndPreview} onClick={handleYearEndClose}>Close year</button></span>
+                  <span className="row-actions"><button className="danger-button" disabled={busy || session?.user.role !== "admin" || !yearEndPreview?.previewId || !yearEndPreview?.previewHash} onClick={handleYearEndClose}>Close year</button></span>
                 </div>
               </div>
               <div className="readiness-panel">
@@ -7265,14 +7273,8 @@ export default function DashboardPage() {
                   setYearEndForm({ ...yearEndForm, closingDate: event.target.value });
                   setYearEndPreview(null);
                 }} /></Field>
-                <Field label="Employee scope">
-                  <select value={yearEndForm.employeeId} onChange={(event) => {
-                    setYearEndForm({ ...yearEndForm, employeeId: event.target.value });
-                    setYearEndPreview(null);
-                  }}>
-                    <option value="">All employees</option>
-                    {employees.map((employee) => <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}</option>)}
-                  </select>
+                <Field label="Close scope">
+                  <input type="text" value={`${activeCompany?.CompanyName || "Select company"} / all eligible employees`} readOnly />
                 </Field>
                 <Field label="Remarks"><input placeholder="Closing remarks" value={yearEndForm.remarks} onChange={(event) => setYearEndForm({ ...yearEndForm, remarks: event.target.value })} /></Field>
               </div>
@@ -7281,7 +7283,7 @@ export default function DashboardPage() {
                 <button className="soft-button" disabled={!yearEndPreview} onClick={printCurrentScreen}><Printer size={16} /> Print preview</button>
                 <button className="soft-button" disabled={busy} onClick={() => void openOpeningBalanceForYear(yearEndNextYear)}>Open {yearEndNextYear} opening balance</button>
               </div>
-              <p className="muted">Year End carries closing balance into next year as opening balance. Switch year once from the left sidebar, then preview and close from this panel.</p>
+              <p className="muted">Year End closes all eligible employees in the selected company. A preview expires after 30 minutes and must match unchanged data before close.</p>
             </div>
           </section>
         )}

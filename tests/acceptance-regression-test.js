@@ -65,6 +65,13 @@ async function expectApiError(pathname, expectedStatus, options = {}) {
   return text;
 }
 
+async function firstActiveCompanyId() {
+  const companies = await api('/companies');
+  const company = companies.find((item) => item.IsActive !== false) || companies[0];
+  assert.ok(company?.CompanyID, 'active company is required for Year End');
+  return Number(company.CompanyID);
+}
+
 async function web(pathname = '') {
   const response = await fetch(new URL(pathname, APP_URL));
   const text = await response.text();
@@ -235,12 +242,19 @@ async function main() {
     });
 
     await step('Year end', 'Year-end preview and dry-run close calculate without committing', async () => {
-      const preview = await api(`/year-end/preview/${YEAR}?closingDate=${YEAR}-12-31`);
+      const companyId = await firstActiveCompanyId();
+      const preview = await api(`/year-end/preview/${YEAR}`, {
+        method: 'POST',
+        body: JSON.stringify({ companyId, closingDate: `${YEAR}-12-31` })
+      });
       const dryRun = await api('/year-end/close', {
         method: 'POST',
         body: JSON.stringify({
           year: YEAR,
           closingDate: `${YEAR}-12-31`,
+          companyId,
+          previewId: preview.previewId,
+          previewHash: preview.previewHash,
           dryRun: true,
           remarks: 'Acceptance dry-run only'
         })

@@ -368,6 +368,7 @@ async function main() {
           joinDate: '2025-01-01',
           department: 'QA Department',
           branch: 'ATLAS QA',
+          company: 'QA Temporary Company Updated',
           nationality: 'TEST',
           whatsappNumber: '97333334444',
           status: 'Active',
@@ -880,13 +881,19 @@ async function main() {
       return { year: yearEndYear, openingDays: saved.OpeningDays, openingBhd: saved.OpeningBHD };
     });
 
-    await testStep('Preview and close year-end process for temporary employee', async () => {
+    await testStep('Preview and dry-run year-end process for temporary company', async () => {
       let closed = null;
       let preview = null;
       const expectedClosingDays = 42;
       const expectedClosingBhd = expectedAmount(expectedClosingDays, 150);
       while (yearEndYear <= 2100) {
-        preview = await request(`/year-end/preview/${yearEndYear}?employeeId=${employee.employeeId}&closingDate=${yearEndYear}-12-31`);
+        preview = await request(`/year-end/preview/${yearEndYear}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            companyId: testCompany.companyId,
+            closingDate: `${yearEndYear}-12-31`
+          })
+        });
         assert.equal(preview.employeeCount, 1);
         assert.equal(Number(preview.totalClosingDays), expectedClosingDays);
         assert.equal(Number(preview.totalOpeningBalance), expectedClosingBhd);
@@ -903,7 +910,10 @@ async function main() {
             body: JSON.stringify({
               year: yearEndYear,
               closingDate: `${yearEndYear}-12-31`,
-              employeeId: employee.employeeId,
+              companyId: testCompany.companyId,
+              previewId: preview.previewId,
+              previewHash: preview.previewHash,
+              dryRun: true,
               remarks: YEAR_END_TEST_REMARK
             })
           });
@@ -928,7 +938,7 @@ async function main() {
       }
 
       assert.ok(closed, 'year end close did not complete');
-      assert.ok(closed.yearEndId, 'year end history id missing');
+      assert.equal(closed.dryRun, true, 'future year-end test must remain a dry run');
       assert.equal(closed.employeeCount, 1);
       assert.equal(Number(closed.totalClosingDays), expectedClosingDays);
       assert.equal(Number(closed.totalOpeningBalance), expectedClosingBhd);
@@ -936,14 +946,9 @@ async function main() {
       assert.ok(Number(closed.totalOpeningLoanBalance) >= 0, 'opening loan balance missing from year-end close');
       assert.ok(Number(closed.loansCarriedForward) >= 0, 'opening loan carry-forward count missing from year-end close');
 
-      const nextYear = await request(`/opening-balances?year=${yearEndYear + 1}`);
-      const row = nextYear.find((item) => item.EmployeeID === employee.employeeId);
-      assert.ok(row, 'next year opening balance was not carried');
-      assert.equal(Number(row.OpeningDays), expectedClosingDays);
-      assert.equal(Number(row.OpeningBHD), expectedClosingBhd);
       const nextYearOpeningLoans = await request(`/opening-loan-balances?year=${yearEndYear + 1}`);
       assert.ok(Array.isArray(nextYearOpeningLoans), 'next year opening loan balance endpoint should return a register');
-      return { yearEndId: closed.yearEndId, yearEndYear, carriedToYear: yearEndYear + 1, openingDays: row.OpeningDays, openingBhd: row.OpeningBHD };
+      return { dryRun: closed.dryRun, yearEndYear, companyId: testCompany.companyId, carriedToYear: yearEndYear + 1 };
     });
   } finally {
     await cleanup();

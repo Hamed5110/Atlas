@@ -138,7 +138,7 @@ assert.match(css, /\.opening-register-toolbar\s*{[\s\S]*grid-template-columns:\s
 assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
 assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
 assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
-assert.match(source, /Switch year once from the left sidebar, then preview and close from this panel\./, "year end should explain the one-place year switching rule before closing");
+assert.match(source, /A preview expires after 30 minutes and must match unchanged data before close\./, "year end should explain its evidence-gated close rule");
 assert.match(source, /Company-wise and year-wise shifting matrix/, "year end should show company/year matrix boundaries");
 assert.match(source, /yearEndMatrixRows/, "year end should generate company-year isolation matrix rows");
 assert.match(source, /Opening year/, "opening balance should expose a compact opening-year filter");

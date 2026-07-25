@@ -149,7 +149,7 @@ Shared API layer:
 |---|---|---|
 | `/reports/year-summary/{year}` | `GET` | year-end metrics |
 | `/reports/airfare-payable?...` | `GET` | payable reporting |
-| `/year-end/preview/{year}?closingDate=...` | `GET` | year-end preview |
+| `/year-end/preview/{year}` | `POST` | year-end preview evidence |
 | `/year-end/close` | `POST` | final close |
 | `/companies` | `GET/POST/PUT/DELETE` | companies admin |
 | `/companies/cleanup-preview` | `GET` | cleanup preview |

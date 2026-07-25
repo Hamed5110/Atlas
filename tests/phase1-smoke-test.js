@@ -35,7 +35,6 @@ async function main() {
     openingBalances,
     employeeReport,
     airfarePayable,
-    yearEndPreview,
     loanSummary,
     intelligence,
     verification
@@ -45,11 +44,18 @@ async function main() {
     api(`/opening-balances?year=${YEAR}`, { headers: auth }),
     api('/reports/employee-master', { headers: auth }),
     api(`/reports/airfare-payable?year=${YEAR}&asOfDate=${AS_OF_DATE}`, { headers: auth }),
-    api(`/year-end/preview/${YEAR}?closingDate=${YEAR}-12-31`, { headers: auth }),
     api('/loans/summary', { headers: auth }),
     api('/intelligence/control-center', { headers: auth }),
     api('/intelligence/verification', { headers: auth })
   ]);
+
+  const activeCompany = companies.find((company) => company.IsActive !== false) || companies[0];
+  assert.ok(activeCompany?.CompanyID, 'active company is required for Year End preview');
+  const yearEndPreview = await api(`/year-end/preview/${YEAR}`, {
+    method: 'POST',
+    headers: auth,
+    body: JSON.stringify({ companyId: Number(activeCompany.CompanyID), closingDate: `${YEAR}-12-31` })
+  });
 
   assert.ok(Array.isArray(companies), 'companies endpoint should return a list');
   assert.ok(companies.length >= 1, 'at least one company should exist');
