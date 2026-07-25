@@ -93,6 +93,9 @@ assert.match(deployText, /Initialize-ATLAS-Database\.ps1/i, 'Database object rep
 assert.match(deployText, /atlas_phase1_patch_repair\.py/i, 'Update patch should run the Phase-1 policy-rate Python repair runner');
 assert.match(deployText, /phase1-policy-rate-repair/i, 'Update patch should log Phase-1 policy-rate repair output');
 assert.match(deployText, /Get-AtlasSqlTcpHost/i, 'Update patch should test the configured SQL host instead of hard-coded localhost');
+assert.match(deployText, /SqlPortNumber/i, 'Bootstrapper database creation should receive the verified SQL TCP port');
+assert.match(deployText, /tcp:127\.0\.0\.1,\$SqlPortNumber/i, 'Bootstrapper database creation should use the verified TCP endpoint');
+assert.match(deployText, /ATLAS_YearEnd_Safety\.sql/i, 'Bootstrapper database creation should apply Year End safety SQL on fresh installs');
 assert.match(deployText, /-not \$settings\.Contains\("DB_SERVER"\).*?\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/s, 'Update patch should default DB_SERVER only when it is missing or blank');
 assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sanitize Burn-quoted install/data paths before use');
 assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should preserve existing .env and confirmed SQL port before MSI copy');
@@ -103,6 +106,9 @@ assert.match(deployText, /PatchStatus=FAILED/i, 'Update patch must not report su
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
+assert.match(initializeText, /Enable-SqlTcpPort/i, 'Database initializer should repair SQL TCP/IP before failing database creation');
+assert.match(initializeText, /database_setup_debug\.log/i, 'Database initializer should write a DB setup diagnostic log');
+assert.match(initializeText, /ATLAS_YearEnd_Safety\.sql/i, 'Database initializer should apply Year End safety SQL on fresh installs');
 assert.match(initializeText, /Test-AtlasBaseSchemaExists/i, 'Database initializer should detect existing installations');
 assert.match(initializeText, /Base schema already exists; skipping create-only schema/i, 'Database initializer should skip create-only schema on update and continue repair scripts');
 const pageText = fs.readFileSync(path.join(__dirname, '..', 'atlas-hcm-next', 'app', 'page.tsx'), 'utf8');
@@ -124,6 +130,9 @@ assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finaliz
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
 assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');
 assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"/, 'MSI should not hardcode DB_SERVER=localhost during update');
+const installSqlText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Install-ATLAS-SQL-Instance.ps1'), 'utf8');
+assert.match(installSqlText, /Enable-SqlTcpPort/i, 'Installed startup SQL setup should pin SQL Express to the configured TCP port');
+assert.match(installSqlText, /TcpDynamicPorts/i, 'Installed startup SQL setup should disable dynamic ports for ATLAS SQL Express');
 assert.match(deployText, /RequireSelfServicePatch/i, 'Update finalizer should verify the Employee Self-Service workflow patch is active');
 assert.match(deployText, /Assert-SelfServicePatchInstalled/i, 'Update finalizer should inspect installed self-service frontend and backend files');
 assert.match(deployText, /phase2-same-port-allocation-link/i, 'Update finalizer should check the same-port self-service allocation-link marker');

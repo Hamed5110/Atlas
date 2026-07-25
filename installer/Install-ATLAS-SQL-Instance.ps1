@@ -47,6 +47,57 @@ function Restart-SqlServiceIfPresent {
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($service) {
         Restart-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+        try { (Get-Service -Name $serviceName).WaitForStatus("Running", "00:01:00") } catch {}
+    }
+}
+
+function Get-SqlInstanceRegistryId {
+    param([string]$InstanceName)
+    foreach ($path in @(
+        "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\Instance Names\SQL"
+    )) {
+        if (Test-Path $path) {
+            $value = (Get-ItemProperty -Path $path -Name $InstanceName -ErrorAction SilentlyContinue).$InstanceName
+            if ($value) { return [string]$value }
+        }
+    }
+    return $null
+}
+
+function Enable-SqlTcpPort {
+    param(
+        [string]$InstanceName,
+        [int]$PortNumber
+    )
+    if ($PortNumber -le 0) { return }
+    $instanceId = Get-SqlInstanceRegistryId -InstanceName $InstanceName
+    if (-not $instanceId) {
+        Write-Host "SQL registry instance id was not found for '$InstanceName'; TCP port repair skipped." -ForegroundColor Yellow
+        return
+    }
+
+    $changed = $false
+    foreach ($tcpRoot in @(
+        "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceId\MSSQLServer\SuperSocketNetLib\Tcp",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\$instanceId\MSSQLServer\SuperSocketNetLib\Tcp"
+    )) {
+        if (-not (Test-Path $tcpRoot)) { continue }
+        Set-ItemProperty -Path $tcpRoot -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
+        $ipAll = Join-Path $tcpRoot "IPAll"
+        if (Test-Path $ipAll) {
+            Set-ItemProperty -Path $ipAll -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $ipAll -Name "TcpPort" -Value ([string]$PortNumber) -ErrorAction SilentlyContinue
+            $changed = $true
+        }
+    }
+
+    if ($changed) {
+        Write-Host "SQL TCP/IP pinned to port $PortNumber for instance '$InstanceName'. Restarting SQL service..."
+        Restart-SqlServiceIfPresent -InstanceName $InstanceName
+        Start-Sleep -Seconds 5
+    } else {
+        Write-Host "SQL TCP/IP registry path was not found for instance '$InstanceName'." -ForegroundColor Yellow
     }
 }
 
@@ -108,4 +159,10 @@ if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
 }
 
 Restart-SqlServiceIfPresent -InstanceName $instanceName
-Write-Host "SQL Server Express setup completed for instance '$instanceName'."
+Enable-SqlTcpPort -InstanceName $instanceName -PortNumber $dbPort
+
+if (-not (Test-TcpPort -Server "127.0.0.1" -Port $dbPort -TimeoutMs 8000)) {
+    throw "SQL Server Express setup completed, but TCP port 127.0.0.1:$dbPort is not reachable. Open SQL Server Configuration Manager and confirm TCP/IP is enabled for '$instanceName'."
+}
+
+Write-Host "SQL Server Express setup completed for instance '$instanceName' on TCP port $dbPort."

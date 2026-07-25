@@ -179,26 +179,73 @@ IF OBJECT_ID('dbo.Employees', 'U') IS NOT NULL
    AND COL_LENGTH('dbo.Employees', 'Company') IS NOT NULL
    AND OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NOT NULL
 BEGIN
-    DELETE c
-    FROM dbo.Companies c
-    WHERE (
-            c.CompanyCode LIKE N'QAC%'
-            OR c.CompanyName LIKE N'QA Temporary Company%'
-            OR c.DatabaseName LIKE N'ATLAS_QA_%'
-        )
-      AND NOT EXISTS (
-            SELECT 1
-            FROM dbo.Employees e
-            WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, N'')))) IN (
-                UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, N'')))),
-                UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, N'')))),
-                UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, N''))))
+    IF OBJECT_ID('dbo.YearEndPreviewEvidence', 'U') IS NOT NULL
+    BEGIN
+        DELETE y
+        FROM dbo.YearEndPreviewEvidence y
+        JOIN dbo.Companies c ON c.CompanyID = y.CompanyID
+        WHERE (
+                c.CompanyCode LIKE N'QAC%'
+                OR c.CompanyName LIKE N'QA Temporary Company%'
+                OR c.DatabaseName LIKE N'ATLAS_QA_%'
             )
-        )
-      AND NOT EXISTS (
-            SELECT 1
-            FROM dbo.AirfarePolicyRates r
-            WHERE r.CompanyID = c.CompanyID
-        );
+          AND COALESCE(c.UpdatedAt, c.CreatedAt, SYSUTCDATETIME()) < DATEADD(MINUTE, -30, SYSUTCDATETIME());
+    END;
+
+    IF OBJECT_ID('dbo.YearEndHistory', 'U') IS NOT NULL
+    BEGIN
+        DELETE c
+        FROM dbo.Companies c
+        WHERE (
+                c.CompanyCode LIKE N'QAC%'
+                OR c.CompanyName LIKE N'QA Temporary Company%'
+                OR c.DatabaseName LIKE N'ATLAS_QA_%'
+            )
+          AND COALESCE(c.UpdatedAt, c.CreatedAt, SYSUTCDATETIME()) < DATEADD(MINUTE, -30, SYSUTCDATETIME())
+          AND NOT EXISTS (
+                SELECT 1
+                FROM dbo.Employees e
+                WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, N'')))) IN (
+                    UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, N'')))),
+                    UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, N'')))),
+                    UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, N''))))
+                )
+            )
+          AND NOT EXISTS (
+                SELECT 1
+                FROM dbo.AirfarePolicyRates r
+                WHERE r.CompanyID = c.CompanyID
+            )
+          AND NOT EXISTS (
+                SELECT 1
+                FROM dbo.YearEndHistory y
+                WHERE y.CompanyID = c.CompanyID
+            );
+    END
+    ELSE
+    BEGIN
+        DELETE c
+        FROM dbo.Companies c
+        WHERE (
+                c.CompanyCode LIKE N'QAC%'
+                OR c.CompanyName LIKE N'QA Temporary Company%'
+                OR c.DatabaseName LIKE N'ATLAS_QA_%'
+            )
+          AND COALESCE(c.UpdatedAt, c.CreatedAt, SYSUTCDATETIME()) < DATEADD(MINUTE, -30, SYSUTCDATETIME())
+          AND NOT EXISTS (
+                SELECT 1
+                FROM dbo.Employees e
+                WHERE UPPER(LTRIM(RTRIM(ISNULL(e.Company, N'')))) IN (
+                    UPPER(LTRIM(RTRIM(ISNULL(c.CompanyCode, N'')))),
+                    UPPER(LTRIM(RTRIM(ISNULL(c.CompanyName, N'')))),
+                    UPPER(LTRIM(RTRIM(ISNULL(c.DatabaseName, N''))))
+                )
+            )
+          AND NOT EXISTS (
+                SELECT 1
+                FROM dbo.AirfarePolicyRates r
+                WHERE r.CompanyID = c.CompanyID
+            );
+    END;
 END;
 GO
