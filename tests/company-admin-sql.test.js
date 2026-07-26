@@ -78,10 +78,12 @@ assert.match(hcmSqlText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID
 assert.match(hcmSqlText, /SET PolicyRateID = NULL/i, 'Airfare policy purge should clear allocation policy links before deleting');
 assert.match(hcmSqlText, /PolicyStatus[^]*GO[^]*UPDATE dbo\.AirfarePolicyRates[^]*IsDeleted/i, 'Airfare policy compatibility columns should be committed in their own batch before status backfill');
 assert.match(hcmSqlText, /COL_LENGTH\('dbo\.AirfarePolicyRates', 'PolicyRateID'\) IS NULL[\s\S]*ALTER TABLE dbo\.AirfarePolicyRates ADD PolicyRateID BIGINT IDENTITY\(1,1\) NOT NULL/i, 'Airfare policy migration should add missing PolicyRateID identity before functions compile');
+assert.match(hcmSqlText, /COL_LENGTH\('dbo\.Allocations', 'PolicyRateID'\) IS NULL ALTER TABLE dbo\.Allocations ADD PolicyRateID BIGINT NULL[\s\S]*CREATE OR ALTER FUNCTION dbo\.fn_Preference_GetReferenceReport/i, 'Allocation policy compatibility columns should be added before preference reference functions compile');
 assert.match(hcmSqlText, /sys\.indexes[^]*PK_AirfarePolicyRates/i, 'Airfare policy migration should repair the PK/index metadata when missing');
 assert.doesNotMatch(hcmSqlText, /INDEX\s*\(\s*PK_AirfarePolicyRates\s*\)/i, 'Airfare policy delete should not force a brittle named index hint');
 assert.match(phase1PolicyRepairText, /sys\.indexes[^]*PK_AirfarePolicyRates/i, 'Phase-1 repair should restore the missing PK_AirfarePolicyRates metadata');
 assert.match(phase1PolicyRepairText, /COL_LENGTH\(N'dbo\.AirfarePolicyRates', N'PolicyRateID'\) IS NULL[\s\S]*ALTER TABLE dbo\.AirfarePolicyRates ADD PolicyRateID BIGINT IDENTITY\(1,1\) NOT NULL/i, 'Phase-1 repair should add missing PolicyRateID identity before policy repair objects compile');
+assert.match(phase1PolicyRepairText, /COL_LENGTH\(N'dbo\.Allocations', N'PolicyRateID'\) IS NULL ALTER TABLE dbo\.Allocations ADD PolicyRateID BIGINT NULL[\s\S]*CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_PurgeAirfarePolicyRate/i, 'Phase-1 repair should add allocation policy columns before policy delete procedures compile');
 assert.match(phase1PolicyRepairText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_PurgeAirfarePolicyRate/i, 'Phase-1 repair should replace the airfare purge procedure');
 assert.match(phase1PolicyRepairText, /CREATE OR ALTER PROCEDURE dbo\.sp_ATLAS_DeactivateAirfarePolicyRate/i, 'Phase-1 repair should replace the legacy deactivate procedure');
 assert.match(phase1PolicyRepairText, /soft_delete/i, 'Phase-1 repair should soft-delete when dependency protection blocks hard purge');

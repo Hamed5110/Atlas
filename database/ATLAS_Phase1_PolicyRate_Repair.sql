@@ -111,6 +111,16 @@ WHERE PolicyStatus IS NULL
    END;
 GO
 
+IF OBJECT_ID(N'dbo.Allocations', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.Allocations', N'PolicyRateID') IS NULL ALTER TABLE dbo.Allocations ADD PolicyRateID BIGINT NULL;
+    IF COL_LENGTH(N'dbo.Allocations', N'PolicyEffectiveFrom') IS NULL ALTER TABLE dbo.Allocations ADD PolicyEffectiveFrom DATE NULL;
+    IF COL_LENGTH(N'dbo.Allocations', N'PolicyMaxPayoutAmount') IS NULL ALTER TABLE dbo.Allocations ADD PolicyMaxPayoutAmount DECIMAL(12,2) NULL;
+    IF COL_LENGTH(N'dbo.Allocations', N'PolicyCycleDays') IS NULL ALTER TABLE dbo.Allocations ADD PolicyCycleDays DECIMAL(10,2) NULL;
+    IF COL_LENGTH(N'dbo.Allocations', N'PolicyPerDayRate') IS NULL ALTER TABLE dbo.Allocations ADD PolicyPerDayRate DECIMAL(12,6) NULL;
+END;
+GO
+
 IF OBJECT_ID(N'dbo.AirfarePolicyRateArchive', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.AirfarePolicyRateArchive (

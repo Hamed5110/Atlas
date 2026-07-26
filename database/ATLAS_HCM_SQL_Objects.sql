@@ -956,6 +956,16 @@ WHERE PolicyStatus IS NULL
    END;
 GO
 
+IF OBJECT_ID('dbo.Allocations', 'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.Allocations', 'PolicyRateID') IS NULL ALTER TABLE dbo.Allocations ADD PolicyRateID BIGINT NULL;
+    IF COL_LENGTH('dbo.Allocations', 'PolicyEffectiveFrom') IS NULL ALTER TABLE dbo.Allocations ADD PolicyEffectiveFrom DATE NULL;
+    IF COL_LENGTH('dbo.Allocations', 'PolicyMaxPayoutAmount') IS NULL ALTER TABLE dbo.Allocations ADD PolicyMaxPayoutAmount DECIMAL(12,2) NULL;
+    IF COL_LENGTH('dbo.Allocations', 'PolicyCycleDays') IS NULL ALTER TABLE dbo.Allocations ADD PolicyCycleDays DECIMAL(10,2) NULL;
+    IF COL_LENGTH('dbo.Allocations', 'PolicyPerDayRate') IS NULL ALTER TABLE dbo.Allocations ADD PolicyPerDayRate DECIMAL(12,6) NULL;
+END;
+GO
+
 CREATE OR ALTER FUNCTION dbo.fn_Preference_GetReferenceReport
 (
     @PreferenceID BIGINT
