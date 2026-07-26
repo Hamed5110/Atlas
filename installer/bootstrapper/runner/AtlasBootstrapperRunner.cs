@@ -266,22 +266,83 @@ namespace AtlasBootstrapperRunner
 
         private static string[] NormalizeBurnArgs(string[] args)
         {
-            return args.Select(NormalizeBurnArg).ToArray();
+            var decoded = args.Select(DecodeBurnArg).ToArray();
+            var combined = new List<string>();
+            var pending = new StringBuilder();
+            var inQuotedValue = false;
+
+            foreach (var arg in decoded)
+            {
+                if (!inQuotedValue)
+                {
+                    if (StartsOpenQuote(arg))
+                    {
+                        pending.Clear();
+                        pending.Append(arg);
+                        inQuotedValue = !EndsCloseQuote(arg);
+                        if (!inQuotedValue)
+                        {
+                            combined.Add(StripOuterQuotes(pending.ToString()));
+                        }
+                    }
+                    else
+                    {
+                        combined.Add(StripOuterQuotes(arg));
+                    }
+                    continue;
+                }
+
+                pending.Append(" ");
+                pending.Append(arg);
+                if (EndsCloseQuote(arg))
+                {
+                    combined.Add(StripOuterQuotes(pending.ToString()));
+                    pending.Clear();
+                    inQuotedValue = false;
+                }
+            }
+
+            if (inQuotedValue)
+            {
+                combined.Add(StripOuterQuotes(pending.ToString()));
+            }
+
+            return combined.ToArray();
         }
 
         private static string NormalizeBurnArg(string value)
         {
+            return StripOuterQuotes(DecodeBurnArg(value));
+        }
+
+        private static string DecodeBurnArg(string value)
+        {
             if (value == null) return string.Empty;
-            var normalized = value
+            return value
                 .Replace("&amp;quot;", "\"")
                 .Replace("&quot;", "\"")
                 .Replace("&#34;", "\"")
                 .Trim();
+        }
+
+        private static string StripOuterQuotes(string value)
+        {
+            var normalized = value ?? string.Empty;
             if (normalized.Length >= 2 && normalized[0] == '"' && normalized[normalized.Length - 1] == '"')
             {
                 normalized = normalized.Substring(1, normalized.Length - 2);
             }
             return normalized;
+        }
+
+        private static bool StartsOpenQuote(string value)
+        {
+            return !string.IsNullOrEmpty(value) && value[0] == '"' && !EndsCloseQuote(value);
+        }
+
+        private static bool EndsCloseQuote(string value)
+        {
+            return !string.IsNullOrEmpty(value) && value.Length > 1 && value[value.Length - 1] == '"';
         }
 
         private static string Quote(string value)
