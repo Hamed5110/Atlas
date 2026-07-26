@@ -348,7 +348,36 @@ namespace AtlasBootstrapperRunner
         private static string Quote(string value)
         {
             if (value == null) return "\"\"";
-            return "\"" + value.Replace("\"", "\\\"") + "\"";
+            var quoted = new StringBuilder();
+            quoted.Append('"');
+            var backslashes = 0;
+            foreach (var ch in value)
+            {
+                if (ch == '\\')
+                {
+                    backslashes++;
+                    continue;
+                }
+                if (ch == '"')
+                {
+                    quoted.Append('\\', backslashes * 2 + 1);
+                    quoted.Append('"');
+                    backslashes = 0;
+                    continue;
+                }
+                if (backslashes > 0)
+                {
+                    quoted.Append('\\', backslashes);
+                    backslashes = 0;
+                }
+                quoted.Append(ch);
+            }
+            if (backslashes > 0)
+            {
+                quoted.Append('\\', backslashes * 2);
+            }
+            quoted.Append('"');
+            return quoted.ToString();
         }
 
         private static bool IsMode(string value)
