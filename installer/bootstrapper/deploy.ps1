@@ -67,6 +67,24 @@ function Write-Step {
     Write-Host "[ATLAS] $Message" -ForegroundColor Cyan
 }
 
+function Write-AtlasFailure {
+    param(
+        [string]$CurrentStep,
+        [string]$Message,
+        [string]$RemediationSuggestion = "Open the latest bootstrapper log under C:\ProgramData\ATLAS Airfare Allowance\logs and retry after correcting the reported item."
+    )
+    try {
+        Write-InstallDebugEvent `
+            -CurrentStep $CurrentStep `
+            -Status "FAILED" `
+            -Message $Message `
+            -ErrorCode "ATLAS_BOOTSTRAPPER_CONFIGURE_FAILED" `
+            -RemediationSuggestion $RemediationSuggestion `
+            -DataPath $DataRoot
+    } catch {}
+    Write-Host "[ATLAS] FAILED: $Message" -ForegroundColor Red
+}
+
 function Write-InstallDebugEvent {
     param(
         [string]$CurrentStep,
@@ -1160,18 +1178,23 @@ function Test-SqlLocalDb {
 function Invoke-SqlBatch {
     param(
         [string]$ConnectionString,
-        [string]$SqlText
+        [string]$SqlText,
+        [string]$StepName = "SQL batch"
     )
     $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
     try {
         $connection.Open()
         $batches = [regex]::Split($SqlText, "(?im)^\s*GO\s*(?:--.*)?$")
+        $batchNumber = 0
         foreach ($batch in $batches) {
             if (-not $batch.Trim()) { continue }
+            $batchNumber++
+            Write-Step "$StepName batch $batchNumber started."
             $command = $connection.CreateCommand()
             $command.CommandTimeout = 180
             $command.CommandText = $batch
             [void]$command.ExecuteNonQuery()
+            Write-Step "$StepName batch $batchNumber completed."
         }
     } finally {
         $connection.Dispose()
@@ -1314,8 +1337,11 @@ function Ensure-AtlasDatabase {
     $master = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
     $appDb = "Atlasairfare010"
 
+    Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "STARTED" -Message "Using SQL endpoint $server and database $appDb." -DataPath $DataRoot
+    Write-Step "Database configuration using SQL endpoint $server."
     $dbExists = [int](Invoke-SqlScalar -ConnectionString $master -SqlText "SELECT CASE WHEN DB_ID(N'$appDb') IS NULL THEN 0 ELSE 1 END;")
-    Invoke-SqlBatch -ConnectionString $master -SqlText "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];"
+    Invoke-SqlBatch -ConnectionString $master -SqlText "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];" -StepName "Create database $appDb"
+    Write-Step "Database $appDb is present."
     $appConnection = "Server=$server;Database=$appDb;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
     $baseSchemaExists = [int](Invoke-SqlScalar -ConnectionString $appConnection -SqlText "SELECT CASE WHEN OBJECT_ID(N'dbo.Users', N'U') IS NULL THEN 0 ELSE 1 END;")
 
@@ -1340,7 +1366,8 @@ function Ensure-AtlasDatabase {
         $sql = Get-Content -LiteralPath $path -Raw
         $sql = $sql -replace "(?im)^\s*CREATE\s+DATABASE\s+\[?Atlasairfare010\]?\s*;?\s*$", "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];"
         $sql = $sql -replace "(?im)^\s*USE\s+\[?Atlasairfare010\]?\s*;?\s*$", "USE [$appDb];"
-        Invoke-SqlBatch -ConnectionString $appConnection -SqlText $sql
+        Invoke-SqlBatch -ConnectionString $appConnection -SqlText $sql -StepName "Database script $file"
+        Write-Step "Database script $file completed."
     }
 
     $adminHash = New-AtlasPasswordHash -InstallPath $InstallPath -Password $AdminPasswordValue
@@ -1351,6 +1378,7 @@ function Ensure-AtlasDatabase {
         -CompanyNameValue $CompanyNameValue `
         -AdminUsernameValue $AdminUsernameValue `
         -AdminPasswordHash $adminHash
+    Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "OK" -Message "Database $appDb and application admin were configured successfully." -DataPath $DataRoot
 }
 
 function Write-AtlasConfig {
@@ -2259,21 +2287,30 @@ function Invoke-Build {
     Get-FileHash -Algorithm SHA256 -Path $Output | Format-List
 }
 
-switch ($Mode) {
-    "Build" { Invoke-Build }
-    "Preflight" { Invoke-Preflight }
-    "Install" { Invoke-InstallOrRepair }
-    "Repair" { Invoke-InstallOrRepair -Repair }
-    "Troubleshoot" { Invoke-Troubleshoot }
-    "UpdateOnlyPrepare" { Invoke-UpdateOnlyPrepare }
-    "UpdateOnlyFinalize" { Invoke-UpdateOnlyFinalize }
-    "Backup" {
-        Assert-Admin
-        Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
-        New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+try {
+    switch ($Mode) {
+        "Build" { Invoke-Build }
+        "Preflight" { Invoke-Preflight }
+        "Install" { Invoke-InstallOrRepair }
+        "Repair" { Invoke-InstallOrRepair -Repair }
+        "Troubleshoot" { Invoke-Troubleshoot }
+        "UpdateOnlyPrepare" { Invoke-UpdateOnlyPrepare }
+        "UpdateOnlyFinalize" { Invoke-UpdateOnlyFinalize }
+        "Backup" {
+            Assert-Admin
+            Ensure-DataDirectories -InstallPath $InstallRoot -DataPath $DataRoot
+            New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
+        }
     }
-}
-
-if ($script:TranscriptStarted) {
-    try { Stop-Transcript | Out-Null } catch {}
+} catch {
+    $message = $_.Exception.Message
+    if ($_.ScriptStackTrace) {
+        Write-Host $_.ScriptStackTrace
+    }
+    Write-AtlasFailure -CurrentStep "ATLAS bootstrapper $Mode" -Message $message
+    exit 1
+} finally {
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch {}
+    }
 }

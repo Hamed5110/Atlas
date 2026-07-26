@@ -11,6 +11,7 @@ using System.Net.Sockets;
 using System.Security.AccessControl;
 using System.ServiceProcess;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace AtlasBootstrapperRunner
@@ -94,17 +95,39 @@ namespace AtlasBootstrapperRunner
                 arguments += " " + string.Join(" ", args.Select(Quote));
             }
 
+            var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
+            var logFolder = Path.Combine(dataRoot, "logs");
+            Directory.CreateDirectory(logFolder);
+            var runnerLog = Path.Combine(logFolder, "bootstrapper-runner-" + mode + "-" + DateTime.Now.ToString("yyyyMMddHHmmss") + ".log");
+            File.AppendAllText(runnerLog,
+                "ATLAS bootstrapper runner\r\n" +
+                "Started: " + DateTime.Now.ToString("o") + "\r\n" +
+                "Mode: " + mode + "\r\n" +
+                "Script: " + script + "\r\n" +
+                "WorkingDirectory: " + baseDir + "\r\n" +
+                "Arguments: " + Redact(arguments) + "\r\n\r\n",
+                Encoding.UTF8);
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = ps,
                 Arguments = arguments,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = baseDir
+                WorkingDirectory = baseDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
             using (var process = Process.Start(startInfo))
             {
+                var output = process.StandardOutput.ReadToEnd();
+                var error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
+                File.AppendAllText(runnerLog,
+                    output +
+                    (string.IsNullOrWhiteSpace(error) ? "" : "\r\n--- STDERR ---\r\n" + error) +
+                    "\r\nExitCode: " + process.ExitCode + "\r\nFinished: " + DateTime.Now.ToString("o") + "\r\n",
+                    Encoding.UTF8);
                 try
                 {
                     ShowCompletionMessage(mode, process.ExitCode, options);
@@ -115,6 +138,12 @@ namespace AtlasBootstrapperRunner
                 }
                 return process.ExitCode;
             }
+        }
+
+        private static string Redact(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            return Regex.Replace(value, @"(?i)(-SqlSaPassword\s+)(?:""[^""]*""|\S+)", "$1\"*****\"");
         }
 
         private static void ShowCompletionMessage(string mode, int exitCode, Dictionary<string, string> options)

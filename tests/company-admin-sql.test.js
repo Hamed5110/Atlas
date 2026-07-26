@@ -115,6 +115,9 @@ assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should pre
 assert.match(deployText, /Restore-UpdatePreservedConfig/i, 'Update patch should restore preserved MSSQL config before database repair');
 assert.match(deployText, /Set-AtlasRegistryValue/i, 'Update patch should repair registry DB port after MSI update');
 assert.match(deployText, /install_debug\.log/i, 'Update patch finalizer should write structured install_debug.log events');
+assert.match(deployText, /Write-AtlasFailure/i, 'Bootstrapper should persist a structured failure event before returning a configure error');
+assert.match(deployText, /\$StepName batch \$batchNumber started/i, 'Database configure should log each SQL script batch before execution');
+assert.match(deployText, /Database script \$file completed/i, 'Database configure should log each SQL script completion');
 assert.match(deployText, /PatchStatus=FAILED/i, 'Update patch must not report success when health or database verification fails');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
@@ -136,6 +139,9 @@ assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload 
 assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
+assert.match(runnerText, /bootstrapper-runner-/i, 'Bootstrapper runner should persist PowerShell stdout/stderr in ProgramData logs');
+assert.match(runnerText, /RedirectStandardError = true/i, 'Bootstrapper runner should capture PowerShell error output instead of losing configure details');
+assert.match(runnerText, /Redact\(arguments\)/i, 'Bootstrapper runner logs should redact sensitive SQL password arguments');
 assert.match(runnerText, /ATLAS fresh install confirmation/i, 'Bootstrapper UI should warn before replacing an existing ATLAS install during fresh install');
 assert.match(runnerText, /BackupDatabaseBeforeFresh/i, 'Bootstrapper UI should record the database-backup request for fresh install replacement');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
@@ -145,6 +151,7 @@ assert.match(bundleText, /-SqlPort &quot;\[ATLASDBPORT\]&quot;/, 'Full bootstrap
 assert.match(bundleText, /-ConfigPath &quot;\[ATLASDATAROOT\]\\bootstrapper-config\.json&quot;/, 'Full bootstrapper configure step should pass the exact preflight config path');
 assert.doesNotMatch(bundleText, /<Payload SourceFile="\$\(var\.SqlExpressSetupExe\)"/, 'Full bootstrapper must not embed SQL Express setup payload');
 assert.match(bundleText, /<\?define ConfigureVital = "yes" \?>/, 'Update finalize package should be vital so failed updates report failure');
+assert.match(bundleText, /<\?else \?>[\s\S]*?<\?define DisableRollback = "yes" \?>/, 'Full installer should preserve installed files and logs when post-MSI configure fails');
 assert.match(bundleText, /Variable Name="ATLASDBPORT"/, 'Bundle should carry the installed SQL port into MSI properties');
 assert.match(bundleText, /<MsiProperty Name="DB_PORT" Value="\[ATLASDBPORT\]"/, 'MSI should not hardcode DB_PORT=1433 during update');
 assert.doesNotMatch(bundleText, /<MsiProperty Name="DB_SERVER" Value="localhost"/, 'MSI should not hardcode DB_SERVER=localhost during update');

@@ -48,7 +48,7 @@
     <?define ConfigureDisplayName = "Configuring database and starting ATLAS" ?>
     <?define PreflightVital = "yes" ?>
     <?define ConfigureVital = "yes" ?>
-    <?define DisableRollback = "no" ?>
+    <?define DisableRollback = "yes" ?>
     <?define AtlasPreflightInstallArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasPreflightRepairArgs = "Preflight -Port &quot;[ATLASPORT]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot;" ?>
     <?define AtlasConfigureInstallArgs = "Install -Port &quot;[ATLASPORT]&quot; -SqlPort &quot;[ATLASDBPORT]&quot; -SqlInstance &quot;[SQLINSTANCE]&quot; -SqlSaPassword &quot;[SQLSAPASSWORD]&quot; -InstallRoot &quot;[ATLASINSTALLROOT]&quot; -DataRoot &quot;[ATLASDATAROOT]&quot; -ConfigPath &quot;[ATLASDATAROOT]\bootstrapper-config.json&quot;" ?>
