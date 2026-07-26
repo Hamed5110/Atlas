@@ -89,10 +89,11 @@ namespace AtlasBootstrapperRunner
                 return 3;
             }
 
-            var arguments = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(script) + " -Mode " + mode;
-            if (args.Length > 0)
+            var canonicalArgs = BuildPowerShellArgs(mode, args, options);
+            var arguments = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(script) + " -Mode " + Quote(mode);
+            if (canonicalArgs.Count > 0)
             {
-                arguments += " " + string.Join(" ", args.Select(Quote));
+                arguments += " " + string.Join(" ", canonicalArgs.Select(Quote));
             }
 
             var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
@@ -144,6 +145,38 @@ namespace AtlasBootstrapperRunner
         {
             if (string.IsNullOrEmpty(value)) return value;
             return Regex.Replace(value, @"(?i)(-SqlSaPassword\s+)(?:""[^""]*""|\S+)", "$1\"*****\"");
+        }
+
+        private static List<string> BuildPowerShellArgs(string mode, string[] originalArgs, Dictionary<string, string> options)
+        {
+            var result = new List<string>();
+            AddOption(result, options, "Port", false);
+            AddOption(result, options, "SqlPort", false);
+            AddOption(result, options, "SqlInstance", false);
+            AddOption(result, options, "SqlSaPassword", false);
+            AddOption(result, options, "CompanyCode", false);
+            AddOption(result, options, "CompanyName", false);
+            AddOption(result, options, "AdminUsername", false);
+            AddOption(result, options, "AdminPassword", false);
+            AddOption(result, options, "SetupAction", false);
+            AddOption(result, options, "InstallRoot", true);
+            AddOption(result, options, "DataRoot", true);
+            AddOption(result, options, "UpdateManifest", true);
+            AddOption(result, options, "ConfigPath", true);
+
+            if (result.Count == 0 && originalArgs != null)
+            {
+                result.AddRange(originalArgs.Select(NormalizeBurnArg));
+            }
+            return result;
+        }
+
+        private static void AddOption(List<string> args, Dictionary<string, string> options, string name, bool isPath)
+        {
+            string value;
+            if (!options.TryGetValue(name, out value)) return;
+            args.Add("-" + name);
+            args.Add(isPath ? CleanPathValue(value, value) : NormalizeBurnArg(value));
         }
 
         private static void ShowCompletionMessage(string mode, int exitCode, Dictionary<string, string> options)

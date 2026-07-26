@@ -145,6 +145,9 @@ assert.match(runnerText, /Redact\(arguments\)/i, 'Bootstrapper runner logs shoul
 assert.match(runnerText, /StartsOpenQuote/i, 'Bootstrapper runner should recombine Burn-split quoted path arguments before forwarding to PowerShell');
 assert.match(runnerText, /StripOuterQuotes\(pending\.ToString\(\)\)/i, 'Bootstrapper runner should preserve paths with spaces as a single argument');
 assert.match(runnerText, /quoted\.Append\('\\\\', backslashes \* 2\)/i, 'Bootstrapper runner quoting should double trailing backslashes before the closing quote');
+assert.match(runnerText, /BuildPowerShellArgs/i, 'Bootstrapper runner should rebuild configure arguments from sanitized options instead of forwarding raw Burn args');
+assert.match(runnerText, /AddOption\(result, options, "InstallRoot", true\)/i, 'Bootstrapper runner should pass a cleaned install path to PowerShell');
+assert.match(runnerText, /AddOption\(result, options, "ConfigPath", true\)/i, 'Bootstrapper runner should pass a cleaned config path to PowerShell');
 assert.match(runnerText, /ATLAS fresh install confirmation/i, 'Bootstrapper UI should warn before replacing an existing ATLAS install during fresh install');
 assert.match(runnerText, /BackupDatabaseBeforeFresh/i, 'Bootstrapper UI should record the database-backup request for fresh install replacement');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
