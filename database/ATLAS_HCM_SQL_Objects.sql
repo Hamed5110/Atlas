@@ -1,6 +1,100 @@
 USE Atlasairfare010;
 GO
 
+IF OBJECT_ID(N'dbo.Companies', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Companies (
+        CompanyID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Companies PRIMARY KEY,
+        CompanyCode NVARCHAR(30) NOT NULL CONSTRAINT UQ_Companies_Code UNIQUE,
+        CompanyName NVARCHAR(150) NOT NULL,
+        DatabaseName SYSNAME NOT NULL CONSTRAINT UQ_Companies_Database UNIQUE,
+        LogoMimeType NVARCHAR(100) NULL,
+        LogoData VARBINARY(MAX) NULL,
+        Address NVARCHAR(300) NULL,
+        Phone NVARCHAR(50) NULL,
+        Email NVARCHAR(150) NULL,
+        TRN NVARCHAR(50) NULL,
+        ContactPerson NVARCHAR(120) NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_Companies_IsActive DEFAULT (1),
+        CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_Companies_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CreatedBy INT NULL,
+        UpdatedAt DATETIME2(0) NULL,
+        UpdatedBy INT NULL
+    );
+END;
+GO
+
+IF OBJECT_ID(N'dbo.Companies', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.Companies', N'CompanyCode') IS NULL ALTER TABLE dbo.Companies ADD CompanyCode NVARCHAR(30) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'CompanyName') IS NULL ALTER TABLE dbo.Companies ADD CompanyName NVARCHAR(150) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'DatabaseName') IS NULL ALTER TABLE dbo.Companies ADD DatabaseName SYSNAME NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'LogoMimeType') IS NULL ALTER TABLE dbo.Companies ADD LogoMimeType NVARCHAR(100) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'LogoData') IS NULL ALTER TABLE dbo.Companies ADD LogoData VARBINARY(MAX) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'Address') IS NULL ALTER TABLE dbo.Companies ADD Address NVARCHAR(300) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'Phone') IS NULL ALTER TABLE dbo.Companies ADD Phone NVARCHAR(50) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'Email') IS NULL ALTER TABLE dbo.Companies ADD Email NVARCHAR(150) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'TRN') IS NULL ALTER TABLE dbo.Companies ADD TRN NVARCHAR(50) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'ContactPerson') IS NULL ALTER TABLE dbo.Companies ADD ContactPerson NVARCHAR(120) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'IsActive') IS NULL ALTER TABLE dbo.Companies ADD IsActive BIT NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'CreatedAt') IS NULL ALTER TABLE dbo.Companies ADD CreatedAt DATETIME2(0) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'CreatedBy') IS NULL ALTER TABLE dbo.Companies ADD CreatedBy INT NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'UpdatedAt') IS NULL ALTER TABLE dbo.Companies ADD UpdatedAt DATETIME2(0) NULL;
+    IF COL_LENGTH(N'dbo.Companies', N'UpdatedBy') IS NULL ALTER TABLE dbo.Companies ADD UpdatedBy INT NULL;
+END;
+GO
+
+IF OBJECT_ID(N'dbo.Companies', N'U') IS NOT NULL
+BEGIN
+    UPDATE dbo.Companies
+       SET CompanyCode = COALESCE(NULLIF(LTRIM(RTRIM(CompanyCode)), N''), CONCAT(N'COMP', CompanyID)),
+           CompanyName = COALESCE(NULLIF(LTRIM(RTRIM(CompanyName)), N''), NULLIF(LTRIM(RTRIM(CompanyCode)), N''), CONCAT(N'Company ', CompanyID)),
+           DatabaseName = COALESCE(NULLIF(LTRIM(RTRIM(DatabaseName)), N''), DB_NAME()),
+           IsActive = COALESCE(IsActive, 1),
+           CreatedAt = COALESCE(CreatedAt, SYSUTCDATETIME());
+END;
+GO
+
+IF OBJECT_ID(N'dbo.CompanyBackups', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.CompanyBackups (
+        BackupID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_CompanyBackups PRIMARY KEY,
+        CompanyID INT NULL,
+        DatabaseName SYSNAME NOT NULL,
+        BackupFile NVARCHAR(500) NOT NULL,
+        BackupType NVARCHAR(20) NOT NULL CONSTRAINT DF_CompanyBackups_BackupType DEFAULT ('full'),
+        Status NVARCHAR(20) NOT NULL CONSTRAINT DF_CompanyBackups_Status DEFAULT ('completed'),
+        Message NVARCHAR(1000) NULL,
+        CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_CompanyBackups_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CreatedBy INT NULL
+    );
+END;
+GO
+
+IF OBJECT_ID(N'dbo.CompanyBackups', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'CompanyID') IS NULL ALTER TABLE dbo.CompanyBackups ADD CompanyID INT NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'DatabaseName') IS NULL ALTER TABLE dbo.CompanyBackups ADD DatabaseName SYSNAME NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'BackupFile') IS NULL ALTER TABLE dbo.CompanyBackups ADD BackupFile NVARCHAR(500) NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'BackupType') IS NULL ALTER TABLE dbo.CompanyBackups ADD BackupType NVARCHAR(20) NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'Status') IS NULL ALTER TABLE dbo.CompanyBackups ADD Status NVARCHAR(20) NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'Message') IS NULL ALTER TABLE dbo.CompanyBackups ADD Message NVARCHAR(1000) NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'CreatedAt') IS NULL ALTER TABLE dbo.CompanyBackups ADD CreatedAt DATETIME2(0) NULL;
+    IF COL_LENGTH(N'dbo.CompanyBackups', N'CreatedBy') IS NULL ALTER TABLE dbo.CompanyBackups ADD CreatedBy INT NULL;
+END;
+GO
+
+IF OBJECT_ID(N'dbo.CompanyBackups', N'U') IS NOT NULL
+BEGIN
+    UPDATE dbo.CompanyBackups
+       SET DatabaseName = COALESCE(NULLIF(LTRIM(RTRIM(DatabaseName)), N''), DB_NAME()),
+           BackupFile = COALESCE(NULLIF(LTRIM(RTRIM(BackupFile)), N''), N'legacy-import'),
+           BackupType = COALESCE(NULLIF(LTRIM(RTRIM(BackupType)), N''), N'full'),
+           Status = COALESCE(NULLIF(LTRIM(RTRIM(Status)), N''), N'completed'),
+           CreatedAt = COALESCE(CreatedAt, SYSUTCDATETIME());
+END;
+GO
+
 IF COL_LENGTH('Employees', 'BankCode') IS NULL ALTER TABLE Employees ADD BankCode NVARCHAR(20) NULL;
 IF COL_LENGTH('Employees', 'JobBand') IS NULL ALTER TABLE Employees ADD JobBand NVARCHAR(60) NULL;
 IF COL_LENGTH('Employees', 'Company') IS NULL ALTER TABLE Employees ADD Company NVARCHAR(80) NULL;
