@@ -439,6 +439,24 @@ namespace AtlasBootstrapperRunner
                 Fail("Port " + port + " is already in use. For a new install, enter a different port. For an existing ATLAS installation, choose Update or Repair.");
                 return;
             }
+            var freshInstallReplace = false;
+            var backupDatabaseBeforeFresh = false;
+            if (setupAction.Equals("Install", StringComparison.OrdinalIgnoreCase) && HasAtlasInstallFootprint())
+            {
+                var choice = MessageBox.Show(
+                    this,
+                    "Existing ATLAS application files were found in the install folder.\r\n\r\nChoose Yes to create a file backup, attempt a database backup after SQL validation, remove the old app files, and continue with a fresh install.\r\n\r\nChoose No to stop setup and select Update or Repair instead.",
+                    "ATLAS fresh install confirmation",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+                if (choice != DialogResult.Yes)
+                {
+                    Fail("Fresh install cancelled because an existing ATLAS installation footprint was found. Choose Update/Repair, or confirm backup and replacement.");
+                    return;
+                }
+                freshInstallReplace = true;
+                backupDatabaseBeforeFresh = true;
+            }
 
             int sqlPort;
             if (!int.TryParse(sqlPortBox.Text.Trim(), out sqlPort) || sqlPort < 0 || sqlPort > 65535)
@@ -512,7 +530,7 @@ namespace AtlasBootstrapperRunner
                 statusLabel.Text = "Troubleshooter confirmed. A diagnostic report will be generated.";
             }
 
-            WriteConfig(port, sqlPort, instance, password, companyCode, companyName, adminUser, adminPassword, setupAction);
+            WriteConfig(port, sqlPort, instance, password, companyCode, companyName, adminUser, adminPassword, setupAction, freshInstallReplace, backupDatabaseBeforeFresh);
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -532,7 +550,7 @@ namespace AtlasBootstrapperRunner
             return "Install";
         }
 
-        private void WriteConfig(int port, int sqlPort, string instance, string password, string companyCode, string companyName, string adminUser, string adminPassword, string setupAction)
+        private void WriteConfig(int port, int sqlPort, string instance, string password, string companyCode, string companyName, string adminUser, string adminPassword, string setupAction, bool freshInstallReplace, bool backupDatabaseBeforeFresh)
         {
             Directory.CreateDirectory(dataRoot);
             var path = Path.Combine(dataRoot, "bootstrapper-config.json");
@@ -546,6 +564,8 @@ namespace AtlasBootstrapperRunner
                 "  \"AdminUsername\": \"" + EscapeJson(adminUser) + "\",\r\n" +
                 "  \"AdminPassword\": \"" + EscapeJson(adminPassword) + "\",\r\n" +
                 "  \"SetupAction\": \"" + EscapeJson(setupAction) + "\",\r\n" +
+                "  \"FreshInstallReplaceConfirmed\": " + (freshInstallReplace ? "true" : "false") + ",\r\n" +
+                "  \"BackupDatabaseBeforeFresh\": " + (backupDatabaseBeforeFresh ? "true" : "false") + ",\r\n" +
                 "  \"CreatedAt\": \"" + DateTime.UtcNow.ToString("o") + "\"\r\n" +
                 "}\r\n";
             File.WriteAllText(path, json, Encoding.UTF8);
@@ -572,6 +592,23 @@ namespace AtlasBootstrapperRunner
             if (items.Any(x => x.Equals("MSSQLSERVER", StringComparison.OrdinalIgnoreCase))) return "MSSQLSERVER";
             if (items.Any(x => x.Equals("SQLEXPRESS", StringComparison.OrdinalIgnoreCase))) return "SQLEXPRESS";
             return items[0];
+        }
+
+        private bool HasAtlasInstallFootprint()
+        {
+            try
+            {
+                var installRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "ATLAS Airfare Allowance");
+                if (!Directory.Exists(installRoot)) return false;
+                foreach (var file in new[] { "server.js", "package.json", "Start-ATLAS.bat", "Start-ATLAS-Bundled.ps1", "atlas-payload-manifest.json" })
+                {
+                    if (File.Exists(Path.Combine(installRoot, file))) return true;
+                }
+            }
+            catch
+            {
+            }
+            return false;
         }
 
         private static bool IsStrongPassword(string value)

@@ -97,12 +97,18 @@ assert.match(deployText, /SqlPortNumber/i, 'Bootstrapper database creation shoul
 assert.match(deployText, /tcp:127\.0\.0\.1,\$SqlPortNumber/i, 'Bootstrapper database creation should use the verified TCP endpoint');
 assert.match(deployText, /ATLAS_YearEnd_Safety\.sql/i, 'Bootstrapper database creation should apply Year End safety SQL on fresh installs');
 assert.match(deployText, /\[string\]\$ConfigPath/i, 'Bootstrapper should support an explicit config JSON path for scripted repair/replay');
-assert.match(deployText, /Read-BootstrapConfig -DataPath \$DataRoot -Path \$ConfigPath/i, 'Bootstrapper install should ingest an explicit config JSON when supplied');
+assert.match(deployText, /Read-RequiredBootstrapConfig -DataPath \$DataRoot -Path \$ConfigPath/i, 'Bootstrapper install should require an explicit config JSON when supplied');
 assert.match(deployText, /Resolve-SqlTcpPort[\s\S]*Test-SqlLoginTcp[\s\S]*Test-SqlLogin -InstanceName/i, 'Bootstrapper should verify the requested TCP endpoint before falling back to instance-name login checks');
 assert.match(deployText, /continuing with verified TCP endpoint 127\.0\.0\.1:\$SqlPort/i, 'Bootstrapper should not fail a verified TCP install only because instance-name discovery is unavailable');
 assert.match(deployText, /\[int\]\$SqlPort = 1433/i, 'Bootstrapper should accept a SQL port from Burn or scripted calls');
 assert.match(deployText, /SQL Express setup file was not found locally\. Downloading from Microsoft/i, 'Bootstrapper should download SQL Express during install only when needed');
 assert.match(deployText, /sql-server-downloads/i, 'Bootstrapper should provide an official SQL Express download link when online retrieval fails');
+assert.match(deployText, /Read-RequiredBootstrapConfig/i, 'Configure should fail fast when the preflight config cannot be read');
+assert.match(deployText, /Assert-AtlasPreInstallGate/i, 'Preflight should gate install before MSI copy/configure');
+assert.match(deployText, /Pre-installation MSSQL TCP check passed on 127\.0\.0\.1:\$effectiveSqlPort/i, 'Preflight should verify the custom MSSQL TCP endpoint before installation');
+assert.match(deployText, /Backup-AtlasDatabaseIfPresent/i, 'Fresh install replacement should attempt a database backup after SQL validation');
+assert.match(deployText, /Remove-AtlasInstallFootprint/i, 'Fresh install replacement should remove the old ATLAS app files before MSI install');
+assert.match(deployText, /The installer will not continue with default SQL settings/i, 'Installer should never silently fall back to ATLAS/1433 when config replay fails');
 assert.match(deployText, /-not \$settings\.Contains\("DB_SERVER"\).*?\$settings\["DB_SERVER"\]\s*=\s*"127\.0\.0\.1"/s, 'Update patch should default DB_SERVER only when it is missing or blank');
 assert.match(deployText, /Normalize-AtlasPathArgument/i, 'Update patch should sanitize Burn-quoted install/data paths before use');
 assert.match(deployText, /Save-UpdatePreservedConfig/i, 'Update patch should preserve existing .env and confirmed SQL port before MSI copy');
@@ -130,6 +136,8 @@ assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload 
 assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
 assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
+assert.match(runnerText, /ATLAS fresh install confirmation/i, 'Bootstrapper UI should warn before replacing an existing ATLAS install during fresh install');
+assert.match(runnerText, /BackupDatabaseBeforeFresh/i, 'Bootstrapper UI should record the database-backup request for fresh install replacement');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
 assert.match(bundleText, /<\?define ProductVersion = "2\.3\.40" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');

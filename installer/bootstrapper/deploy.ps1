@@ -44,6 +44,9 @@ function Normalize-AtlasPathArgument {
 
 $InstallRoot = Normalize-AtlasPathArgument -Value $InstallRoot -Fallback "C:\Program Files\ATLAS Airfare Allowance"
 $DataRoot = Normalize-AtlasPathArgument -Value $DataRoot -Fallback "C:\ProgramData\ATLAS Airfare Allowance"
+if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
+    $ConfigPath = Normalize-AtlasPathArgument -Value $ConfigPath -Fallback ""
+}
 
 $script:TranscriptStarted = $false
 if ($Mode -ne "Build") {
@@ -367,13 +370,27 @@ function Read-BootstrapConfig {
         [string]$DataPath,
         [string]$Path = ""
     )
-    $path = if (-not [string]::IsNullOrWhiteSpace($Path)) { $Path } else { Get-BootstrapConfigPath -DataPath $DataPath }
-    if (-not (Test-Path $path)) { return $null }
+    $path = if (-not [string]::IsNullOrWhiteSpace($Path)) { Normalize-AtlasPathArgument -Value $Path -Fallback "" } else { Get-BootstrapConfigPath -DataPath $DataPath }
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
     try {
         return (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
     } catch {
         return $null
     }
+}
+
+function Read-RequiredBootstrapConfig {
+    param(
+        [string]$DataPath,
+        [string]$Path = "",
+        [string]$Context = "ATLAS setup"
+    )
+    $resolvedPath = if (-not [string]::IsNullOrWhiteSpace($Path)) { Normalize-AtlasPathArgument -Value $Path -Fallback "" } else { Get-BootstrapConfigPath -DataPath $DataPath }
+    $config = Read-BootstrapConfig -DataPath $DataPath -Path $resolvedPath
+    if (-not $config) {
+        throw "$Context could not read bootstrapper configuration at '$resolvedPath'. Re-run setup and complete the pre-installation check. The installer will not continue with default SQL settings."
+    }
+    return $config
 }
 
 function Write-BootstrapConfig {
@@ -575,6 +592,60 @@ function New-Backup {
     }
     Write-Step "Backup complete: $backupRoot"
     return $backupRoot
+}
+
+function Get-BootstrapConfigBool {
+    param(
+        $Config,
+        [string]$Name
+    )
+    if (-not $Config) { return $false }
+    $prop = $Config.PSObject.Properties[$Name]
+    if (-not $prop) { return $false }
+    $raw = [string]$prop.Value
+    return ($raw -match "^(?i:true|1|yes)$")
+}
+
+function Test-AtlasInstallFootprint {
+    param([string]$InstallPath)
+    if (-not (Test-Path -LiteralPath $InstallPath)) { return $false }
+    foreach ($relative in @("server.js", "package.json", "Start-ATLAS.bat", "Start-ATLAS-Bundled.ps1", "atlas-payload-manifest.json")) {
+        if (Test-Path -LiteralPath (Join-Path $InstallPath $relative)) { return $true }
+    }
+    return $false
+}
+
+function Remove-AtlasInstallFootprint {
+    param([string]$InstallPath)
+    $resolved = [System.IO.Path]::GetFullPath($InstallPath)
+    if ([string]::IsNullOrWhiteSpace($resolved) -or (Split-Path -Leaf $resolved) -ne "ATLAS Airfare Allowance") {
+        throw "Refusing to remove unexpected install path '$InstallPath'."
+    }
+    if (Test-Path -LiteralPath $resolved) {
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+        Write-Step "Existing ATLAS application files removed for fresh install: $resolved"
+    }
+}
+
+function Backup-AtlasDatabaseIfPresent {
+    param(
+        [int]$SqlPortNumber,
+        [string]$Password,
+        [string]$DataPath
+    )
+    $backupDir = Join-Path $DataPath "db-backups"
+    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    $backupPath = Join-Path $backupDir ("Atlasairfare010_copyonly_{0}.bak" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+    $safeBackupPath = Escape-SqlLiteral -Value $backupPath
+    $connectionString = "Server=tcp:127.0.0.1,$SqlPortNumber;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
+    $exists = [int](Invoke-SqlScalar -ConnectionString $connectionString -SqlText "SELECT CASE WHEN DB_ID(N'Atlasairfare010') IS NULL THEN 0 ELSE 1 END;")
+    if ($exists -ne 1) {
+        Write-Step "Database Atlasairfare010 was not found; database backup skipped."
+        return $null
+    }
+    Invoke-SqlBatch -ConnectionString $connectionString -SqlText "BACKUP DATABASE [Atlasairfare010] TO DISK = N'$safeBackupPath' WITH COPY_ONLY, INIT;"
+    Write-Step "Database backup created: $backupPath"
+    return $backupPath
 }
 
 function Ensure-DataDirectories {
@@ -1911,8 +1982,50 @@ function Invoke-UpdateOnlyFinalize {
 function Invoke-Preflight {
     Test-AtlasUpdateManifest -Manifest $UpdateManifest -CurrentVersion $ProductVersion -DataPath $DataRoot | Out-Null
     Prompt-AtlasInstallSettings
+    Assert-AtlasPreInstallGate
     $hostInfo = Get-AtlasHostInfo
     Write-Step "Host detected: $($hostInfo.HostName), loopback: $($hostInfo.Loopback), port: $Port"
+}
+
+function Assert-AtlasPreInstallGate {
+    $saved = Read-RequiredBootstrapConfig -DataPath $DataRoot -Context "ATLAS pre-installation check"
+    $selectedPort = if ($saved.Port) { [int]$saved.Port } else { $Port }
+    $selectedSqlPort = if ($saved.SqlPort) { [int]$saved.SqlPort } else { [int]$script:SqlPort }
+    $selectedInstance = if ($saved.SqlInstance) { [string]$saved.SqlInstance } else { $SqlInstance }
+    $selectedPassword = if ($saved.SqlSaPassword) { [string]$saved.SqlSaPassword } else { $SqlSaPassword }
+    $selectedAction = if ($saved.SetupAction) { [string]$saved.SetupAction } else { $SetupAction }
+
+    if ($selectedAction -eq "Install" -and (Test-AtlasInstallFootprint -InstallPath $InstallRoot)) {
+        Write-Step "Existing ATLAS application footprint detected during fresh install. Backing up and preparing replacement."
+        $null = New-Backup -InstallPath $InstallRoot -DataPath $DataRoot
+    }
+
+    $instances = @(Get-InstalledSqlInstances)
+    if ($instances.Count -gt 0) {
+        if (-not $selectedPassword) {
+            throw "MSSQL sa password is required for the pre-installation database check."
+        }
+        $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $selectedInstance
+        Ensure-SqlService -InstanceName $effectiveSqlInstance
+        $effectiveSqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort $selectedSqlPort
+        if (-not (Test-TcpPort -Server "127.0.0.1" -PortNumber $effectiveSqlPort)) {
+            throw "Pre-installation check failed: MSSQL TCP port 127.0.0.1:$effectiveSqlPort is not reachable. Confirm SQL TCP/IP and the custom SQL port before installing ATLAS."
+        }
+        if (-not (Test-SqlLoginTcp -PortNumber $effectiveSqlPort -Password $selectedPassword)) {
+            throw "Pre-installation check failed: MSSQL sa login over TCP failed on 127.0.0.1:$effectiveSqlPort. Correct the SQL password or custom SQL port before installing ATLAS."
+        }
+        Write-Step "Pre-installation MSSQL TCP check passed on 127.0.0.1:$effectiveSqlPort."
+        if ($selectedAction -eq "Install" -and (Get-BootstrapConfigBool -Config $saved -Name "BackupDatabaseBeforeFresh")) {
+            $null = Backup-AtlasDatabaseIfPresent -SqlPortNumber $effectiveSqlPort -Password $selectedPassword -DataPath $DataRoot
+        }
+    } else {
+        Write-Step "Pre-installation check found no local SQL Server. SQL Express will be downloaded from Microsoft if needed."
+    }
+
+    if ($selectedAction -eq "Install" -and (Test-AtlasInstallFootprint -InstallPath $InstallRoot)) {
+        Remove-AtlasInstallFootprint -InstallPath $InstallRoot
+    }
+    Write-Step "Pre-installation gate passed for action '$selectedAction', ATLAS port $selectedPort, SQL instance '$selectedInstance', SQL port $selectedSqlPort."
 }
 
 function Invoke-InstallOrRepair {
@@ -1926,7 +2039,11 @@ function Invoke-InstallOrRepair {
     Stop-PreviousAtlasRuntime -InstallPath $InstallRoot
     New-Backup -InstallPath $InstallRoot -DataPath $DataRoot | Out-Null
 
-    $saved = Read-BootstrapConfig -DataPath $DataRoot -Path $ConfigPath
+    $saved = if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
+        Read-RequiredBootstrapConfig -DataPath $DataRoot -Path $ConfigPath -Context "ATLAS configure"
+    } else {
+        Read-BootstrapConfig -DataPath $DataRoot
+    }
     $SqlPort = [int]$script:SqlPort
     if ($saved) {
         if ($saved.Port) { $Port = [int]$saved.Port }
