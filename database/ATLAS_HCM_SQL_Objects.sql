@@ -863,6 +863,13 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID('dbo.AirfarePolicyRates', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.AirfarePolicyRates', 'PolicyRateID') IS NULL
+BEGIN
+    ALTER TABLE dbo.AirfarePolicyRates ADD PolicyRateID BIGINT IDENTITY(1,1) NOT NULL;
+END;
+GO
+
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'EmployeeID') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD EmployeeID INT NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'Department') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD Department NVARCHAR(100) NULL;
 IF COL_LENGTH('dbo.AirfarePolicyRates', 'EmpGroup') IS NULL ALTER TABLE dbo.AirfarePolicyRates ADD EmpGroup NVARCHAR(100) NULL;
