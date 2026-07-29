@@ -134,6 +134,11 @@ assert.match(deployText, /Auto-switching setup action to Update/i, 'Installer pr
 assert.match(deployText, /Auto-update selected; fresh replacement was not confirmed/i, 'Installer configure should auto-update existing ATLAS unless fresh replacement was explicitly confirmed');
 assert.match(deployText, /Requested SQL TCP port \$RequestedPort was not reachable[\s\S]*Using detected current SQL port \$configured/i, 'Installer should repair stale saved SQL ports by detecting the current SQL TCP port');
 assert.match(deployText, /No application admin password supplied for update; existing admin credentials were preserved/i, 'Update should preserve admin credentials when no new admin password is supplied');
+assert.match(deployText, /ATLAS_INSTALL_PATH/i, 'Password hash helper should pass the installed app path to Node');
+assert.match(deployText, /NODE_PATH/i, 'Password hash helper should expose installed node_modules through NODE_PATH');
+assert.match(deployText, /path\.join\(installPath, 'node_modules', 'bcryptjs'\)/i, 'Password hash helper should resolve bcryptjs from the installed app node_modules');
+assert.match(deployText, /RedirectStandardError \$stderrPath/i, 'Password hash helper should capture Node stderr instead of hiding module loader failures');
+assert.doesNotMatch(deployText, /require\('bcryptjs'\).*2>\$null/i, 'Password hash helper must not hide bcryptjs module loader errors');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');

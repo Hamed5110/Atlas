@@ -1257,13 +1257,61 @@ function New-AtlasPasswordHash {
         $node = "node.exe"
     }
 
+    $workingPath = [System.IO.Path]::GetFullPath($InstallPath)
+    $modulePath = Join-Path $workingPath "node_modules"
+    $logPath = Join-Path $DataRoot "logs"
+    New-Item -ItemType Directory -Path $logPath -Force | Out-Null
+    $hashScript = Join-Path $logPath ("atlas-password-hash-{0}.js" -f ([guid]::NewGuid().ToString("N")))
+    $stdoutPath = Join-Path $logPath ("atlas-password-hash-{0}.out" -f ([guid]::NewGuid().ToString("N")))
+    $stderrPath = Join-Path $logPath ("atlas-password-hash-{0}.err" -f ([guid]::NewGuid().ToString("N")))
+    $script = @"
+const path = require('path');
+const installPath = process.env.ATLAS_INSTALL_PATH || process.cwd();
+const candidates = [
+  path.join(installPath, 'node_modules', 'bcryptjs'),
+  'bcryptjs'
+];
+const errors = [];
+let bcrypt = null;
+for (const candidate of candidates) {
+  try {
+    bcrypt = require(candidate);
+    break;
+  } catch (err) {
+    errors.push(candidate + ': ' + err.message);
+  }
+}
+if (!bcrypt) {
+  console.error('ATLAS bcryptjs load failed. ' + errors.join(' | '));
+  process.exit(3);
+}
+const password = process.env.ATLAS_ADMIN_PASSWORD || '';
+if (!password) {
+  console.error('ATLAS admin password was empty.');
+  process.exit(2);
+}
+process.stdout.write(bcrypt.hashSync(password, 12));
+"@
+
     $oldPassword = $env:ATLAS_ADMIN_PASSWORD
+    $oldInstallPath = $env:ATLAS_INSTALL_PATH
+    $oldNodePath = $env:NODE_PATH
     try {
+        Set-Content -LiteralPath $hashScript -Value $script -Encoding UTF8
         $env:ATLAS_ADMIN_PASSWORD = $Password
-        $script = "const bcrypt=require('bcryptjs'); const p=process.env.ATLAS_ADMIN_PASSWORD || ''; if (!p) process.exit(2); process.stdout.write(bcrypt.hashSync(p, 12));"
-        $hash = & $node -e $script 2>$null
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($hash)) {
-            throw "Unable to generate application admin password hash."
+        $env:ATLAS_INSTALL_PATH = $workingPath
+        if (Test-Path -LiteralPath $modulePath) {
+            $env:NODE_PATH = $modulePath
+        }
+        $process = Start-Process -FilePath $node -ArgumentList @($hashScript) -WorkingDirectory $workingPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $hash = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { "" }
+        $errorText = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Raw).Trim() } else { "" }
+        if ($process.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($hash)) {
+            if ([string]::IsNullOrWhiteSpace($errorText)) { $errorText = "node.exe exited with code $($process.ExitCode)." }
+            throw "Unable to generate application admin password hash. $errorText"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+            Write-Step "Password hash helper warning: $errorText"
         }
         return ([string]$hash).Trim()
     } finally {
@@ -1272,6 +1320,17 @@ function New-AtlasPasswordHash {
         } else {
             $env:ATLAS_ADMIN_PASSWORD = $oldPassword
         }
+        if ($null -eq $oldInstallPath) {
+            Remove-Item Env:\ATLAS_INSTALL_PATH -ErrorAction SilentlyContinue
+        } else {
+            $env:ATLAS_INSTALL_PATH = $oldInstallPath
+        }
+        if ($null -eq $oldNodePath) {
+            Remove-Item Env:\NODE_PATH -ErrorAction SilentlyContinue
+        } else {
+            $env:NODE_PATH = $oldNodePath
+        }
+        Remove-Item -LiteralPath $hashScript, $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
     }
 }
 
