@@ -126,6 +126,11 @@ assert.match(deployText, /Write-AtlasFailure/i, 'Bootstrapper should persist a s
 assert.match(deployText, /\$StepName batch \$batchNumber started/i, 'Database configure should log each SQL script batch before execution');
 assert.match(deployText, /Database script \$file completed/i, 'Database configure should log each SQL script completion');
 assert.match(deployText, /PatchStatus=FAILED/i, 'Update patch must not report success when health or database verification fails');
+assert.match(deployText, /function Test-AtlasExistingInstallEvidence/i, 'Installer should detect existing ATLAS evidence beyond only server.js');
+assert.match(deployText, /Auto-switching setup action to Update/i, 'Installer preflight should auto-switch to Update when ATLAS already exists');
+assert.match(deployText, /Auto-update selected; fresh replacement was not confirmed/i, 'Installer configure should auto-update existing ATLAS unless fresh replacement was explicitly confirmed');
+assert.match(deployText, /Requested SQL TCP port \$RequestedPort was not reachable[\s\S]*Using detected current SQL port \$configured/i, 'Installer should repair stale saved SQL ports by detecting the current SQL TCP port');
+assert.match(deployText, /No application admin password supplied for update; existing admin credentials were preserved/i, 'Update should preserve admin credentials when no new admin password is supplied');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
@@ -144,7 +149,7 @@ assert.match(runnerText, /GetPathOption/i, 'Bootstrapper runner should sanitize 
 assert.match(runnerText, /ATLAS completion message failed/i, 'Bootstrapper runner should never mask finalize errors with message-box path failures');
 assert.match(runnerText, /ReadExistingConfig/i, 'Bootstrapper UI should preload existing app and SQL ports during update');
 assert.match(runnerText, /TcpServerName/i, 'Bootstrapper UI should verify sa login using the confirmed SQL TCP port');
-assert.match(runnerText, /updateRadio\.Checked = existing\.ContainsKey\("PORT"\)/, 'Update patch should default to Update on installed machines');
+assert.match(runnerText, /updateRadio\.Checked = existingInstallFootprint/, 'Update patch should default to Update on installed machines');
 assert.match(runnerText, /completed with warnings/i, 'Bootstrapper runner should show patch warning completion when finalizer records warnings');
 assert.match(runnerText, /bootstrapper-runner-/i, 'Bootstrapper runner should persist PowerShell stdout/stderr in ProgramData logs');
 assert.match(runnerText, /RedirectStandardError = true/i, 'Bootstrapper runner should capture PowerShell error output instead of losing configure details');
@@ -157,6 +162,9 @@ assert.match(runnerText, /AddOption\(result, options, "InstallRoot", true\)/i, '
 assert.match(runnerText, /AddOption\(result, options, "ConfigPath", true\)/i, 'Bootstrapper runner should pass a cleaned config path to PowerShell');
 assert.match(runnerText, /ATLAS fresh install confirmation/i, 'Bootstrapper UI should warn before replacing an existing ATLAS install during fresh install');
 assert.match(runnerText, /BackupDatabaseBeforeFresh/i, 'Bootstrapper UI should record the database-backup request for fresh install replacement');
+assert.match(runnerText, /existingInstallFootprint[\s\S]*updateRadio\.Checked = existingInstallFootprint/i, 'Bootstrapper UI should default to Update when any existing ATLAS footprint is detected');
+assert.match(runnerText, /DetectSqlTcpPort/i, 'Bootstrapper UI should detect the configured SQL TCP port instead of defaulting blindly to 1433');
+assert.match(runnerText, /GetSqlConfiguredTcpPort[\s\S]*TcpDynamicPorts/i, 'Bootstrapper UI should inspect SQL static and dynamic TCP port registry values');
 const bundleText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'bootstrapper', 'Bundle.wxs'), 'utf8');
 assert.match(bundleText, /<\?define ProductVersion = "2\.3\.40" \?>/, 'Bundle version should be bumped for real Windows Installer upgrade');
 assert.match(bundleText, /AtlasPreflightInstallArgs = "Preflight/, 'Update patch should open the configuration dialog before copying files');

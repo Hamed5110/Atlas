@@ -627,9 +627,17 @@ function Get-BootstrapConfigBool {
 function Test-AtlasInstallFootprint {
     param([string]$InstallPath)
     if (-not (Test-Path -LiteralPath $InstallPath)) { return $false }
-    foreach ($relative in @("server.js", "package.json", "Start-ATLAS.bat", "Start-ATLAS-Bundled.ps1", "atlas-payload-manifest.json")) {
+    foreach ($relative in @(".env", "server.js", "package.json", "Start-ATLAS.bat", "Start-ATLAS-Bundled.ps1", "atlas-payload-manifest.json")) {
         if (Test-Path -LiteralPath (Join-Path $InstallPath $relative)) { return $true }
     }
+    return $false
+}
+
+function Test-AtlasExistingInstallEvidence {
+    param([string]$InstallPath)
+    if (Test-AtlasInstallFootprint -InstallPath $InstallPath) { return $true }
+    if (Test-Path "HKLM:\SOFTWARE\ATLAS Airfare Allowance") { return $true }
+    if (Test-Path "HKLM:\SOFTWARE\WOW6432Node\ATLAS Airfare Allowance") { return $true }
     return $false
 }
 
@@ -994,6 +1002,15 @@ function Resolve-SqlTcpPort {
     )
 
     if ($RequestedPort -gt 0) {
+        if (Test-TcpPort -Server "127.0.0.1" -PortNumber $RequestedPort) {
+            Write-Step "Using requested reachable SQL TCP port $RequestedPort for instance '$InstanceName'."
+            return $RequestedPort
+        }
+        $configured = Get-SqlConfiguredTcpPort -InstanceName $InstanceName
+        if ($configured -gt 0 -and $configured -ne $RequestedPort -and (Test-TcpPort -Server "127.0.0.1" -PortNumber $configured)) {
+            Write-Step "Requested SQL TCP port $RequestedPort was not reachable. Using detected current SQL port $configured for instance '$InstanceName'."
+            return $configured
+        }
         Enable-SqlTcpPort -InstanceName $InstanceName -PortNumber $RequestedPort
         return $RequestedPort
     }
@@ -1017,13 +1034,19 @@ function Prompt-AtlasInstallSettings {
     Write-Host "ATLAS setup configuration" -ForegroundColor Cyan
     Write-Host ""
 
-    $selectedSetupAction = $SetupAction
+    $existingInstallEvidence = Test-AtlasExistingInstallEvidence -InstallPath $InstallRoot
+    $selectedSetupAction = if ($existingInstallEvidence -and $SetupAction -eq "Install") { "Update" } else { $SetupAction }
     Write-Host "Choose setup action:" -ForegroundColor Cyan
     Write-Host "  1. Install / New"
     Write-Host "  2. Update existing"
     Write-Host "  3. Repair existing"
     Write-Host "  4. Troubleshoot only"
-    $rawAction = Read-Host "Setup action [1]"
+    $defaultActionNumber = if ($existingInstallEvidence) { "2" } else { "1" }
+    if ($existingInstallEvidence) {
+        Write-Host "Existing ATLAS installation evidence was detected. Update is the default action." -ForegroundColor Green
+    }
+    $rawAction = Read-Host "Setup action [$defaultActionNumber]"
+    if ([string]::IsNullOrWhiteSpace($rawAction)) { $rawAction = $defaultActionNumber }
     switch ($rawAction) {
         "2" { $selectedSetupAction = "Update" }
         "3" { $selectedSetupAction = "Repair" }
@@ -1370,15 +1393,20 @@ function Ensure-AtlasDatabase {
         Write-Step "Database script $file completed."
     }
 
-    $adminHash = New-AtlasPasswordHash -InstallPath $InstallPath -Password $AdminPasswordValue
-    Ensure-AtlasFirstRunAdmin `
-        -ConnectionString $appConnection `
-        -DatabaseName $appDb `
-        -CompanyCodeValue $CompanyCodeValue `
-        -CompanyNameValue $CompanyNameValue `
-        -AdminUsernameValue $AdminUsernameValue `
-        -AdminPasswordHash $adminHash
-    Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "OK" -Message "Database $appDb and application admin were configured successfully." -DataPath $DataRoot
+    if (-not [string]::IsNullOrWhiteSpace($AdminPasswordValue)) {
+        $adminHash = New-AtlasPasswordHash -InstallPath $InstallPath -Password $AdminPasswordValue
+        Ensure-AtlasFirstRunAdmin `
+            -ConnectionString $appConnection `
+            -DatabaseName $appDb `
+            -CompanyCodeValue $CompanyCodeValue `
+            -CompanyNameValue $CompanyNameValue `
+            -AdminUsernameValue $AdminUsernameValue `
+            -AdminPasswordHash $adminHash
+        Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "OK" -Message "Database $appDb and application admin were configured successfully." -DataPath $DataRoot
+    } else {
+        Write-Step "No application admin password supplied for update; existing admin credentials were preserved."
+        Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "OK" -Message "Database $appDb was configured successfully; existing application admin credentials were preserved." -DataPath $DataRoot
+    }
 }
 
 function Write-AtlasConfig {
@@ -2022,6 +2050,10 @@ function Assert-AtlasPreInstallGate {
     $selectedInstance = if ($saved.SqlInstance) { [string]$saved.SqlInstance } else { $SqlInstance }
     $selectedPassword = if ($saved.SqlSaPassword) { [string]$saved.SqlSaPassword } else { $SqlSaPassword }
     $selectedAction = if ($saved.SetupAction) { [string]$saved.SetupAction } else { $SetupAction }
+    if ($selectedAction -eq "Install" -and (Test-AtlasExistingInstallEvidence -InstallPath $InstallRoot) -and -not (Get-BootstrapConfigBool -Config $saved -Name "FreshInstallReplaceConfirmed")) {
+        $selectedAction = "Update"
+        Write-Step "Existing ATLAS installation detected during preflight. Auto-switching setup action to Update; fresh replacement was not confirmed."
+    }
 
     if ($selectedAction -eq "Install" -and (Test-AtlasInstallFootprint -InstallPath $InstallRoot)) {
         Write-Step "Existing ATLAS application footprint detected during fresh install. Backing up and preparing replacement."
@@ -2085,6 +2117,11 @@ function Invoke-InstallOrRepair {
         if ($saved.SetupAction) { $SetupAction = [string]$saved.SetupAction }
     }
 
+    if ($SetupAction -eq "Install" -and (Test-AtlasExistingInstallEvidence -InstallPath $InstallRoot) -and -not (Get-BootstrapConfigBool -Config $saved -Name "FreshInstallReplaceConfirmed")) {
+        $SetupAction = "Update"
+        Write-Step "Existing ATLAS installation detected during configure. Auto-update selected; fresh replacement was not confirmed."
+    }
+
     if ($SetupAction -eq "Troubleshoot") {
         Invoke-Troubleshoot
         Remove-BootstrapConfig -DataPath $DataRoot
@@ -2099,7 +2136,7 @@ function Invoke-InstallOrRepair {
     if (-not $SqlSaPassword) {
         throw "MSSQL sa password was not collected. Re-run setup and complete the ATLAS setup configuration prompt."
     }
-    if (-not $AdminPassword) {
+    if (($SetupAction -eq "Install" -or $SetupAction -eq "Repair") -and -not $AdminPassword) {
         throw "Application admin password was not collected. Re-run setup and complete the ATLAS setup configuration prompt."
     }
 

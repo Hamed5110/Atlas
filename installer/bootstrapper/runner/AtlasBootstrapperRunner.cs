@@ -441,14 +441,20 @@ namespace AtlasBootstrapperRunner
         private readonly RadioButton troubleshootRadio = new RadioButton();
         private readonly Label statusLabel = new Label();
         private readonly string dataRoot;
+        private readonly string installRoot;
         private readonly string existingDbServer;
+        private readonly bool existingInstallFootprint;
+        private readonly bool existingSqlPortWasConfigured;
         private readonly List<string> instances;
 
         public PreflightForm(int defaultPort, string dataRoot, string installRoot)
         {
             this.dataRoot = dataRoot;
+            this.installRoot = installRoot;
             instances = GetInstalledSqlInstances();
             var existing = ReadExistingConfig(installRoot);
+            existingInstallFootprint = HasAtlasInstallFootprint(installRoot) || existing.ContainsKey("PORT") || existing.ContainsKey("DB_PORT");
+            existingSqlPortWasConfigured = existing.ContainsKey("DB_PORT");
             existingDbServer = existing.ContainsKey("DB_SERVER") ? existing["DB_SERVER"] : "";
             Text = "ATLAS setup configuration";
             StartPosition = FormStartPosition.CenterScreen;
@@ -467,12 +473,12 @@ namespace AtlasBootstrapperRunner
             installRadio.Left = 190;
             installRadio.Top = 88;
             installRadio.Width = 110;
-            installRadio.Checked = !existing.ContainsKey("PORT");
+            installRadio.Checked = !existingInstallFootprint;
             updateRadio.Text = "Update";
             updateRadio.Left = 305;
             updateRadio.Top = 88;
             updateRadio.Width = 75;
-            updateRadio.Checked = existing.ContainsKey("PORT");
+            updateRadio.Checked = existingInstallFootprint;
             repairRadio.Text = "Repair";
             repairRadio.Left = 385;
             repairRadio.Top = 88;
@@ -492,7 +498,8 @@ namespace AtlasBootstrapperRunner
             sqlPortBox.Left = 190;
             sqlPortBox.Top = 156;
             sqlPortBox.Width = 360;
-            sqlPortBox.Text = existing.ContainsKey("DB_PORT") ? existing["DB_PORT"] : "1433";
+            var preferredInstance = existing.ContainsKey("DB_INSTANCE") ? existing["DB_INSTANCE"] : (instances.Count > 0 ? PreferInstance(instances) : "ATLAS");
+            sqlPortBox.Text = existing.ContainsKey("DB_PORT") ? existing["DB_PORT"] : DetectSqlTcpPort(preferredInstance).ToString();
 
             AddLabel("MSSQL instance", 20, 194);
             instanceBox.Left = 190;
@@ -500,7 +507,14 @@ namespace AtlasBootstrapperRunner
             instanceBox.Width = 360;
             instanceBox.DropDownStyle = ComboBoxStyle.DropDown;
             foreach (var instance in instances) instanceBox.Items.Add(instance);
-            instanceBox.Text = existing.ContainsKey("DB_INSTANCE") ? existing["DB_INSTANCE"] : (instances.Count > 0 ? PreferInstance(instances) : "ATLAS");
+            instanceBox.Text = preferredInstance;
+            instanceBox.TextChanged += delegate
+            {
+                if (!existingSqlPortWasConfigured)
+                {
+                    sqlPortBox.Text = DetectSqlTcpPort(instanceBox.Text).ToString();
+                }
+            };
 
             AddLabel("MSSQL sa password", 20, 228);
             passwordBox.Left = 190;
@@ -543,7 +557,9 @@ namespace AtlasBootstrapperRunner
             statusLabel.Width = 560;
             statusLabel.Height = 55;
             statusLabel.ForeColor = Color.DimGray;
-            statusLabel.Text = "Install/New creates a fresh setup. Update keeps data and refreshes files. Repair fixes services, database configuration, and app admin lockout. Troubleshoot writes a diagnostic report.";
+            statusLabel.Text = existingInstallFootprint
+                ? "Existing ATLAS installation detected. Update is selected automatically and will keep data while refreshing files, SQL objects, service, and runtime configuration."
+                : "Install/New creates a fresh setup. Update keeps data and refreshes files. Repair fixes services, database configuration, and app admin lockout. Troubleshoot writes a diagnostic report.";
 
             var ok = new Button { Text = "Verify and Continue", Left = 362, Top = 540, Width = 140, Height = 28 };
             ok.Click += VerifyAndContinue;
@@ -593,7 +609,7 @@ namespace AtlasBootstrapperRunner
             }
             var freshInstallReplace = false;
             var backupDatabaseBeforeFresh = false;
-            if (setupAction.Equals("Install", StringComparison.OrdinalIgnoreCase) && HasAtlasInstallFootprint())
+            if (setupAction.Equals("Install", StringComparison.OrdinalIgnoreCase) && HasAtlasInstallFootprint(installRoot))
             {
                 var choice = MessageBox.Show(
                     this,
@@ -746,21 +762,92 @@ namespace AtlasBootstrapperRunner
             return items[0];
         }
 
-        private bool HasAtlasInstallFootprint()
+        private static bool HasAtlasInstallFootprint(string installRoot)
         {
             try
             {
-                var installRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "ATLAS Airfare Allowance");
-                if (!Directory.Exists(installRoot)) return false;
-                foreach (var file in new[] { "server.js", "package.json", "Start-ATLAS.bat", "Start-ATLAS-Bundled.ps1", "atlas-payload-manifest.json" })
+                foreach (var root in new[] { installRoot, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "ATLAS Airfare Allowance") }.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    if (File.Exists(Path.Combine(installRoot, file))) return true;
+                    if (!Directory.Exists(root)) continue;
+                    foreach (var file in new[] { ".env", "server.js", "package.json", "Start-ATLAS.bat", "Start-ATLAS-Bundled.ps1", "atlas-payload-manifest.json" })
+                    {
+                        if (File.Exists(Path.Combine(root, file))) return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ATLAS Airfare Allowance"))
+                {
+                    if (key != null) return true;
                 }
             }
             catch
             {
             }
             return false;
+        }
+
+        private static int DetectSqlTcpPort(string instance)
+        {
+            var configured = GetSqlConfiguredTcpPort(instance);
+            return configured > 0 ? configured : 1433;
+        }
+
+        private static string GetSqlInstanceRegistryId(string instance)
+        {
+            if (string.IsNullOrWhiteSpace(instance)) return "";
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            {
+                try
+                {
+                    using (var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view))
+                    using (var key = root.OpenSubKey(@"SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL"))
+                    {
+                        var value = key == null ? null : key.GetValue(instance) as string;
+                        if (!string.IsNullOrWhiteSpace(value)) return value;
+                    }
+                }
+                catch
+                {
+                }
+            }
+            return "";
+        }
+
+        private static int GetSqlConfiguredTcpPort(string instance)
+        {
+            var instanceId = GetSqlInstanceRegistryId(instance);
+            if (string.IsNullOrWhiteSpace(instanceId)) return 0;
+
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            {
+                try
+                {
+                    using (var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view))
+                    using (var ipAll = root.OpenSubKey(@"SOFTWARE\Microsoft\Microsoft SQL Server\" + instanceId + @"\MSSQLServer\SuperSocketNetLib\Tcp\IPAll"))
+                    {
+                        if (ipAll == null) continue;
+                        foreach (var name in new[] { "TcpPort", "TcpDynamicPorts" })
+                        {
+                            var raw = Convert.ToString(ipAll.GetValue(name) ?? "").Trim();
+                            int port;
+                            if (!string.IsNullOrWhiteSpace(raw) && int.TryParse(raw.Split(',')[0].Trim(), out port) && port > 0 && port <= 65535)
+                            {
+                                return port;
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+            return 0;
         }
 
         private static bool IsStrongPassword(string value)
