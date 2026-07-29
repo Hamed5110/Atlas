@@ -12,6 +12,9 @@ assert.match(sqlText, /CREATE TABLE dbo\.PasswordResetTokens/i, 'Password reset 
 assert.match(sqlText, /sp_ATLAS_GetCompanies/i, 'Company list stored procedure should exist');
 assert.match(sqlText, /sp_ATLAS_UpsertCompany/i, 'Company upsert stored procedure should exist');
 assert.match(sqlText, /CompanyCode = N'ATLAS'/i, 'Default ATLAS company should be seeded for update/logo');
+assert.match(sqlText, /COL_LENGTH\('dbo\.YearEndPreviewEvidence', 'CompanyID'\) IS NOT NULL[\s\S]*EXEC\(N'[\s\S]*DELETE y[\s\S]*YearEndPreviewEvidence/i, 'Optional Year End preview cleanup should be column-checked and dynamic for legacy schemas');
+assert.match(sqlText, /COL_LENGTH\('dbo\.YearEndHistory', 'CompanyID'\) IS NOT NULL[\s\S]*EXEC\(N'[\s\S]*DELETE c[\s\S]*YearEndHistory/i, 'Optional Year End history cleanup should be column-checked and dynamic for legacy schemas');
+assert.match(sqlText, /COL_LENGTH\('dbo\.AirfarePolicyRates', 'CompanyID'\) IS NOT NULL[\s\S]*COL_LENGTH\('dbo\.Companies', 'CompanyID'\) IS NOT NULL/i, 'Company cleanup should not compile against missing legacy CompanyID columns');
 
 assert.match(serverText, /POST \/api\/companies/i, 'Company create API should exist');
 assert.match(serverText, /PUT \/api\/companies\/:id/i, 'Company update API should exist');
