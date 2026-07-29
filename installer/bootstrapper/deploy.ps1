@@ -1303,9 +1303,22 @@ process.stdout.write(bcrypt.hashSync(password, 12));
         if (Test-Path -LiteralPath $modulePath) {
             $env:NODE_PATH = $modulePath
         }
-        $process = Start-Process -FilePath $node -ArgumentList @($hashScript) -WorkingDirectory $workingPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-        $hash = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { "" }
-        $errorText = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Raw).Trim() } else { "" }
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $node
+        $startInfo.Arguments = '"' + ($hashScript -replace '"', '\"') + '"'
+        $startInfo.WorkingDirectory = $workingPath
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        [void]$process.Start()
+        $hash = $process.StandardOutput.ReadToEnd()
+        $errorText = $process.StandardError.ReadToEnd().Trim()
+        $process.WaitForExit()
+        Set-Content -LiteralPath $stdoutPath -Value $hash -Encoding UTF8
+        Set-Content -LiteralPath $stderrPath -Value $errorText -Encoding UTF8
         if ($process.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($hash)) {
             if ([string]::IsNullOrWhiteSpace($errorText)) { $errorText = "node.exe exited with code $($process.ExitCode)." }
             throw "Unable to generate application admin password hash. $errorText"

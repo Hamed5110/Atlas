@@ -137,8 +137,10 @@ assert.match(deployText, /No application admin password supplied for update; exi
 assert.match(deployText, /ATLAS_INSTALL_PATH/i, 'Password hash helper should pass the installed app path to Node');
 assert.match(deployText, /NODE_PATH/i, 'Password hash helper should expose installed node_modules through NODE_PATH');
 assert.match(deployText, /path\.join\(installPath, 'node_modules', 'bcryptjs'\)/i, 'Password hash helper should resolve bcryptjs from the installed app node_modules');
-assert.match(deployText, /RedirectStandardError \$stderrPath/i, 'Password hash helper should capture Node stderr instead of hiding module loader failures');
+assert.match(deployText, /\$startInfo\.RedirectStandardError = \$true/i, 'Password hash helper should capture Node stderr instead of hiding module loader failures');
 assert.doesNotMatch(deployText, /require\('bcryptjs'\).*2>\$null/i, 'Password hash helper must not hide bcryptjs module loader errors');
+assert.match(deployText, /\$startInfo\.Arguments = '"'/i, 'Password hash helper should quote the temporary script path so ProgramData paths with spaces are not split');
+assert.doesNotMatch(deployText, /Start-Process -FilePath \$node -ArgumentList @\(\$hashScript\)/i, 'Password hash helper must not pass the script path through unquoted Start-Process ArgumentList');
 
 const initializeText = fs.readFileSync(path.join(__dirname, '..', 'installer', 'Initialize-ATLAS-Database.ps1'), 'utf8');
 assert.match(initializeText, /tcp:\$serverName,\$Port/i, 'Database initializer should connect using the configured TCP port');
