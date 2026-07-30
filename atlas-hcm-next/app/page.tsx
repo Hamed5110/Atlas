@@ -458,6 +458,22 @@ type YearEndPreview = {
   pendingLoanAmount?: number;
   totalOpeningLoanBalance?: number;
   loansCarriedForward?: number;
+  readiness?: {
+    canClose?: boolean;
+    blockers?: string[];
+    warnings?: string[];
+    previewExpiresAt?: string | null;
+    checks?: Array<{ title: string; status: string; tone: string; detail: string }>;
+    steps?: Array<{ step: number; title: string; status: string; detail: string }>;
+    policy?: {
+      requiresCalendarYearEnd?: boolean;
+      requiresFreshPreview?: boolean;
+      previewMinutes?: number;
+      writesNextYearOpeningBalances?: boolean;
+      writesOpeningLoanBalances?: boolean;
+      locksClosedYearMutations?: boolean;
+    };
+  };
   totals?: { TotalAllocations?: number; LoansCreated?: number; TotalLoansCreated?: number; EmergencyTickets?: number; TotalEmergencyTickets?: number; PendingLoans?: number; PendingLoanAmount?: number };
   employees?: Array<{
     EmployeeID: number;
@@ -1443,6 +1459,11 @@ export default function DashboardPage() {
       tone: yearEndPreview ? "success" : "info"
     }
   ];
+  const yearEndServerReadinessChecks = yearEndPreview?.readiness?.checks?.length ? yearEndPreview.readiness.checks : yearEndReadinessChecks;
+  const yearEndCloseSteps = yearEndPreview?.readiness?.steps || [];
+  const yearEndBlockers = yearEndPreview?.readiness?.blockers || [];
+  const yearEndWarnings = yearEndPreview?.readiness?.warnings || [];
+  const yearEndCanClose = Boolean(yearEndPreview?.previewId && yearEndPreview?.previewHash && (yearEndPreview?.readiness?.canClose ?? true));
   const yearEndMatrixCompany = companies.find((company) => String(company.CompanyID) === selectedCompanyId) || companies[0];
   const yearEndMatrixRows = [
     {
@@ -4502,7 +4523,10 @@ export default function DashboardPage() {
         companyId: Number(selectedCompanyId)
       });
       setYearEndPreview(preview);
-      setMessage(`Year-end preview ready for ${preview.closedYear}. ${preview.balancesCarried} opening balance record(s) will move to ${preview.nextYear}.`);
+      const firstBlocker = preview.readiness?.blockers?.[0];
+      setMessage(firstBlocker
+        ? `Year-end preview calculated for ${preview.closedYear}, but final close is blocked: ${firstBlocker}`
+        : `Year-end preview ready for ${preview.closedYear}. ${preview.balancesCarried} opening balance record(s) will move to ${preview.nextYear}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Year-end preview failed");
     } finally {
@@ -4540,6 +4564,7 @@ export default function DashboardPage() {
     const year = Number(yearEndForm.year);
     if (!yearEndPreview || yearEndPreview.closedYear !== year) return setMessage("Run preview before closing year.");
     if (!yearEndPreview.previewId || !yearEndPreview.previewHash) return setMessage("Run preview again before closing year.");
+    if (yearEndPreview.readiness?.canClose === false) return setMessage(yearEndPreview.readiness.blockers?.[0] || "Year-end readiness is blocked. Review the readiness gate first.");
     const ok = window.confirm(`Close ${year} and create opening balances for ${year + 1}?`);
     if (!ok) return;
     setBusy(true);
@@ -7227,14 +7252,25 @@ export default function DashboardPage() {
                 <div className="table-row employee-head">
                   <span><strong>Final close</strong><small>Create next year opening balances and audit history.</small></span>
                   <span>{yearEndPreview ? `${yearEndPreview.balancesCarried} employee(s)` : "Preview required"}</span>
-                  <span className="pill">{yearEndPreview?.yearEndId ? "Closed" : "Pending"}</span>
-                  <span className="row-actions"><button className="danger-button" disabled={busy || session?.user.role !== "admin" || !yearEndPreview?.previewId || !yearEndPreview?.previewHash} onClick={handleYearEndClose}>Close year</button></span>
+                  <span className={yearEndBlockers.length ? "pill danger-pill" : "pill"}>{yearEndPreview?.yearEndId ? "Closed" : yearEndBlockers.length ? "Blocked" : "Pending"}</span>
+                  <span className="row-actions"><button className="danger-button" disabled={busy || session?.user.role !== "admin" || !yearEndCanClose} onClick={handleYearEndClose}>Close year</button></span>
                 </div>
               </div>
+              {yearEndPreview && (
+                <div className="standard-note year-end-global-note">
+                  <div>
+                    <strong>{yearEndPreview.readiness?.canClose ? "Close gate passed" : "Close gate needs attention"}</strong>
+                    <span>{yearEndBlockers[0] || yearEndWarnings[0] || "Preview evidence is fresh and the selected company/year is ready for final close."}</span>
+                  </div>
+                  <span className={yearEndPreview.readiness?.canClose ? "pill success" : "pill danger-pill"}>
+                    {yearEndPreview.readiness?.canClose ? "Ready" : "Blocked / review"}
+                  </span>
+                </div>
+              )}
               <div className="readiness-panel">
                 <div className="card-title"><ShieldCheck size={18} /> Year End readiness gate</div>
                 <div className="readiness-grid">
-                  {yearEndReadinessChecks.map((check) => (
+                  {yearEndServerReadinessChecks.map((check) => (
                     <div className={`notice notice-${check.tone}`} key={check.title}>
                       <span />
                       <div>
@@ -7246,6 +7282,19 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
+              {yearEndCloseSteps.length > 0 && (
+                <div className="premium-table">
+                  <div className="table-row employee-head"><span>Step</span><span>Action</span><span>Status</span><span>Evidence</span></div>
+                  {yearEndCloseSteps.map((step) => (
+                    <div className="table-row employee-head" key={`${step.step}-${step.title}`}>
+                      <span>{step.step}</span>
+                      <span><strong>{step.title}</strong></span>
+                      <span className={step.status === "blocked" ? "pill danger-pill" : "pill"}>{step.status}</span>
+                      <span>{step.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {yearEndPreview && (
                 <div className="preview-grid">
                   <div className="preview-row year-end-head"><span>Employee</span><span>Opening</span><span>Earned</span><span>Paid/Used</span><span>Closing</span><span>Opening loan balance</span><span>Status</span></div>

@@ -13,14 +13,23 @@ assert.match(server, /getCompanyScopedYearEndTotals/, 'Year End summary totals m
 assert.match(server, /assertCalendarYearEnd/, 'Year End must validate the configured close date');
 assert.match(server, /assertYearEndCanBeFinalClosed/, 'Final close must reject years whose closing date has not passed');
 assert.match(server, /assertLoanLedgerSafeForYearEndClose/, 'Final close must guard unsupported historical loan as-of balances');
+assert.match(server, /buildYearEndReadiness/, 'Year End must expose a readiness workbench with blockers, warnings, and steps');
+assert.match(server, /summarizeYearEndRows/, 'Year End must summarize rows from one shared calculation path');
 assert.match(previewRoute, /app\.post\('\/api\/year-end\/preview\/:year'/, 'Preview must be a POST because it records preview evidence');
 assert.match(previewRoute, /YearEndPreviewEvidence/, 'Preview must persist time-limited evidence');
+assert.match(previewRoute, /readiness/, 'Preview response must include readiness evidence');
 assert.match(closeRoute, /previewId: Joi\.string\(\)\.guid/, 'Final close must require preview evidence');
 assert.match(closeRoute, /YEAR_END_PREVIEW_STALE/, 'Final close must reject stale or missing evidence');
 assert.match(closeRoute, /YEAR_END_DATA_CHANGED/, 'Final close must reject changed data');
+assert.match(closeRoute, /YEAR_END_READINESS_BLOCKED/, 'Final close must return explicit readiness blockers');
 assert.doesNotMatch(closeRoute, /employeeId:/, 'Final close must not accept employee-scoped closes');
 assert.match(closeRoute, /YearEndEmployeeSnapshots/, 'Final close must persist employee snapshots');
+assert.match(server, /app\.get\('\/api\/year-end\/history'/, 'Year End history must be readable from the API');
+assert.match(server, /company-scoped-close-workbench-v2/, 'Health check must expose the v2 Year End workbench source');
 assert.match(sql, /UX_YearEndHistory_CompanyYear/, 'History must be unique per company and year');
+assert.match(sql, /TotalOpeningLoanBalance/, 'History must persist loan carry-forward totals');
+assert.match(sql, /ReadinessJson/, 'History must persist readiness evidence');
+assert.match(sql, /CurrentYearEarnedDays/, 'Employee snapshots must persist earned-days evidence');
 assert.match(sql, /tr_ATLAS_BlockClosedYearAllocationMutation/, 'Closed-year allocations must be locked in SQL');
 assert.match(sql, /tr_ATLAS_BlockClosedYearOpeningBalanceMutation/, 'Closed-year opening balances must be locked in SQL');
 

@@ -5,6 +5,15 @@ GO
 IF COL_LENGTH('dbo.YearEndHistory', 'PreviewHash') IS NULL
     ALTER TABLE dbo.YearEndHistory ADD PreviewHash CHAR(64) NULL;
 GO
+IF COL_LENGTH('dbo.YearEndHistory', 'TotalOpeningLoanBalance') IS NULL
+    ALTER TABLE dbo.YearEndHistory ADD TotalOpeningLoanBalance DECIMAL(12,2) NOT NULL CONSTRAINT DF_YearEndHistory_TotalOpeningLoanBalance DEFAULT 0;
+GO
+IF COL_LENGTH('dbo.YearEndHistory', 'LoansCarriedForward') IS NULL
+    ALTER TABLE dbo.YearEndHistory ADD LoansCarriedForward INT NOT NULL CONSTRAINT DF_YearEndHistory_LoansCarriedForward DEFAULT 0;
+GO
+IF COL_LENGTH('dbo.YearEndHistory', 'ReadinessJson') IS NULL
+    ALTER TABLE dbo.YearEndHistory ADD ReadinessJson NVARCHAR(MAX) NULL;
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_YearEndHistory_CompanyYear' AND object_id = OBJECT_ID('dbo.YearEndHistory'))
     CREATE UNIQUE INDEX UX_YearEndHistory_CompanyYear ON dbo.YearEndHistory(CompanyID, ClosedYear) WHERE CompanyID IS NOT NULL;
 GO
@@ -40,6 +49,39 @@ BEGIN
         CONSTRAINT FK_YearEndEmployeeSnapshots_History FOREIGN KEY (YearEndID) REFERENCES dbo.YearEndHistory(YearEndID)
     );
 END;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'CompanyID') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD CompanyID INT NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'ClosedYear') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD ClosedYear INT NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'NextYear') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD NextYear INT NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'OpeningDays') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD OpeningDays DECIMAL(10,4) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'OpeningBHD') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD OpeningBHD DECIMAL(12,2) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'CurrentYearEarnedDays') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD CurrentYearEarnedDays DECIMAL(10,4) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'CurrentYearEarnedBHD') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD CurrentYearEarnedBHD DECIMAL(12,2) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'PaidDays') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD PaidDays DECIMAL(10,4) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'PaidAmount') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD PaidAmount DECIMAL(12,2) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'ClosingLoanBHD') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD ClosingLoanBHD DECIMAL(12,2) NULL;
+GO
+IF COL_LENGTH('dbo.YearEndEmployeeSnapshots', 'CloseStatus') IS NULL
+    ALTER TABLE dbo.YearEndEmployeeSnapshots ADD CloseStatus NVARCHAR(120) NULL;
 GO
 CREATE OR ALTER TRIGGER dbo.tr_ATLAS_BlockClosedYearAllocationMutation
 ON dbo.Allocations
