@@ -1622,9 +1622,29 @@ function isLocalNetworkRequest(req) {
         || /^192\.168\./.test(host);
 }
 
+function rateLimitPathCandidates(req) {
+    return Array.from(new Set([
+        req.originalUrl,
+        req.url,
+        req.path,
+        `${req.baseUrl || ''}${req.path || ''}`
+    ]
+        .filter(Boolean)
+        .map((item) => String(item).split('?')[0].replace(/\/+$/, '') || '/')));
+}
+
+function isSupportApiPath(req) {
+    return rateLimitPathCandidates(req).some((requestPath) => requestPath === '/api/health'
+        || requestPath === '/health'
+        || requestPath.startsWith('/api/diagnostics/')
+        || requestPath.startsWith('/diagnostics/'));
+}
+
 const apiRateLimitMax = Math.max(parsePositiveInt(process.env.API_RATE_LIMIT_MAX, 5000), 5000);
 const localApiRateLimitMax = Math.max(parsePositiveInt(process.env.API_RATE_LIMIT_LOCAL_MAX, 30000), apiRateLimitMax);
 const authRateLimitMax = Math.max(parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 100), 100);
+const supportRateLimitMax = Math.max(parsePositiveInt(process.env.SUPPORT_RATE_LIMIT_MAX, 2000), 2000);
+const localSupportRateLimitMax = Math.max(parsePositiveInt(process.env.SUPPORT_RATE_LIMIT_LOCAL_MAX, 60000), supportRateLimitMax);
 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -1632,8 +1652,8 @@ const apiLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => {
-        const requestPath = String(req.originalUrl || '').split('?')[0];
-        return requestPath.startsWith('/api/auth/');
+        return rateLimitPathCandidates(req).some((requestPath) => requestPath.startsWith('/api/auth/') || requestPath.startsWith('/auth/'))
+            || isSupportApiPath(req);
     },
     handler: (req, res) => {
         res.setHeader('Retry-After', '60');
@@ -1641,6 +1661,21 @@ const apiLimiter = rateLimit({
             error: 'Too many requests in a short time. Please wait one minute, then use Refresh. Admin can increase API_RATE_LIMIT_MAX or API_RATE_LIMIT_LOCAL_MAX if needed.',
             code: 'API_RATE_LIMITED',
             retryAfterSeconds: 60,
+            localNetwork: isLocalNetworkRequest(req)
+        });
+    }
+});
+const supportLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: (req) => isLocalNetworkRequest(req) ? localSupportRateLimitMax : supportRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.setHeader('Retry-After', '30');
+        res.status(429).json({
+            error: 'Support diagnostics are temporarily throttled. Please wait briefly, then refresh diagnostics.',
+            code: 'SUPPORT_RATE_LIMITED',
+            retryAfterSeconds: 30,
             localNetwork: isLocalNetworkRequest(req)
         });
     }
@@ -1660,7 +1695,14 @@ const authLimiter = rateLimit({
         });
     }
 });
+app.use('/api', (req, res, next) => {
+    res.setHeader('X-Atlas-Local-Network', isLocalNetworkRequest(req) ? 'true' : 'false');
+    res.setHeader('X-Atlas-Support-Api', isSupportApiPath(req) ? 'true' : 'false');
+    next();
+});
 app.use('/api/auth', authLimiter);
+app.use('/api/health', supportLimiter);
+app.use('/api/diagnostics', supportLimiter);
 app.use('/api/', apiLimiter);
 
 app.get('/', (req, res) => {

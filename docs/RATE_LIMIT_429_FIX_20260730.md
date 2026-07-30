@@ -17,6 +17,12 @@ The failure was caused by local admin workflows producing short request bursts w
 - Added structured `429` JSON responses with stable error codes and `Retry-After` headers.
 - Debounced frontend preferences telemetry so visual preference changes do not create unnecessary backend request bursts.
 - Updated frontend API error formatting to surface useful retry guidance from `Retry-After`.
+- Split read-only support APIs into a dedicated limiter:
+  - `/api/health`
+  - `/api/diagnostics/*`
+- Added lightweight response headers for API troubleshooting:
+  - `X-Atlas-Local-Network`
+  - `X-Atlas-Support-Api`
 
 ## Environment knobs
 
@@ -24,6 +30,8 @@ The failure was caused by local admin workflows producing short request bursts w
 API_RATE_LIMIT_MAX=5000
 API_RATE_LIMIT_LOCAL_MAX=30000
 AUTH_RATE_LIMIT_MAX=100
+SUPPORT_RATE_LIMIT_MAX=2000
+SUPPORT_RATE_LIMIT_LOCAL_MAX=60000
 ```
 
 ## Verification
@@ -33,11 +41,20 @@ AUTH_RATE_LIMIT_MAX=100
 - `npm --prefix C:\Airfare_Allowance\atlas-hcm-next test`
 - `npm --prefix C:\Airfare_Allowance\atlas-hcm-next run build`
 - `npm run test:full`
+- Authenticated local API sweep:
+  - 29/29 checked GET/support API paths returned `200`.
+  - `/api/health` and `/api/diagnostics/*` returned `RateLimit-Limit: 60000`.
+  - dashboard APIs returned `RateLimit-Limit: 30000`.
+  - auth session API returned `RateLimit-Limit: 500`.
 
 Latest full-system report:
 
-- `C:\Airfare_Allowance\test-reports\atlas-full-system-test-20260730123705.md`
-- `C:\Airfare_Allowance\test-reports\atlas-full-system-test-20260730123705.json`
+- `C:\Airfare_Allowance\test-reports\atlas-full-system-test-20260730132109.md`
+- `C:\Airfare_Allowance\test-reports\atlas-full-system-test-20260730132109.json`
+
+## Live deployment note
+
+On 2026-07-30, `http://127.0.0.1:3355/api/health` showed the fixed support limiter headers from the current repo process, while `http://192.168.15.10:3355/api/health` still showed `RateLimit-Limit: 5000` and did not return the new diagnostic headers. That means the LAN target was still running an older installed/deployed copy and must be updated/restarted with a build that includes this fix.
 
 ## Research notes
 

@@ -21,8 +21,13 @@ assert.match(serverText, /PUT \/api\/companies\/:id/i, 'Company update API shoul
 assert.match(serverText, /CREATE DATABASE/i, 'Company API should create company database');
 assert.match(serverText, /POST \/api\/auth\/forgot-password/i, 'Forgot password API should exist');
 assert.match(serverText, /API_RATE_LIMIT_LOCAL_MAX[\s\S]*30000/i, 'Local network API limiter should have a high dashboard-safe floor');
-assert.match(serverText, /skip:\s*\(req\)[\s\S]*requestPath\.startsWith\('\/api\/auth\/'\)/i, 'General API limiter should not double-count auth routes');
+assert.match(serverText, /SUPPORT_RATE_LIMIT_LOCAL_MAX[\s\S]*60000/i, 'Support health and diagnostics APIs should have a high local troubleshooting limit');
+assert.match(serverText, /function rateLimitPathCandidates[\s\S]*req\.originalUrl[\s\S]*req\.baseUrl/i, 'Rate limiter should inspect all Express mounted path variants');
+assert.match(serverText, /function isSupportApiPath[\s\S]*\/api\/health[\s\S]*\/diagnostics\//i, 'Support API path detection should include health and diagnostics routes');
+assert.match(serverText, /skip:\s*\(req\)[\s\S]*rateLimitPathCandidates\(req\)[\s\S]*isSupportApiPath\(req\)/i, 'General API limiter should not double-count auth, health, or diagnostics routes');
+assert.match(serverText, /app\.use\('\/api\/health', supportLimiter\)[\s\S]*app\.use\('\/api\/diagnostics', supportLimiter\)[\s\S]*app\.use\('\/api\/', apiLimiter\)/i, 'Support API limiter should run before the general API limiter');
 assert.match(serverText, /Retry-After[\s\S]*API_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'API rate-limit response should include retry guidance');
+assert.match(serverText, /SUPPORT_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'Support rate-limit response should include structured retry guidance');
 assert.match(serverText, /AUTH_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'Auth rate-limit response should include structured retry guidance');
 assert.match(serverText, /GET \/api\/opening-balances/i, 'Opening balance list API should exist');
 assert.match(serverText, /GET \/api\/opening-loan-balances/i, 'Opening loan balance list API should exist');

@@ -90,5 +90,7 @@ assert.match(server, /getAtlasBackupRoots/, "backup list should include data-roo
 assert.match(server, /ensureCompanyDatabase/, "company creation database query should remain available");
 assert.match(server, /apiRateLimitMax[\s\S]*Math\.max[\s\S]*API_RATE_LIMIT_MAX[\s\S]*5000/, "general API limiter should keep a dashboard-safe minimum limit");
 assert.match(server, /localApiRateLimitMax[\s\S]*API_RATE_LIMIT_LOCAL_MAX[\s\S]*30000/, "local network API limiter should allow normal dashboard and company setup usage");
+assert.match(server, /SUPPORT_RATE_LIMIT_LOCAL_MAX[\s\S]*60000[\s\S]*supportLimiter/, "health and diagnostics should use a dedicated high local support limiter");
+assert.match(server, /rateLimitPathCandidates[\s\S]*isSupportApiPath[\s\S]*\/api\/health[\s\S]*\/api\/diagnostics\//, "general API limiter should skip support diagnostics routes across mounted path variants");
 
 console.log("airfare excess, reports, company, and backup source checks passed");
