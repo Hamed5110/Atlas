@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 const css = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
 const source = readFileSync(join(process.cwd(), "app", "page.tsx"), "utf8");
+const preferences = readFileSync(join(process.cwd(), "lib", "atlas-preferences.ts"), "utf8");
 const rootServerCandidate = join(process.cwd(), "..", "server.js");
 const nestedServerCandidate = join(process.cwd(), "..", "..", "server.js");
 const serverPath = existsSync(rootServerCandidate)
@@ -277,6 +278,12 @@ assert.match(css, /\.preferences-bulk-toolbar/, "preferences should use a respon
 assert.match(css, /--topbar-h:\s*52px/, "whole app topbar should use compact operations-console sizing");
 assert.match(css, /--control-h:\s*42px/, "whole app controls should use compact default height");
 assert.match(css, /\.preference-insight-card\s*{[\s\S]*min-height:\s*104px/, "preferences cards should be compact instead of oversized");
+assert.match(preferences, /atlasPreferencesSchema[\s\S]*themeMode[\s\S]*viewMode[\s\S]*shortcuts[\s\S]*notifications[\s\S]*privacy[\s\S]*sync/, "preferences should be backed by a typed JSON schema");
+assert.match(preferences, /normalizeAtlasPreferences[\s\S]*parseAtlasPreferencesJson[\s\S]*serializeAtlasPreferences/, "preferences should support safe normalize/import/export flows");
+assert.match(source, /Keyboard shortcuts[\s\S]*Notifications[\s\S]*Privacy[\s\S]*Sync \/ Export \/ Import/, "preferences screen should expose advanced settings modules");
+assert.match(source, /type="color"[\s\S]*updateCustomAccent/, "preferences should support custom accent color management");
+assert.match(source, /value=\{viewMode\}[\s\S]*updateViewMode/, "preferences should expose layout view modes");
+assert.match(css, /\.settings-system-matrix[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "advanced preferences matrix should align in a responsive grid");
 assert.match(css, /\.preferences-policy-card/, "airfare policy editor should be styled as a main preferences section");
 assert.match(css, /\.table-row\.preference-current-row\s*{[\s\S]*min-width:\s*850px/, "main preference rows should be simplified to reduce horizontal overflow");
 assert.match(css, /\.preference-lock-pill\s*{[\s\S]*white-space:\s*nowrap/, "preference lock pills should stay horizontal");
@@ -291,7 +298,7 @@ assert.match(css, /\.report-check-panel\.collapsed\s*{[\s\S]*position:\s*absolut
 assert.match(css, /\.employee-form-overlay\s*{[\s\S]*position:\s*fixed/, "employee add and edit form should open as a focused full-screen workspace");
 assert.match(css, /\.employee-form-panel \.form-grid\.two\s*{[\s\S]*repeat\(3/, "employee full-screen form should use a wider three-column desktop layout");
 assert.match(css, /\.airfare-layout\.recent-closed\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/, "airfare form should use the full width when recent allocations are hidden");
-assert.match(css, /\.topbar-logo\s*{[\s\S]*width:\s*42px/, "topbar should include a compact company logo slot");
+assert.match(css, /\.topbar-logo\s*{[\s\S]*width:\s*36px/, "topbar should include a compact company logo slot");
 assert.match(css, /h1\s*{[\s\S]*clamp\(19px/, "main header should be compact for daily workspace comfort");
 assert.match(source, /reportOptions/, "reports screen should expose all report choices visibly");
 assert.match(source, /Airfare Policy Rules/, "reports screen should include airfare policy rules report");

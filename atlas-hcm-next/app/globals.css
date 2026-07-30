@@ -2054,6 +2054,79 @@ h3 { font-size: 17px; letter-spacing: 0; }
 .preferences-bulk-toolbar small {
   color: var(--muted);
 }
+.settings-system-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.settings-module-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .86);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .05);
+}
+.settings-module-card p {
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+.settings-shortcut-list,
+.settings-toggle-grid {
+  display: grid;
+  gap: 8px;
+}
+.settings-toggle-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.settings-shortcut-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.settings-shortcut-row span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-shortcut-row small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.settings-shortcut-row kbd {
+  padding: 4px 7px;
+  border: 1px solid rgba(15, 23, 42, .18);
+  border-radius: 7px;
+  color: #0f172a;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 rgba(15, 23, 42, .12);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.settings-json-card {
+  grid-column: 1 / -1;
+}
+.settings-json-card textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, .28);
+  border-radius: 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
 .preferences-policy-card .policy-rule-picker {
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
 }
@@ -4423,6 +4496,8 @@ h3 { font-size: 17px; letter-spacing: 0; }
   .preferences-policy-card { position: static; }
   .preferences-insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .preferences-settings-grid { grid-template-columns: 1fr; }
+  .settings-system-matrix { grid-template-columns: 1fr; }
+  .settings-toggle-grid { grid-template-columns: 1fr; }
   .preferences-bulk-toolbar { grid-template-columns: 1fr 1fr; }
   .preferences-bulk-toolbar > div { grid-column: 1 / -1; }
   .maintenance-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4573,8 +4648,16 @@ h3 { font-size: 17px; letter-spacing: 0; }
     width: 100%;
   }
   .preferences-insight-grid,
-  .preferences-settings-grid {
+  .preferences-settings-grid,
+  .settings-system-matrix {
     grid-template-columns: 1fr;
+  }
+  .settings-shortcut-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .settings-shortcut-row kbd {
+    grid-column: 2;
+    width: fit-content;
   }
   .preferences-editor-head,
   .preferences-bulk-toolbar {

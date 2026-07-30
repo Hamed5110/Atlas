@@ -8,7 +8,7 @@ assert.match(source, /function validateAllocationTicketForm\(/, "allocation form
 assert.match(source, /function validateSelfServiceTicketForm\(/, "self-service ticket form should have a client-side validator");
 assert.match(source, /function InlineFieldError\([\s\S]*role="alert"/, "inline errors should announce validation feedback");
 assert.match(source, /aria-invalid[\s\S]*aria-describedby/, "invalid fields should link controls to inline errors");
-assert.match(source, /function syncWorkspaceThemeDom\(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity\)/, "theme engine should centralize DOM dataset synchronization");
+assert.match(source, /function syncWorkspaceThemeDom\(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity, customAccent = "#0b63f6"\)/, "theme engine should centralize DOM dataset synchronization with custom accent support");
 assert.match(source, /document\.documentElement[\s\S]*dataset\.theme\s*=\s*themeMode[\s\S]*dataset\.themeRevision/, "theme changes should force root DOM dataset updates");
 assert.match(source, /atlas:theme-preference-change/, "theme mutations should emit a local UI telemetry event");
 assert.match(source, /void atlasHealth\(\)\.catch\(\(\) => undefined\)/, "theme preference mutations should ping the existing backend service path");

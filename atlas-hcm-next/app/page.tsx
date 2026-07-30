@@ -36,6 +36,7 @@ import {
   Eye,
   HelpCircle,
   Info,
+  Keyboard as KeyboardIcon,
   LayoutDashboard,
   ListPlus,
   LogOut,
@@ -85,12 +86,21 @@ import {
   PreferenceReferenceRow,
   YearSummary
 } from "../lib/atlas-api";
+import {
+  AtlasUserPreferences,
+  atlasPreferencesSchema,
+  createDefaultAtlasPreferences,
+  normalizeAtlasPreferences,
+  parseAtlasPreferencesJson,
+  serializeAtlasPreferences
+} from "../lib/atlas-preferences";
 
 type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance" | "Import / Export Center";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
-type ThemeMode = "light" | "dark" | "contrast";
-type ThemeAccent = "blue" | "emerald" | "slate" | "ocean" | "sunset";
+type ThemeMode = "light" | "dark" | "system" | "contrast";
+type ThemeAccent = "blue" | "emerald" | "slate" | "ocean" | "sunset" | "custom";
 type UiDensity = "comfortable" | "standard" | "compact";
+type ViewMode = "grid" | "list" | "split";
 type ThemePreset = "corporate-light" | "corporate-dark" | "ocean-blue" | "forest-green" | "sunset-orange" | "high-contrast";
 type UpdateCheckState = "Not checked" | "Checking" | "Up to date" | "Needs review" | "Offline";
 
@@ -594,16 +604,21 @@ function resolveThemePreset(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDe
   return match?.[0] || "corporate-light";
 }
 
-function syncWorkspaceThemeDom(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity) {
+function syncWorkspaceThemeDom(themeMode: ThemeMode, themeAccent: ThemeAccent, uiDensity: UiDensity, customAccent = "#0b63f6") {
   if (typeof window === "undefined") return;
   const root = document.documentElement;
+  const resolvedTheme = themeMode === "system"
+    ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : themeMode;
   root.dataset.theme = themeMode;
   root.dataset.accent = themeAccent;
   root.dataset.density = uiDensity;
   root.dataset.themeRevision = String(Date.now());
-  root.style.colorScheme = themeMode === "dark" ? "dark" : "light";
+  root.style.colorScheme = resolvedTheme === "dark" ? "dark" : "light";
+  if (themeAccent === "custom") root.style.setProperty("--accent-primary", customAccent);
+  else root.style.removeProperty("--accent-primary");
   window.dispatchEvent(new CustomEvent("atlas:theme-preference-change", {
-    detail: { themeMode, themeAccent, uiDensity }
+    detail: { themeMode, resolvedTheme, themeAccent, uiDensity, customAccent }
   }));
 }
 
@@ -997,8 +1012,12 @@ export default function DashboardPage() {
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<number>>(new Set());
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [themeAccent, setThemeAccent] = useState<ThemeAccent>("blue");
+  const [customAccent, setCustomAccent] = useState("#0b63f6");
   const [uiDensity, setUiDensity] = useState<UiDensity>("standard");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [themePreset, setThemePreset] = useState<ThemePreset>("corporate-light");
+  const [workspacePreferences, setWorkspacePreferences] = useState<AtlasUserPreferences>(() => createDefaultAtlasPreferences());
+  const [preferencesJsonDraft, setPreferencesJsonDraft] = useState("");
   const themeTelemetryReadyRef = useRef(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
@@ -1128,45 +1147,150 @@ export default function DashboardPage() {
     });
   }
 
+  function commitWorkspacePreferences(nextPreferences: AtlasUserPreferences) {
+    const next = normalizeAtlasPreferences(nextPreferences);
+    setWorkspacePreferences(next);
+    setThemeMode(next.appearance.themeMode);
+    setThemeAccent(next.appearance.themeAccent);
+    setCustomAccent(next.appearance.customAccent);
+    setUiDensity(next.appearance.density);
+    setViewMode(next.appearance.viewMode);
+    setSidebarCollapsed(next.layout.sidebarCollapsed);
+    setRightPanelsCollapsed(next.layout.rightPanelsCollapsed);
+    setShowSyncStatus(next.layout.showSyncStatus);
+    setThemePreset(resolveThemePreset(
+      next.appearance.themeMode === "system" ? "light" : next.appearance.themeMode,
+      next.appearance.themeAccent === "custom" ? "blue" : next.appearance.themeAccent,
+      next.appearance.density
+    ));
+    syncWorkspaceThemeDom(next.appearance.themeMode, next.appearance.themeAccent, next.appearance.density, next.appearance.customAccent);
+  }
+
+  function updateWorkspacePreferences(updater: (current: AtlasUserPreferences) => AtlasUserPreferences, toast?: string) {
+    setWorkspacePreferences((current) => {
+      const next = normalizeAtlasPreferences(updater(current));
+      syncWorkspaceThemeDom(next.appearance.themeMode, next.appearance.themeAccent, next.appearance.density, next.appearance.customAccent);
+      if (toast) setMessage(toast);
+      return next;
+    });
+  }
+
   function updateThemeMode(nextMode: ThemeMode) {
-    syncWorkspaceThemeDom(nextMode, themeAccent, uiDensity);
+    syncWorkspaceThemeDom(nextMode, themeAccent, uiDensity, customAccent);
     setThemeMode(nextMode);
     setThemePreset(resolveThemePreset(nextMode, themeAccent, uiDensity));
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      appearance: { ...current.appearance, themeMode: nextMode }
+    }));
   }
 
   function updateThemeAccent(nextAccent: ThemeAccent) {
-    syncWorkspaceThemeDom(themeMode, nextAccent, uiDensity);
+    syncWorkspaceThemeDom(themeMode, nextAccent, uiDensity, customAccent);
     setThemeAccent(nextAccent);
     setThemePreset(resolveThemePreset(themeMode, nextAccent, uiDensity));
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      appearance: { ...current.appearance, themeAccent: nextAccent }
+    }));
+  }
+
+  function updateCustomAccent(nextAccent: string) {
+    setCustomAccent(nextAccent);
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      appearance: { ...current.appearance, customAccent: nextAccent, themeAccent: "custom" }
+    }), "Custom accent saved.");
   }
 
   function updateUiDensity(nextDensity: UiDensity) {
-    syncWorkspaceThemeDom(themeMode, themeAccent, nextDensity);
+    syncWorkspaceThemeDom(themeMode, themeAccent, nextDensity, customAccent);
     setUiDensity(nextDensity);
     setThemePreset(resolveThemePreset(themeMode, themeAccent, nextDensity));
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      appearance: { ...current.appearance, density: nextDensity }
+    }));
+  }
+
+  function updateViewMode(nextMode: ViewMode) {
+    setViewMode(nextMode);
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      appearance: { ...current.appearance, viewMode: nextMode }
+    }), `${nextMode[0].toUpperCase()}${nextMode.slice(1)} view mode saved.`);
   }
 
   function applyThemePreset(nextPreset: ThemePreset) {
     const preset = THEME_PRESETS[nextPreset];
-    syncWorkspaceThemeDom(preset.mode, preset.accent, preset.density);
+    syncWorkspaceThemeDom(preset.mode, preset.accent, preset.density, customAccent);
     setThemePreset(nextPreset);
     setThemeMode(preset.mode);
     setThemeAccent(preset.accent);
     setUiDensity(preset.density);
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      appearance: { ...current.appearance, themeMode: preset.mode, themeAccent: preset.accent, density: preset.density }
+    }));
     setMessage(`${preset.label} theme applied and saved for this browser.`);
   }
 
   function resetWorkspaceAppearance() {
     const preset = THEME_PRESETS["corporate-light"];
-    syncWorkspaceThemeDom(preset.mode, preset.accent, preset.density);
-    setThemePreset("corporate-light");
-    setThemeMode(preset.mode);
-    setThemeAccent(preset.accent);
-    setUiDensity(preset.density);
-    setSidebarCollapsed(false);
-    setRightPanelsCollapsed(false);
-    setShowSyncStatus(true);
+    commitWorkspacePreferences(createDefaultAtlasPreferences());
+    syncWorkspaceThemeDom(preset.mode, preset.accent, preset.density, "#0b63f6");
     setMessage("Workspace appearance reset to Light Professional.");
+  }
+
+  function toggleShortcut(shortcutId: string) {
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      shortcuts: current.shortcuts.map((shortcut) => shortcut.id === shortcutId ? { ...shortcut, enabled: !shortcut.enabled } : shortcut)
+    }), "Keyboard shortcut preference saved.");
+  }
+
+  function updateNotificationPreference(key: keyof AtlasUserPreferences["notifications"], value: boolean | AtlasUserPreferences["notifications"]["digestFrequency"]) {
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      notifications: { ...current.notifications, [key]: value }
+    }), "Notification preference saved.");
+  }
+
+  function updatePrivacyPreference(key: keyof AtlasUserPreferences["privacy"], value: boolean) {
+    updateWorkspacePreferences((current) => ({
+      ...current,
+      privacy: { ...current.privacy, [key]: value }
+    }), "Privacy preference saved.");
+  }
+
+  function exportWorkspacePreferences() {
+    const exportedAt = new Date().toISOString();
+    const next = normalizeAtlasPreferences({
+      ...workspacePreferences,
+      sync: { ...workspacePreferences.sync, lastExportedAt: exportedAt }
+    });
+    commitWorkspacePreferences(next);
+    const blob = new Blob([serializeAtlasPreferences(next)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `atlas-preferences-${exportedAt.slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setMessage("Preferences exported as JSON.");
+  }
+
+  function importWorkspacePreferences() {
+    try {
+      const next = parseAtlasPreferencesJson(preferencesJsonDraft);
+      commitWorkspacePreferences({
+        ...next,
+        sync: { ...next.sync, lastImportedAt: new Date().toISOString() }
+      });
+      setMessage("Preferences imported and applied.");
+    } catch {
+      setMessage("Preferences import failed. Paste valid ATLAS preferences JSON.");
+    }
   }
   const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null);
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
@@ -1536,29 +1660,24 @@ export default function DashboardPage() {
     try {
       const raw = window.localStorage.getItem(UI_PREFERENCES_STORAGE_KEY);
       if (!raw) return;
-      const saved = JSON.parse(raw) as {
-        themePreset?: ThemePreset;
-        themeMode?: ThemeMode;
-        themeAccent?: ThemeAccent;
-        uiDensity?: UiDensity;
-        sidebarCollapsed?: boolean;
-        rightPanelsCollapsed?: boolean;
-        showSyncStatus?: boolean;
-      };
-      const nextThemeMode = saved.themeMode === "light" || saved.themeMode === "dark" || saved.themeMode === "contrast" ? saved.themeMode : "light";
-      const nextThemeAccent = saved.themeAccent === "blue" || saved.themeAccent === "emerald" || saved.themeAccent === "slate" || saved.themeAccent === "ocean" || saved.themeAccent === "sunset" ? saved.themeAccent : "blue";
-      const nextUiDensity = saved.uiDensity === "comfortable" || saved.uiDensity === "standard" || saved.uiDensity === "compact" ? saved.uiDensity : "standard";
-      const nextThemePreset = saved.themePreset && saved.themePreset in THEME_PRESETS
-        ? saved.themePreset
-        : resolveThemePreset(nextThemeMode, nextThemeAccent, nextUiDensity);
-      syncWorkspaceThemeDom(nextThemeMode, nextThemeAccent, nextUiDensity);
-      setThemePreset(nextThemePreset);
-      setThemeMode(nextThemeMode);
-      setThemeAccent(nextThemeAccent);
-      setUiDensity(nextUiDensity);
-      if (typeof saved.sidebarCollapsed === "boolean") setSidebarCollapsed(saved.sidebarCollapsed);
-      if (typeof saved.rightPanelsCollapsed === "boolean") setRightPanelsCollapsed(saved.rightPanelsCollapsed);
-      if (typeof saved.showSyncStatus === "boolean") setShowSyncStatus(saved.showSyncStatus);
+      const legacy = JSON.parse(raw) as Record<string, unknown>;
+      const saved = normalizeAtlasPreferences({
+        ...legacy,
+        appearance: {
+          ...(typeof legacy.appearance === "object" && legacy.appearance ? legacy.appearance : {}),
+          themeMode: legacy.themeMode,
+          themeAccent: legacy.themeAccent,
+          density: legacy.uiDensity,
+          viewMode: legacy.viewMode
+        },
+        layout: {
+          ...(typeof legacy.layout === "object" && legacy.layout ? legacy.layout : {}),
+          sidebarCollapsed: legacy.sidebarCollapsed,
+          rightPanelsCollapsed: legacy.rightPanelsCollapsed,
+          showSyncStatus: legacy.showSyncStatus
+        }
+      });
+      commitWorkspacePreferences(saved);
     } catch {
       window.localStorage.removeItem(UI_PREFERENCES_STORAGE_KEY);
     }
@@ -1587,22 +1706,32 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    syncWorkspaceThemeDom(themeMode, themeAccent, uiDensity);
-    window.localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify({
-      themePreset,
-      themeMode,
-      themeAccent,
-      uiDensity,
-      sidebarCollapsed,
-      rightPanelsCollapsed,
-      showSyncStatus
-    }));
+    const nextPreferences = normalizeAtlasPreferences({
+      ...workspacePreferences,
+      appearance: {
+        ...workspacePreferences.appearance,
+        themeMode,
+        themeAccent,
+        customAccent,
+        density: uiDensity,
+        viewMode
+      },
+      layout: {
+        ...workspacePreferences.layout,
+        sidebarCollapsed,
+        rightPanelsCollapsed,
+        showSyncStatus
+      }
+    });
+    syncWorkspaceThemeDom(nextPreferences.appearance.themeMode, nextPreferences.appearance.themeAccent, nextPreferences.appearance.density, nextPreferences.appearance.customAccent);
+    window.localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, serializeAtlasPreferences(nextPreferences));
+    setPreferencesJsonDraft(serializeAtlasPreferences(nextPreferences));
     if (!themeTelemetryReadyRef.current) {
       themeTelemetryReadyRef.current = true;
       return;
     }
-    void atlasHealth().catch(() => undefined);
-  }, [themePreset, themeMode, themeAccent, uiDensity, sidebarCollapsed, rightPanelsCollapsed, showSyncStatus]);
+    if (nextPreferences.privacy.telemetryHealthPing) void atlasHealth().catch(() => undefined);
+  }, [workspacePreferences, themePreset, themeMode, themeAccent, customAccent, uiDensity, viewMode, sidebarCollapsed, rightPanelsCollapsed, showSyncStatus]);
 
   useEffect(() => {
     const saved = restoreSavedSession();
@@ -7692,6 +7821,7 @@ export default function DashboardPage() {
                       <select value={themeMode} onChange={(event) => updateThemeMode(event.target.value as ThemeMode)}>
                         <option value="light">Light glass</option>
                         <option value="dark">Dark glass</option>
+                        <option value="system">System</option>
                         <option value="contrast">High contrast</option>
                       </select>
                     </Field>
@@ -7702,13 +7832,26 @@ export default function DashboardPage() {
                         <option value="ocean">Ocean blue</option>
                         <option value="emerald">Forest green</option>
                         <option value="sunset">Sunset orange</option>
+                        <option value="custom">Custom</option>
                       </select>
                     </Field>
+                    {themeAccent === "custom" && (
+                      <Field label="Custom accent">
+                        <input type="color" value={customAccent} onChange={(event) => updateCustomAccent(event.target.value)} />
+                      </Field>
+                    )}
                     <Field label="Density">
                       <select value={uiDensity} onChange={(event) => updateUiDensity(event.target.value as UiDensity)}>
                         <option value="comfortable">Comfortable</option>
                         <option value="standard">Standard</option>
                         <option value="compact">Compact</option>
+                      </select>
+                    </Field>
+                    <Field label="View mode">
+                      <select value={viewMode} onChange={(event) => updateViewMode(event.target.value as ViewMode)}>
+                        <option value="grid">Grid</option>
+                        <option value="list">List</option>
+                        <option value="split">Split</option>
                       </select>
                     </Field>
                   </div>
@@ -7726,6 +7869,93 @@ export default function DashboardPage() {
                     <span><CheckCircle2 size={15} /> Batch destructive changes</span>
                     <span><CheckCircle2 size={15} /> Keep allocation snapshots</span>
                     <span><CheckCircle2 size={15} /> Explain locked rows</span>
+                  </div>
+                </div>
+              </div>
+              <div className="settings-system-matrix">
+                <div className="settings-module-card">
+                  <div className="card-title"><KeyboardIcon /> Keyboard shortcuts</div>
+                  <p className="muted">VS Code-inspired keybindings framework. Shortcuts are typed, scoped, and JSON-exportable.</p>
+                  <div className="settings-shortcut-list">
+                    {workspacePreferences.shortcuts.map((shortcut) => (
+                      <label className="settings-shortcut-row" key={shortcut.id}>
+                        <input type="checkbox" checked={shortcut.enabled} onChange={() => toggleShortcut(shortcut.id)} />
+                        <span>
+                          <strong>{shortcut.label}</strong>
+                          <small>{shortcut.scope} / {shortcut.id}</small>
+                        </span>
+                        <kbd>{shortcut.keys.join(" + ")}</kbd>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-module-card">
+                  <div className="card-title"><Bell size={18} /> Notifications</div>
+                  <div className="settings-toggle-grid">
+                    {[
+                      ["inApp", "In-app alerts"],
+                      ["desktop", "Desktop alerts"],
+                      ["email", "Email alerts"],
+                      ["yearEndAlerts", "Year-end alerts"],
+                      ["installerAlerts", "Installer alerts"],
+                      ["loanAlerts", "Loan alerts"],
+                      ["selfServiceAlerts", "Self-service alerts"]
+                    ].map(([key, label]) => (
+                      <label className="switch-row" key={key}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(workspacePreferences.notifications[key as keyof AtlasUserPreferences["notifications"]])}
+                          onChange={(event) => updateNotificationPreference(key as keyof AtlasUserPreferences["notifications"], event.target.checked)}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                    <Field label="Digest">
+                      <select
+                        value={workspacePreferences.notifications.digestFrequency}
+                        onChange={(event) => updateNotificationPreference("digestFrequency", event.target.value as AtlasUserPreferences["notifications"]["digestFrequency"])}
+                      >
+                        <option value="off">Off</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+                <div className="settings-module-card">
+                  <div className="card-title"><ShieldCheck size={18} /> Privacy</div>
+                  <div className="settings-toggle-grid">
+                    {[
+                      ["maskAmountsInScreenshots", "Mask amounts in screenshots"],
+                      ["hideEmployeeIdentifiers", "Hide employee identifiers"],
+                      ["rememberSession", "Remember session"],
+                      ["telemetryHealthPing", "Allow health ping after preference changes"]
+                    ].map(([key, label]) => (
+                      <label className="switch-row" key={key}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(workspacePreferences.privacy[key as keyof AtlasUserPreferences["privacy"]])}
+                          onChange={(event) => updatePrivacyPreference(key as keyof AtlasUserPreferences["privacy"], event.target.checked)}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-module-card settings-json-card">
+                  <div className="card-title"><Database size={18} /> Sync / Export / Import</div>
+                  <p className="muted">JSON schema-backed configuration. Export for backup, paste JSON to restore, or compare settings between machines.</p>
+                  <textarea
+                    value={preferencesJsonDraft}
+                    onChange={(event) => setPreferencesJsonDraft(event.target.value)}
+                    spellCheck={false}
+                    aria-label="ATLAS preferences JSON"
+                  />
+                  <div className="button-row compact">
+                    <button className="mini-soft" type="button" onClick={() => setPreferencesJsonDraft(serializeAtlasPreferences(workspacePreferences))}>Refresh JSON</button>
+                    <button className="mini-soft" type="button" onClick={importWorkspacePreferences}>Import JSON</button>
+                    <button className="mini-soft" type="button" onClick={exportWorkspacePreferences}>Export JSON</button>
+                    <button className="mini-soft" type="button" onClick={() => setPreferencesJsonDraft(JSON.stringify(atlasPreferencesSchema, null, 2))}>Show schema</button>
                   </div>
                 </div>
               </div>
