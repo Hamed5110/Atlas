@@ -63,6 +63,75 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.ext_e
     CREATE INDEX IX_ext_employee_auth_claims_User_Active ON dbo.ext_employee_auth_claims(UserID, IsActive) INCLUDE (EmployeeID, PortalRole, ClaimType, ClaimValue);
 GO
 
+CREATE OR ALTER PROCEDURE dbo.ext_sp_UpsertEmployeeAuthClaim
+    @UserID INT,
+    @EmployeeID INT,
+    @ClaimType NVARCHAR(40) = N'employee_portal',
+    @ClaimValue NVARCHAR(200),
+    @PortalRole NVARCHAR(20) = N'Employee',
+    @IsActive BIT = 1,
+    @ActorUserID INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF @UserID IS NULL OR @UserID <= 0
+            THROW 51031, 'UserID is required for employee portal claim upsert.', 1;
+        IF @EmployeeID IS NULL OR @EmployeeID <= 0
+            THROW 51032, 'EmployeeID is required for employee portal claim upsert.', 1;
+        IF NULLIF(LTRIM(RTRIM(ISNULL(@ClaimType, N''))), N'') IS NULL
+            THROW 51033, 'ClaimType is required for employee portal claim upsert.', 1;
+        IF NULLIF(LTRIM(RTRIM(ISNULL(@ClaimValue, N''))), N'') IS NULL
+            THROW 51034, 'ClaimValue is required for employee portal claim upsert.', 1;
+        IF @PortalRole NOT IN (N'Employee', N'Admin')
+            THROW 51035, 'PortalRole must be Employee or Admin.', 1;
+
+        SET @ClaimType = LTRIM(RTRIM(@ClaimType));
+        SET @ClaimValue = LTRIM(RTRIM(@ClaimValue));
+        SET @ActorUserID = COALESCE(@ActorUserID, @UserID);
+
+        BEGIN TRANSACTION;
+
+        UPDATE dbo.ext_employee_auth_claims WITH (UPDLOCK, HOLDLOCK)
+        SET ClaimValue = @ClaimValue,
+            PortalRole = @PortalRole,
+            IsActive = @IsActive,
+            UpdatedAt = SYSUTCDATETIME(),
+            UpdatedBy = @ActorUserID
+        WHERE UserID = @UserID
+          AND EmployeeID = @EmployeeID
+          AND ClaimType = @ClaimType;
+
+        IF @@ROWCOUNT = 0
+        BEGIN
+            INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, IsActive, CreatedBy)
+            VALUES (@UserID, @EmployeeID, @ClaimType, @ClaimValue, @PortalRole, @IsActive, @ActorUserID);
+        END;
+
+        COMMIT TRANSACTION;
+
+        SELECT TOP 1 ClaimID, UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, IsActive, CreatedAt, UpdatedAt
+        FROM dbo.ext_employee_auth_claims
+        WHERE UserID = @UserID
+          AND EmployeeID = @EmployeeID
+          AND ClaimType = @ClaimType;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+
+        DECLARE @ErrorNumber INT = ERROR_NUMBER();
+        DECLARE @ErrorMessage NVARCHAR(2048) = ERROR_MESSAGE();
+
+        IF @ErrorNumber IN (2601, 2627)
+            THROW 51036, 'Employee portal claim already exists; retry the operation as an idempotent update.', 1;
+
+        THROW;
+    END CATCH;
+END;
+GO
+
 IF OBJECT_ID(N'dbo.ext_employee_allowance_requests', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.ext_employee_allowance_requests (

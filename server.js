@@ -757,6 +757,35 @@ function isSqlRetryableError(err) {
         /deadlocked|modified during DDL execution|Please retry/i.test(String(err?.message || ''));
 }
 
+function sqlErrorNumber(err) {
+    return Number(err?.number || err?.originalError?.info?.number || err?.precedingErrors?.[0]?.number || 0);
+}
+
+function isSqlDuplicateKeyError(err) {
+    const text = `${err?.message || ''} ${err?.originalError?.info?.message || ''}`;
+    return [2601, 2627, 51036].includes(sqlErrorNumber(err)) ||
+        /duplicate key|UNIQUE KEY constraint|Cannot insert duplicate key/i.test(text);
+}
+
+function toApiSqlError(err, fallback = 'Server error') {
+    if (err?.statusCode) return { status: err.statusCode, body: { code: err.code, error: err.message || fallback } };
+    if (isSqlDuplicateKeyError(err)) {
+        return {
+            status: 409,
+            body: {
+                code: 'DUPLICATE_KEY',
+                error: 'This record already exists. The request was not applied twice; refresh and continue.'
+            }
+        };
+    }
+    return { status: 500, body: { error: err?.message || fallback } };
+}
+
+function respondApiError(res, err, fallback = 'Server error') {
+    const apiError = toApiSqlError(err, fallback);
+    return res.status(apiError.status).json(apiError.body);
+}
+
 async function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -813,6 +842,20 @@ async function ensureEmployeePortalExtensionSql(db) {
     }
 }
 
+async function upsertEmployeePortalClaim(db, { userId, employeeId, claimValue, portalRole = 'Employee', isActive = true, actorUserId = null }) {
+    await ensureEmployeePortalExtensionSql(db);
+    const result = await db.request()
+        .input('UserID', sql.Int, Number(userId))
+        .input('EmployeeID', sql.Int, Number(employeeId))
+        .input('ClaimType', sql.NVarChar(40), 'employee_portal')
+        .input('ClaimValue', sql.NVarChar(200), String(claimValue || '').trim())
+        .input('PortalRole', sql.NVarChar(20), portalRole === 'Admin' ? 'Admin' : 'Employee')
+        .input('IsActive', sql.Bit, isActive ? 1 : 0)
+        .input('ActorUserID', sql.Int, actorUserId || userId)
+        .execute('dbo.ext_sp_UpsertEmployeeAuthClaim');
+    return result.recordset?.[0] || null;
+}
+
 async function resolveEmployeePortalContext(db, userId) {
     await ensureEmployeePortalExtensionSql(db);
     const claimResult = await db.request()
@@ -840,19 +883,13 @@ async function resolveEmployeePortalContext(db, userId) {
     const autoMap = autoMapResult.recordset[0];
     if (autoMap) {
         const portalRole = autoMap.Role === 'admin' ? 'Admin' : 'Employee';
-        await db.request()
-            .input('UserID', sql.Int, userId)
-            .input('EmployeeID', sql.Int, autoMap.EmployeeID)
-            .input('ClaimValue', sql.NVarChar(200), autoMap.Email || autoMap.Username)
-            .input('PortalRole', sql.NVarChar(20), portalRole)
-            .query(`
-                IF NOT EXISTS (
-                    SELECT 1 FROM dbo.ext_employee_auth_claims
-                    WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal'
-                )
-                INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, CreatedBy)
-                VALUES (@UserID, @EmployeeID, N'employee_portal', @ClaimValue, @PortalRole, @UserID);
-            `);
+        await upsertEmployeePortalClaim(db, {
+            userId,
+            employeeId: autoMap.EmployeeID,
+            claimValue: autoMap.Email || autoMap.Username,
+            portalRole,
+            actorUserId: userId
+        });
         return { ...autoMap, PortalRole: portalRole, setupRequired: false };
     }
 
@@ -876,18 +913,13 @@ async function resolveEmployeePortalContext(db, userId) {
         `);
     const adminFallback = adminFallbackResult.recordset[0];
     if (adminFallback) {
-        await db.request()
-            .input('UserID', sql.Int, userId)
-            .input('EmployeeID', sql.Int, adminFallback.EmployeeID)
-            .input('ClaimValue', sql.NVarChar(200), `admin-default:${adminFallback.Username || adminFallback.UserID}`)
-            .query(`
-                IF NOT EXISTS (
-                    SELECT 1 FROM dbo.ext_employee_auth_claims
-                    WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal'
-                )
-                INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, CreatedBy)
-                VALUES (@UserID, @EmployeeID, N'employee_portal', @ClaimValue, N'Admin', @UserID);
-            `);
+        await upsertEmployeePortalClaim(db, {
+            userId,
+            employeeId: adminFallback.EmployeeID,
+            claimValue: `admin-default:${adminFallback.Username || adminFallback.UserID}`,
+            portalRole: 'Admin',
+            actorUserId: userId
+        });
         return { ...adminFallback, PortalRole: 'Admin', setupRequired: false };
     }
 
@@ -967,30 +999,18 @@ async function syncEmployeeSelfServiceClaim(db, userId, role, employeeId, actorU
     await db.request()
         .input('UserID', sql.Int, userId)
         .input('EmployeeID', sql.Int, employee.EmployeeID)
-        .input('ClaimValue', sql.NVarChar(200), employee.EmployeeCode)
-        .input('CreatedBy', sql.Int, actorUserId || userId)
         .query(`
             UPDATE dbo.ext_employee_auth_claims
             SET IsActive = 0
             WHERE UserID = @UserID AND ClaimType = N'employee_portal' AND EmployeeID <> @EmployeeID;
-
-            IF EXISTS (
-                SELECT 1 FROM dbo.ext_employee_auth_claims
-                WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal'
-            )
-            BEGIN
-                UPDATE dbo.ext_employee_auth_claims
-                SET ClaimValue = @ClaimValue,
-                    PortalRole = N'Employee',
-                    IsActive = 1
-                WHERE UserID = @UserID AND EmployeeID = @EmployeeID AND ClaimType = N'employee_portal';
-            END
-            ELSE
-            BEGIN
-                INSERT INTO dbo.ext_employee_auth_claims (UserID, EmployeeID, ClaimType, ClaimValue, PortalRole, CreatedBy)
-                VALUES (@UserID, @EmployeeID, N'employee_portal', @ClaimValue, N'Employee', @CreatedBy);
-            END
         `);
+    await upsertEmployeePortalClaim(db, {
+        userId,
+        employeeId: employee.EmployeeID,
+        claimValue: employee.EmployeeCode,
+        portalRole: 'Employee',
+        actorUserId: actorUserId || userId
+    });
     return employee;
 }
 
@@ -2691,7 +2711,7 @@ app.get('/api/employee-self-service/summary', authenticateToken, async (req, res
         });
     } catch (err) {
         logger.error('Employee self-service summary error:', err);
-        res.status(err.statusCode || 500).json({ error: err.message || 'Employee self-service summary failed' });
+        respondApiError(res, err, 'Employee self-service summary failed');
     }
 });
 
@@ -2724,7 +2744,7 @@ app.get('/api/employee-self-service/requests', authenticateToken, async (req, re
         res.json(result.recordset);
     } catch (err) {
         logger.error('Employee self-service requests error:', err);
-        res.status(err.statusCode || 500).json({ error: err.message || 'Employee self-service requests failed' });
+        respondApiError(res, err, 'Employee self-service requests failed');
     }
 });
 
@@ -2779,7 +2799,7 @@ app.post('/api/employee-self-service/requests', authenticateToken, async (req, r
         res.status(201).json(result.recordset[0]);
     } catch (err) {
         logger.error('Employee self-service create request error:', err);
-        res.status(err.statusCode || 500).json({ error: err.message || 'Employee self-service request failed' });
+        respondApiError(res, err, 'Employee self-service request failed');
     }
 });
 
@@ -2831,7 +2851,7 @@ app.post('/api/employee-self-service/requests/:id/transition', authenticateToken
         res.json({ ...updatedRequest, LinkedAllocationID: linkedAllocation?.AllocationID || updatedRequest.LinkedAllocationID || null });
     } catch (err) {
         logger.error('Employee self-service transition error:', err);
-        res.status(500).json({ error: err.message || 'Employee self-service transition failed' });
+        respondApiError(res, err, 'Employee self-service transition failed');
     }
 });
 
@@ -2913,10 +2933,10 @@ app.post('/api/users', authenticateToken, requireRole('admin'), async (req, res)
         res.status(201).json(newUser);
     } catch (err) {
         logger.error('Create user error:', err);
-        if (err.message && (err.message.includes('UNIQUE') || err.message.includes('duplicate'))) {
+        if (isSqlDuplicateKeyError(err)) {
             return res.status(409).json({ error: 'Username or email already exists' });
         }
-        res.status(500).json({ error: 'Server error' });
+        respondApiError(res, err, 'Create user failed');
     }
 });
 
@@ -2985,7 +3005,7 @@ app.put('/api/users/:id', authenticateToken, requireRole('admin'), async (req, r
         res.json(updatedUser);
     } catch (err) {
         logger.error('Update user error:', err);
-        res.status(err.statusCode || 500).json({ error: err.message || 'Server error' });
+        respondApiError(res, err, 'Update user failed');
     }
 });
 

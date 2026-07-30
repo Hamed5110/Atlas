@@ -5,6 +5,7 @@ const path = require('path');
 const sqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_Company_Admin.sql'), 'utf8');
 const hcmSqlText = fs.readFileSync(path.join(__dirname, '..', 'database', 'ATLAS_HCM_SQL_Objects.sql'), 'utf8');
 const serverText = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const employeePortalSqlText = fs.readFileSync(path.join(__dirname, '..', 'extensions', 'employee-portal', 'sql', 'ATLAS_Employee_Portal_Extension.sql'), 'utf8');
 
 assert.match(sqlText, /CREATE TABLE dbo\.Companies/i, 'Companies table should be defined');
 assert.match(sqlText, /CREATE TABLE dbo\.CompanyBackups/i, 'CompanyBackups table should be defined');
@@ -29,6 +30,12 @@ assert.match(serverText, /app\.use\('\/api\/health', supportLimiter\)[\s\S]*app\
 assert.match(serverText, /Retry-After[\s\S]*API_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'API rate-limit response should include retry guidance');
 assert.match(serverText, /SUPPORT_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'Support rate-limit response should include structured retry guidance');
 assert.match(serverText, /AUTH_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'Auth rate-limit response should include structured retry guidance');
+assert.match(employeePortalSqlText, /CREATE OR ALTER PROCEDURE dbo\.ext_sp_UpsertEmployeeAuthClaim/i, 'Employee portal claim sync should be handled by a stored procedure');
+assert.match(employeePortalSqlText, /UPDATE dbo\.ext_employee_auth_claims WITH \(UPDLOCK, HOLDLOCK\)[\s\S]*IF @@ROWCOUNT = 0[\s\S]*INSERT INTO dbo\.ext_employee_auth_claims/i, 'Employee portal claim stored procedure should use a locked UPSERT pattern');
+assert.match(employeePortalSqlText, /BEGIN TRY[\s\S]*BEGIN CATCH[\s\S]*ERROR_NUMBER\(\)[\s\S]*2601[\s\S]*2627/i, 'Employee portal claim stored procedure should catch duplicate key SQL errors');
+assert.match(serverText, /function isSqlDuplicateKeyError[\s\S]*2601[\s\S]*2627[\s\S]*DUPLICATE_KEY/i, 'API should classify SQL duplicate key errors as conflict responses');
+assert.match(serverText, /execute\('dbo\.ext_sp_UpsertEmployeeAuthClaim'\)/i, 'Backend should call the employee portal claim UPSERT procedure');
+assert.doesNotMatch(serverText, /IF NOT EXISTS \([\s\S]{0,220}dbo\.ext_employee_auth_claims[\s\S]{0,220}INSERT INTO dbo\.ext_employee_auth_claims/i, 'Backend should not use race-prone IF NOT EXISTS claim inserts');
 assert.match(serverText, /GET \/api\/opening-balances/i, 'Opening balance list API should exist');
 assert.match(serverText, /GET \/api\/opening-loan-balances/i, 'Opening loan balance list API should exist');
 assert.match(serverText, /POST \/api\/opening-balances/i, 'Opening balance save API should exist');
