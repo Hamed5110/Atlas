@@ -218,13 +218,73 @@ input, select, button { max-width: 100%; }
   gap: var(--atlas-space-3);
   border-radius: var(--atlas-radius-lg);
   background: rgba(255, 255, 255, .98);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.atlas-sidebar-header {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: start;
+  gap: var(--atlas-space-2);
+  min-width: 0;
+  border-bottom: 1px solid var(--atlas-border-muted);
+  padding-bottom: var(--atlas-space-3);
 }
 
 .atlas-sidebar .brand-mark {
   min-height: 40px;
-  padding: 0 38px 0 0;
-  border-bottom: 1px solid var(--atlas-border-muted);
-  padding-bottom: var(--atlas-space-3);
+  min-width: 0;
+  padding: 0;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.atlas-sidebar .sidebar-toggle {
+  position: static;
+  width: 32px;
+  height: 32px;
+  transform: none;
+  box-shadow: none;
+}
+
+.atlas-sidebar-context {
+  flex: 0 0 auto;
+  display: grid;
+  gap: var(--atlas-space-2);
+  min-width: 0;
+}
+
+.atlas-sidebar-nav-zone {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
+.atlas-sidebar-nav-zone::-webkit-scrollbar {
+  width: 8px;
+}
+
+.atlas-sidebar-nav-zone::-webkit-scrollbar-thumb {
+  background: rgba(87, 96, 106, .28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.atlas-sidebar-nav-zone::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.atlas-sidebar-footer {
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .atlas-sidebar .brand-orb,
@@ -239,10 +299,30 @@ input, select, button { max-width: 100%; }
 .atlas-sidebar .company-switcher,
 .atlas-sidebar .fiscal-context-switcher,
 .atlas-sidebar .sidebar-card {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--atlas-border-muted);
   border-radius: var(--atlas-radius-md);
   background: var(--atlas-subtle);
   padding: var(--atlas-space-3);
+}
+
+.atlas-sidebar .company-switcher select,
+.atlas-sidebar .fiscal-stepper,
+.atlas-sidebar .fiscal-stepper select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.atlas-sidebar .fiscal-stepper {
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+}
+
+.atlas-sidebar .fiscal-stepper button {
+  width: 34px;
+  min-width: 34px;
 }
 
 .atlas-sidebar .fiscal-context-switcher {
@@ -255,15 +335,17 @@ input, select, button { max-width: 100%; }
 
 .atlas-nav .nav-item {
   min-height: 38px;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: var(--atlas-space-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 10px;
   border-radius: var(--atlas-radius-md);
   background: transparent;
   color: var(--atlas-muted);
   box-shadow: none;
   transform: none;
+  overflow: hidden;
 }
 
 .atlas-nav .nav-item:hover,
@@ -286,11 +368,23 @@ input, select, button { max-width: 100%; }
 .atlas-nav .nav-item.active svg {
   width: 18px;
   height: 18px;
+  flex: 0 0 18px;
   color: currentColor;
   transform: none;
 }
 
+.atlas-nav .nav-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.25;
+}
+
 .nav-hint {
+  margin-left: auto;
+  flex: 0 0 auto;
   padding: 2px 5px;
   border: 1px solid var(--atlas-border-muted);
   border-radius: var(--atlas-radius-sm);
@@ -439,12 +533,44 @@ input, select, button { max-width: 100%; }
   grid-template-columns: 68px minmax(0, 1fr);
 }
 
+.sidebar-collapsed .atlas-sidebar {
+  padding: var(--atlas-space-2);
+  align-items: stretch;
+}
+
+.sidebar-collapsed .atlas-sidebar-header {
+  grid-template-columns: 1fr;
+  place-items: center;
+  padding-bottom: var(--atlas-space-2);
+}
+
+.sidebar-collapsed .atlas-sidebar .brand-mark {
+  justify-content: center;
+}
+
+.sidebar-collapsed .atlas-sidebar-context {
+  display: none;
+}
+
 .sidebar-collapsed .atlas-nav .nav-item {
   grid-template-columns: 1fr;
+  justify-content: center;
+  padding: 9px;
+}
+
+.sidebar-collapsed .atlas-sidebar-nav-zone {
+  padding-right: 0;
 }
 
 .sidebar-collapsed .nav-hint {
   display: none;
+}
+
+.sidebar-collapsed .atlas-sidebar-footer .sidebar-card {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--atlas-space-2);
+  place-items: center;
 }
 
 .shell {
@@ -2933,18 +3059,29 @@ h3 { font-size: 17px; letter-spacing: 0; }
     max-height: none;
   }
 
+  .atlas-sidebar-context,
+  .atlas-sidebar-footer {
+    flex-shrink: 0;
+  }
+
+  .atlas-sidebar-nav-zone {
+    flex: 0 1 auto;
+    max-height: 240px;
+  }
+
   .atlas-sidebar .brand-mark {
     padding-right: 0;
   }
 
-  .atlas-nav {
+  .atlas-sidebar-nav-zone .atlas-nav {
     display: flex;
     gap: var(--atlas-space-2);
     overflow-x: auto;
+    overflow-y: hidden;
     padding-bottom: 2px;
   }
 
-  .atlas-nav .nav-item {
+  .atlas-sidebar-nav-zone .atlas-nav .nav-item {
     width: auto;
     min-width: max-content;
   }
@@ -2982,8 +3119,7 @@ h3 { font-size: 17px; letter-spacing: 0; }
     border-radius: 10px;
   }
 
-  .atlas-sidebar .company-switcher,
-  .atlas-sidebar .fiscal-context-switcher,
+  .atlas-sidebar .atlas-sidebar-context,
   .atlas-sidebar .sidebar-card {
     display: none;
   }

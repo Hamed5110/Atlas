@@ -5794,77 +5794,85 @@ export default function DashboardPage() {
       data-view={viewMode}
     >
       <aside className="sidebar atlas-sidebar glass-panel" aria-label="Primary navigation">
-        <button
-          className="sidebar-toggle"
-          type="button"
-          onClick={() => setSidebarCollapsed((current) => !current)}
-          title={sidebarCollapsed ? "Expand menu" : "Collapse menu"}
-          aria-label={sidebarCollapsed ? "Expand menu" : "Collapse menu"}
-        >
-          {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </button>
-        <div className="brand-mark">
-          <div className="brand-orb">
-            {companyLogoUrl ? <img src={companyLogoUrl} alt={`${activeCompany?.CompanyName || "ATLAS"} logo`} /> : <Plane size={22} />}
-          </div>
-          <div className="sidebar-text">
-            <strong>{activeCompany?.CompanyName || "ATLAS"}</strong>
-            <span>{activeCompany?.CompanyCode || "Airfare HCM"}</span>
-          </div>
-        </div>
-        {!isEmployeePortalSession ? (
-          <label className="company-switcher">
-            <span>Company</span>
-            <select value={selectedCompanyId} onChange={(event) => handleCompanySwitch(event.target.value)}>
-              {companies.map((company) => <option key={company.CompanyID} value={company.CompanyID}>{company.CompanyName}</option>)}
-            </select>
-          </label>
-        ) : null}
-        {!isEmployeePortalSession ? (
-          <div className="company-switcher fiscal-context-switcher">
-            <span>Fiscal year</span>
-            <div className="fiscal-stepper">
-              <button type="button" disabled={busy || activeFiscalYearNumber <= 2000} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber - 1)} title="Previous fiscal year" aria-label="Previous fiscal year">
-                <ChevronLeft size={16} />
-              </button>
-              <select
-                value={activeFiscalYear}
-                onChange={(event) => void handleFiscalYearSwitch(event.target.value)}
-                aria-label="Global fiscal year"
-              >
-                {fiscalYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
-              </select>
-              <button type="button" disabled={busy || activeFiscalYearNumber >= 2100} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber + 1)} title="Next fiscal year" aria-label="Next fiscal year">
-                <ChevronRight size={16} />
-              </button>
+        <div className="atlas-sidebar-header">
+          <div className="brand-mark">
+            <div className="brand-orb">
+              {companyLogoUrl ? <img src={companyLogoUrl} alt={`${activeCompany?.CompanyName || "ATLAS"} logo`} /> : <Plane size={22} />}
+            </div>
+            <div className="sidebar-text">
+              <strong>{activeCompany?.CompanyName || "ATLAS"}</strong>
+              <span>{activeCompany?.CompanyCode || "Airfare HCM"}</span>
             </div>
           </div>
-        ) : null}
-        <nav className="atlas-nav">
-          {visibleNav.map((item, index) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={activeView === item.view ? "nav-item active" : "nav-item"}
-                key={`${item.view}-${item.label}`}
-                type="button"
-                onClick={() => {
-                  setActiveView(item.view);
-                  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
-                }}
-              >
-                <Icon size={18} />
-                <span className="nav-label">{item.label}</span>
-                <kbd className="nav-hint">⌘{index + 1}</kbd>
-              </button>
-            );
-          })}
-        </nav>
-        {!isEmployeePortalSession ? <div className="sidebar-card">
-          <Sparkles size={18} />
-          <strong className="sidebar-text">Excel formula locked</strong>
-          <span className="sidebar-text">SQL policy formula locked</span>
-        </div> : null}
+          <button
+            className="sidebar-toggle"
+            type="button"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            title={sidebarCollapsed ? "Expand menu" : "Collapse menu"}
+            aria-label={sidebarCollapsed ? "Expand menu" : "Collapse menu"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        </div>
+        <div className="atlas-sidebar-context">
+          {!isEmployeePortalSession ? (
+            <label className="company-switcher">
+              <span>Company</span>
+              <select value={selectedCompanyId} onChange={(event) => handleCompanySwitch(event.target.value)}>
+                {companies.map((company) => <option key={company.CompanyID} value={company.CompanyID}>{company.CompanyName}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {!isEmployeePortalSession ? (
+            <div className="company-switcher fiscal-context-switcher">
+              <span>Fiscal year</span>
+              <div className="fiscal-stepper">
+                <button type="button" disabled={busy || activeFiscalYearNumber <= 2000} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber - 1)} title="Previous fiscal year" aria-label="Previous fiscal year">
+                  <ChevronLeft size={16} />
+                </button>
+                <select
+                  value={activeFiscalYear}
+                  onChange={(event) => void handleFiscalYearSwitch(event.target.value)}
+                  aria-label="Global fiscal year"
+                >
+                  {fiscalYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+                <button type="button" disabled={busy || activeFiscalYearNumber >= 2100} onClick={() => void handleFiscalYearSwitch(activeFiscalYearNumber + 1)} title="Next fiscal year" aria-label="Next fiscal year">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="atlas-sidebar-nav-zone">
+          <nav className="atlas-nav">
+            {visibleNav.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  className={activeView === item.view ? "nav-item active" : "nav-item"}
+                  key={`${item.view}-${item.label}`}
+                  type="button"
+                  onClick={() => {
+                    setActiveView(item.view);
+                    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+                  }}
+                >
+                  <Icon size={18} />
+                  <span className="nav-label">{item.label}</span>
+                  <kbd className="nav-hint">⌘{index + 1}</kbd>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+        <div className="atlas-sidebar-footer">
+          {!isEmployeePortalSession ? <div className="sidebar-card">
+            <Sparkles size={18} />
+            <strong className="sidebar-text">Excel formula locked</strong>
+            <span className="sidebar-text">SQL policy formula locked</span>
+          </div> : null}
+        </div>
       </aside>
 
       <section className="workspace atlas-workspace">
