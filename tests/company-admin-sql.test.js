@@ -54,6 +54,8 @@ assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId
 assert.match(serverText, /ATLAS_HCM_SQL_Objects\.sql/i, 'Server SQL repair should apply HCM SQL objects when the delete procedure is missing');
 assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy delete should fall back to runtime delete if database repair is blocked');
 assert.match(serverText, /sp_Preference_DeleteSoft/i, 'Airfare policy delete should call the SQL-owned delete procedure');
+assert.match(serverText, /forcePurge[\s\S]*sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy delete should support an explicit force purge path');
+assert.match(serverText, /Force purged[\s\S]*airfare policy/i, 'Airfare policy force purge should write an audit message');
 assert.match(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should hard-delete the policy row when delete is safe');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
 assert.match(serverText, /Airfare policy rule deleted completely\./i, 'Airfare policy delete should report complete delete success');

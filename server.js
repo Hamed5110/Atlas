@@ -5494,6 +5494,7 @@ app.get('/api/airfare-policy-rates/:policyRateId(\\d+)/references', authenticate
         res.json({
             policyRateId,
             canDelete: Boolean(policy.CanDelete),
+            canForcePurge: true,
             lockReason: policy.LockReason || 'Preference is locked.',
             references: referenceResult.recordset || []
         });
@@ -5561,21 +5562,38 @@ async function deactivateAirfarePolicyRate(req, res) {
             logger.warn('ATLAS SQL object verification could not finish before delete; runtime delete fallback remains available.', sqlObjectErr);
         }
         let result;
+        const forcePurge = String(req.query.force || '').toLowerCase() === 'true' || Boolean(req.body?.forcePurge);
         try {
+            if (forcePurge) {
+                result = await withSqlRetry(() => db.request()
+                    .input('PolicyRateID', sql.BigInt, policyRateId)
+                    .input('DeletedBy', sql.Int, req.user.userId)
+                    .input('DeleteReason', sql.NVarChar(400), `Forced airfare preference purge requested by ${req.user.username || 'system'}`)
+                    .execute('dbo.sp_ATLAS_PurgeAirfarePolicyRate'), 'force purge airfare policy rate');
+            } else {
             result = await withSqlRetry(() => db.request()
                 .input('PreferenceID', sql.BigInt, policyRateId)
                 .input('DeletedBy', sql.Int, req.user.userId)
                 .input('AuditReason', sql.NVarChar(400), `Preference delete requested by ${req.user.username || 'system'}`)
                 .execute('dbo.sp_Preference_DeleteSoft'), 'soft delete airfare policy rate');
+            }
         } catch (err) {
             logger.warn('Soft-delete SQL procedure failed during request; repairing SQL objects and retrying runtime fallback.', err);
             await ensureAtlasSqlObjects(db, { force: true });
-            result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
-                db,
-                policyRateId,
-                req.user.userId,
-                `Preference delete requested by ${req.user.username || 'system'}`
-                ), 'runtime fallback deactivate airfare policy rate after repair');
+            if (forcePurge && await hasSqlObject(db, 'dbo.sp_ATLAS_PurgeAirfarePolicyRate', 'P')) {
+                result = await withSqlRetry(() => db.request()
+                    .input('PolicyRateID', sql.BigInt, policyRateId)
+                    .input('DeletedBy', sql.Int, req.user.userId)
+                    .input('DeleteReason', sql.NVarChar(400), `Forced airfare preference purge requested by ${req.user.username || 'system'}`)
+                    .execute('dbo.sp_ATLAS_PurgeAirfarePolicyRate'), 'force purge airfare policy rate after repair');
+            } else {
+                result = await withSqlRetry(() => fallbackDeactivateAirfarePolicyRate(
+                    db,
+                    policyRateId,
+                    req.user.userId,
+                    `Preference delete requested by ${req.user.username || 'system'}`
+                    ), 'runtime fallback deactivate airfare policy rate after repair');
+            }
         }
         let deletedPolicy = result.recordset?.[0] || null;
         if (!deletedPolicy) {
@@ -5592,10 +5610,12 @@ async function deactivateAirfarePolicyRate(req, res) {
         }
 
         const action = deletedPolicy.DeleteAction || 'soft_delete';
+        await logAudit(req.user.userId, req.user.username, forcePurge ? 'PURGE' : 'DELETE', 'AirfarePolicyRate', policyRateId, null, deletedPolicy,
+            `${forcePurge ? 'Force purged' : 'Deleted'} airfare policy #${policyRateId}`, req);
         res.json({
             status: 'success',
             action,
-            message: 'Airfare policy rule deleted completely.',
+            message: forcePurge ? 'Airfare policy rule force purged completely.' : 'Airfare policy rule deleted completely.',
             policyRate: deletedPolicy
         });
     } catch (err) {

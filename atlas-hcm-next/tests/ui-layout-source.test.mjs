@@ -254,7 +254,8 @@ assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*"POST"/, "preferences delete should retry through POST fallback when DELETE is blocked by a proxy or client security layer");
 assert.match(source, /fallbackError[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}[\s\S]*"POST"/, "preferences delete should retry through a direct POST fallback if the /delete compatibility route is missing");
 assert.match(source, /function isCurrentAirfarePolicyRate[\s\S]*rate\.IsActive && !rate\.EffectiveTo/, "preferences should still detect current policy rows for status display");
-assert.match(source, /function canDeleteAirfarePolicyRate[\s\S]*Boolean\(rate\.CanDelete\)/, "preferences delete actions should follow the backend can-delete contract for current and historical rows");
+assert.match(source, /function canDeleteAirfarePolicyRate[\s\S]*Boolean\(rate\.PolicyRateID\)/, "preferences delete actions should allow all airfare rows to open the delete workflow");
+assert.match(source, /forcePurge[\s\S]*DELETE ALL AIRFARE/, "preferences delete actions should force purge locked rows only after stronger confirmation");
 assert.match(source, /function getAirfarePolicyLockBadge[\s\S]*System locked[\s\S]*Locked/, "preferences should show short horizontal lock badges on protected rows");
 assert.match(source, /function getAirfarePolicyLockMessage[\s\S]*rate\.LockReason[\s\S]*system default policy[\s\S]*Delete source data to unlock/, "preferences should explain whether a policy is protected by SQL lock reasons or fallback scope messages");
 assert.match(server, /AS ActiveReferenceCount/, "airfare policy API should expose active reference counts for delete safety");
@@ -433,9 +434,9 @@ assert.match(css, /\.maintenance-grid\s*{[\s\S]*grid-template-columns:\s*minmax\
 assert.match(css, /@media \(max-width:\s*1120px\)[\s\S]*\.maintenance-grid[\s\S]*grid-template-columns:\s*1fr/, "maintenance screen should stack on tablet");
 assert.match(readFileSync(join(process.cwd(), "..", "installer", "Build-ATLAS-MSI.ps1"), "utf8"), /atlas-payload-manifest\.json[\s\S]*CompressionLevel=high[\s\S]*fileCount[\s\S]*totalBytes/, "MSI build should embed a payload manifest with compressed package metadata");
 assert.match(server, /app\.post\('\/api\/airfare-policy-rates\/:policyRateId\/delete'[\s\S]*deactivateAirfarePolicyRate/, "backend should expose a POST fallback for policy deletes");
-assert.match(source, /Type DELETE to confirm\./, "preferences delete should require typed confirmation");
+assert.match(source, /DELETE ALL AIRFARE/, "preferences delete should require stronger typed confirmation for forced airfare purges");
 assert.match(source, /Opened preference history for policy #/, "preferences grid should expose a history action");
-assert.match(source, /Select all deletable/, "preferences history bulk tools should support selecting all deletable rows");
+assert.match(source, /Select all airfare/, "preferences history bulk tools should support selecting all airfare preference rows");
 assert.match(server, /getEffectiveAirfarePolicy\(db, alloc\.date, alloc\.companyId \|\| null, alloc\.employeeId\)/, "allocation save and update should use scoped company and employee policy lookup");
 assert.match(source, /companies\/\$?\{selectedCompanyId\}\/logo|companies\/\$\{selectedCompanyId\}\/logo/, "selected company logo should load from the API");
 assert.match(server, /imgSrc:\s*\[[\s\S]*"blob:"/, "security policy should allow fetched company logos rendered through blob URLs");

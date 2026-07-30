@@ -211,6 +211,7 @@ export type PreferenceReferenceRow = {
 export type PreferenceDeletePreview = {
   policyRateId: number;
   canDelete: boolean;
+  canForcePurge?: boolean;
   lockReason: string;
   references: PreferenceReferenceRow[];
 };
