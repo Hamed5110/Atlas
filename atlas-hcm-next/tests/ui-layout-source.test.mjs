@@ -249,7 +249,7 @@ assert.match(css, /\.table-row\.policy-rate-row/, "policy rate history should us
 assert.match(source, /handleDeleteAirfarePolicyRate/, "preferences policy rules should expose delete logic");
 assert.match(source, /Delete preference rule/, "preferences policy rules should expose delete buttons for global, company, department, pay group, and employee rules");
 assert.match(source, /handleEditAirfarePolicyRate/, "preferences policy rules should expose edit-as-draft logic");
-assert.match(source, /Delete selected \(\{selectedPolicyRateIds\.size\}\)/, "preferences policy rules should support selected bulk delete");
+assert.match(source, /Delete selected \(\{selectedEditablePolicyCount\}\)/, "preferences policy rules should support selected bulk delete");
 assert.match(source, /\/airfare-policy-rates\/bulk-delete/, "preferences bulk delete should use one API request to avoid rate-limit bursts");
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}[\s\S]*"DELETE"/, "preferences delete should use the original stable policy DELETE endpoint");
 assert.match(source, /deleteAirfarePolicyRate[\s\S]*\/airfare-policy-rates\/\$\{policyRateId\}\/delete[\s\S]*"POST"/, "preferences delete should retry through POST fallback when DELETE is blocked by a proxy or client security layer");
@@ -267,7 +267,13 @@ assert.match(source, /title=\{getAirfarePolicyLockMessage\(rate\)\}/, "protected
 assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
-assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.4fr\)\s+minmax\(340px,\s*\.78fr\)/, "preferences should use a cleaner desktop right panel that reduces overflow");
+assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.45fr\)\s+minmax\(360px,\s*\.82fr\)/, "preferences should use a cleaner desktop right panel that reduces overflow");
+assert.match(source, /Settings command center/, "preferences should use the rebuilt settings command center hero");
+assert.match(source, /Protected global fallback/, "preferences should surface protected global fallback status");
+assert.match(source, /selectedEditablePolicyCount/, "preferences bulk delete should count only editable non-global rules");
+assert.match(css, /\.preferences-hero/, "preferences should style the rebuilt responsive hero");
+assert.match(css, /\.preferences-insight-grid/, "preferences should show responsive settings insight cards");
+assert.match(css, /\.preferences-bulk-toolbar/, "preferences should use a responsive bulk action toolbar");
 assert.match(css, /\.preferences-policy-card/, "airfare policy editor should be styled as a main preferences section");
 assert.match(css, /\.table-row\.preference-current-row\s*{[\s\S]*min-width:\s*850px/, "main preference rows should be simplified to reduce horizontal overflow");
 assert.match(css, /\.preference-lock-pill\s*{[\s\S]*white-space:\s*nowrap/, "preference lock pills should stay horizontal");

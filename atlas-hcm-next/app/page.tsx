@@ -1221,6 +1221,14 @@ export default function DashboardPage() {
   const visibleNav = isEmployeePortalSession ? nav.filter((item) => item.view === ESS_ONLY_VIEW) : nav;
   const selectedPolicyDate = allocationForm.date ? new Date(`${allocationForm.date}T00:00:00`) : new Date();
   const currentAirfarePolicyRates = airfarePolicyRates.filter((rate) => rate.IsActive && !rate.EffectiveTo);
+  const globalAirfarePolicyRates = airfarePolicyRates.filter((rate) => isGlobalAirfarePolicyRate(rate));
+  const editableAirfarePolicyRates = airfarePolicyRates.filter((rate) => canDeleteAirfarePolicyRate(rate));
+  const protectedAirfarePolicyRates = airfarePolicyRates.filter((rate) => !canDeleteAirfarePolicyRate(rate));
+  const selectedEditablePolicyCount = airfarePolicyRates.filter((rate) => selectedPolicyRateIds.has(rate.PolicyRateID) && canDeleteAirfarePolicyRate(rate)).length;
+  const latestGlobalAirfarePolicy = [...globalAirfarePolicyRates].sort((left, right) => (
+    new Date(String(right.EffectiveFrom)).getTime() - new Date(String(left.EffectiveFrom)).getTime()
+  ))[0];
+  const latestCurrentAirfarePolicy = currentAirfarePolicyRates[0] || latestGlobalAirfarePolicy;
   const selectedEffectivePolicyRate = [...airfarePolicyRates]
     .filter((rate) => {
       if (!rate.IsActive) return false;
@@ -7634,67 +7642,91 @@ export default function DashboardPage() {
         {activeView === "Preferences" && (
           <section className="preferences-page">
             <div className="glass-panel table-card">
-              <div className="card-title"><Settings size={18} /> Preferences and custom values</div>
-              <div className="standard-note">
+              <div className="preferences-hero">
                 <div>
-                  <strong>Date-effective values are used only for new or edited transactions.</strong>
-                  <span>Historical allocations keep their saved policy snapshot. Current entitlement uses the active preference amount and cycle rules at runtime.</span>
+                  <span className="eyebrow">Settings command center</span>
+                  <h3>Preferences rebuilt for clean control.</h3>
+                  <p>Global defaults stay protected. Scoped airfare rules can be edited, selected, reviewed, or deleted in one batched action without rate-limit bursts. Historical allocations keep their saved policy snapshot.</p>
                 </div>
-                <button className="mini-soft" onClick={() => setActiveView("Airfare")}>Open Airfare</button>
-              </div>
-              <div className="standard-note preference-guard-note">
-                <div>
-                  <strong>Global default is protected.</strong>
-                  <span>Use Save preference value to update the global fallback. Delete tools remove company, employee, department, and pay-group airfare rules only.</span>
+                <div className="preferences-hero-actions">
+                  <button className="shine-button" type="button" onClick={() => setPolicyTab("new")}><Plus size={16} /> New rule</button>
+                  <button className="soft-button" type="button" onClick={() => setPolicyTab("history")}><Database size={16} /> Manage rules</button>
+                  <button className="mini-soft" type="button" onClick={() => setActiveView("Airfare")}><Plane size={14} /> Open Airfare</button>
                 </div>
-                <span className="pill">Safe settings</span>
               </div>
-              <div className="metric-grid">
-                <Metric title="Current Policies" value={String(currentAirfarePolicyRates.length)} icon={<Database />} tone="blue" />
-                <Metric title="Latest Current Amount" value={money.format(currentAirfarePolicyRates[0]?.MaxPayoutAmount || 150)} icon={<WalletCards />} tone="cyan" />
-                <Metric title="Latest Per Day Rate" value={money.format(currentAirfarePolicyRates[0]?.PerDayRate || 0)} icon={<CalendarClock />} tone="violet" />
-                <Metric title="History Safe" value="Locked" icon={<ShieldCheck />} tone="rose" />
-              </div>
-              <div className="appearance-panel">
-                <div className="card-title"><Palette size={18} /> Appearance and workspace</div>
-                <p className="muted">These preferences are saved on this browser, so refresh and restart keep the same workspace style. Light Professional is the default recovery theme.</p>
-                <div className="form-grid two">
-                  <Field label="Theme preset">
-                    <select value={themePreset} onChange={(event) => applyThemePreset(event.target.value as ThemePreset)}>
-                      {(Object.entries(THEME_PRESETS) as Array<[ThemePreset, (typeof THEME_PRESETS)[ThemePreset]]>).map(([value, preset]) => (
-                        <option key={value} value={value}>{preset.label}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Theme mode">
-                    <select value={themeMode} onChange={(event) => updateThemeMode(event.target.value as ThemeMode)}>
-                      <option value="light">Light glass</option>
-                      <option value="dark">Dark glass</option>
-                      <option value="contrast">High contrast</option>
-                    </select>
-                  </Field>
-                  <Field label="Theme accent">
-                    <select value={themeAccent} onChange={(event) => updateThemeAccent(event.target.value as ThemeAccent)}>
-                      <option value="blue">Blue professional</option>
-                      <option value="slate">Slate focused</option>
-                      <option value="ocean">Ocean blue</option>
-                      <option value="emerald">Forest green</option>
-                      <option value="sunset">Sunset orange</option>
-                    </select>
-                  </Field>
-                  <Field label="Application density">
-                    <select value={uiDensity} onChange={(event) => updateUiDensity(event.target.value as UiDensity)}>
-                      <option value="comfortable">Comfortable</option>
-                      <option value="standard">Standard</option>
-                      <option value="compact">Compact</option>
-                    </select>
-                  </Field>
+              <div className="preferences-insight-grid">
+                <div className="preference-insight-card primary">
+                  <small>Protected global fallback</small>
+                  <strong>{money.format(latestGlobalAirfarePolicy?.MaxPayoutAmount || AIRFARE_DEFAULT_PAYOUT)}</strong>
+                  <span>Update it by saving a new global value. It cannot be deleted.</span>
                 </div>
-                <div className="button-row">
-                  <button className="soft-button" onClick={() => setSidebarCollapsed((current) => !current)}>{sidebarCollapsed ? "Expand left menu" : "Collapse left menu"}</button>
-                  <button className="soft-button" onClick={() => setRightPanelsCollapsed((current) => !current)}>{rightPanelsCollapsed ? "Show right panels" : "Hide right panels"}</button>
-                  <button className="soft-button" onClick={() => setMessage(`${THEME_PRESETS[themePreset].label} is already saved for this browser.`)}>Save theme choice</button>
-                  <button className="soft-button" onClick={resetWorkspaceAppearance}>Reset workspace</button>
+                <div className="preference-insight-card">
+                  <small>Current Policies</small>
+                  <strong>{String(currentAirfarePolicyRates.length)}</strong>
+                  <span>{editableAirfarePolicyRates.length} scoped rule(s) available for admin cleanup.</span>
+                </div>
+                <div className="preference-insight-card">
+                  <small>Latest active amount</small>
+                  <strong>{money.format(latestCurrentAirfarePolicy?.MaxPayoutAmount || AIRFARE_DEFAULT_PAYOUT)}</strong>
+                  <span>{money.format(latestCurrentAirfarePolicy?.PerDayRate || 0)} SQL per-day rate.</span>
+                </div>
+                <div className="preference-insight-card safe">
+                  <small>History safety</small>
+                  <strong>{protectedAirfarePolicyRates.length} locked</strong>
+                  <span>Saved allocations keep their policy snapshots.</span>
+                </div>
+              </div>
+              <div className="preferences-settings-grid">
+                <div className="appearance-panel preferences-settings-card">
+                  <div className="card-title"><Palette size={18} /> Appearance and workspace</div>
+                  <p className="muted">Saved on this browser. Use these controls to make the daily workspace easier to read.</p>
+                  <div className="form-grid two">
+                    <Field label="Theme preset">
+                      <select value={themePreset} onChange={(event) => applyThemePreset(event.target.value as ThemePreset)}>
+                        {(Object.entries(THEME_PRESETS) as Array<[ThemePreset, (typeof THEME_PRESETS)[ThemePreset]]>).map(([value, preset]) => (
+                          <option key={value} value={value}>{preset.label}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Theme mode">
+                      <select value={themeMode} onChange={(event) => updateThemeMode(event.target.value as ThemeMode)}>
+                        <option value="light">Light glass</option>
+                        <option value="dark">Dark glass</option>
+                        <option value="contrast">High contrast</option>
+                      </select>
+                    </Field>
+                    <Field label="Accent">
+                      <select value={themeAccent} onChange={(event) => updateThemeAccent(event.target.value as ThemeAccent)}>
+                        <option value="blue">Blue professional</option>
+                        <option value="slate">Slate focused</option>
+                        <option value="ocean">Ocean blue</option>
+                        <option value="emerald">Forest green</option>
+                        <option value="sunset">Sunset orange</option>
+                      </select>
+                    </Field>
+                    <Field label="Density">
+                      <select value={uiDensity} onChange={(event) => updateUiDensity(event.target.value as UiDensity)}>
+                        <option value="comfortable">Comfortable</option>
+                        <option value="standard">Standard</option>
+                        <option value="compact">Compact</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <div className="button-row compact">
+                    <button className="soft-button" onClick={() => setSidebarCollapsed((current) => !current)}>{sidebarCollapsed ? "Expand menu" : "Collapse menu"}</button>
+                    <button className="soft-button" onClick={() => setRightPanelsCollapsed((current) => !current)}>{rightPanelsCollapsed ? "Show panels" : "Hide panels"}</button>
+                    <button className="soft-button" onClick={resetWorkspaceAppearance}>Reset workspace</button>
+                  </div>
+                </div>
+                <div className="preferences-settings-card preference-guard-note">
+                  <div className="card-title"><ShieldCheck size={18} /> Protected defaults</div>
+                  <p><strong>Global default is protected.</strong></p>
+                  <p className="muted">Delete tools remove company, employee, department, and pay-group airfare rules only. This matches safe-settings practice: the shared fallback is changed deliberately, not removed accidentally.</p>
+                  <div className="preferences-safety-steps">
+                    <span><CheckCircle2 size={15} /> Batch destructive changes</span>
+                    <span><CheckCircle2 size={15} /> Keep allocation snapshots</span>
+                    <span><CheckCircle2 size={15} /> Explain locked rows</span>
+                  </div>
                 </div>
               </div>
               <div className="premium-table">
@@ -7727,8 +7759,14 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="glass-panel form-card preferences-policy-card">
-              <div className="card-title"><Database size={18} /> Airfare allocation amount</div>
-              <p className="muted">Configure maximum payout rules in one clear workspace. Use employee exception only when one employee needs a different payout from the global, company, department, or pay group rule.</p>
+              <div className="preferences-editor-head">
+                <div>
+                  <span className="eyebrow">Airfare settings</span>
+                  <div className="card-title"><Database size={18} /> Airfare allocation amount</div>
+                  <p className="muted">Create scoped payout rules, review history, and delete selected non-global airfare rules from one responsive panel.</p>
+                </div>
+                <span className="pill success">{editableAirfarePolicyRates.length} editable</span>
+              </div>
               <div className="policy-tabs" role="tablist" aria-label="Airfare preference workspace">
                 <button type="button" className={policyTab === "new" ? "active" : ""} onClick={() => setPolicyTab("new")}>New Rule</button>
                 <button type="button" className={policyTab === "history" ? "active" : ""} onClick={() => setPolicyTab("history")}>History</button>
@@ -7859,15 +7897,19 @@ export default function DashboardPage() {
               )}
               {policyTab === "history" && (
                 <div className="premium-table policy-history-panel">
-                  <div className="button-row compact">
-                    <button className="mini-danger" type="button" disabled={busy || selectedPolicyRateIds.size === 0} onClick={handleBulkDeleteAirfarePolicyRates}>
-                      <Trash2 size={14} /> Delete selected ({selectedPolicyRateIds.size})
-                    </button>
-                    <button className="mini-soft" type="button" disabled={busy || airfarePolicyRates.every((rate) => !canDeleteAirfarePolicyRate(rate))} onClick={() => setSelectedPolicyRateIds(new Set(airfarePolicyRates.filter((rate) => canDeleteAirfarePolicyRate(rate)).map((rate) => rate.PolicyRateID)))}>
+                  <div className="preferences-bulk-toolbar">
+                    <div>
+                      <strong>Scoped airfare rules</strong>
+                      <small>{selectedEditablePolicyCount} selected / {editableAirfarePolicyRates.length} editable. Global default rows stay protected.</small>
+                    </div>
+                    <button className="mini-soft" type="button" disabled={busy || editableAirfarePolicyRates.length === 0} onClick={() => setSelectedPolicyRateIds(new Set(editableAirfarePolicyRates.map((rate) => rate.PolicyRateID)))}>
                       Select all non-global airfare
                     </button>
-                    <button className="mini-soft" type="button" disabled={busy || selectedPolicyRateIds.size === 0} onClick={() => setSelectedPolicyRateIds(new Set())}>
+                    <button className="mini-soft" type="button" disabled={busy || selectedEditablePolicyCount === 0} onClick={() => setSelectedPolicyRateIds(new Set())}>
                       Clear selection
+                    </button>
+                    <button className="mini-danger" type="button" disabled={busy || selectedEditablePolicyCount === 0} onClick={handleBulkDeleteAirfarePolicyRates}>
+                      <Trash2 size={14} /> Delete selected ({selectedEditablePolicyCount})
                     </button>
                   </div>
                   <div className="table-row loan-head policy-rate-row"><span>Select</span><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span><span>Action</span></div>
