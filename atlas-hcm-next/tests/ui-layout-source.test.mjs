@@ -156,8 +156,8 @@ assert.match(source, /Closing amount/, "year end preview should show closing amo
 assert.match(source, /CurrentYearEarnedDays/, "year end employee preview should include earned days up to closing date");
 assert.match(source, /PendingLoanAmount/, "year end employee preview should include pending loan amount separately");
 assert.match(css, /\.preview-row\.year-end-head\s*{[\s\S]*grid-template-columns/, "year end preview should use dedicated readable columns");
-assert.match(css, /--page-gap:\s*10px/, "standard application density should remove excess page spacing");
-assert.match(css, /--topbar-h:\s*60px/, "topbar should use a compact HD height");
+assert.match(css, /--page-gap:\s*8px/, "standard application density should remove excess page spacing");
+assert.match(css, /--topbar-h:\s*52px/, "topbar should use a compact operations-console height");
 assert.match(css, /\.modal-backdrop\s*{[\s\S]*backdrop-filter:\s*blur\(4px\)/, "modal overlay should not over-blur the whole workspace");
 assert.match(css, /\.metric\s*{[\s\S]*min-height:\s*84px/, "dashboard metric cards should be compact enough for HD data density");
 assert.match(css, /\.table-row\s*{[\s\S]*padding:\s*9px 11px/, "table rows should use compact enterprise spacing");
@@ -267,13 +267,16 @@ assert.match(source, /title=\{getAirfarePolicyLockMessage\(rate\)\}/, "protected
 assert.match(css, /\.table-row\.policy-rate-row\s*{[\s\S]*64px[\s\S]*minmax\(110px,\s*\.45fr\)/, "policy rate table should reserve select and action columns");
 assert.match(css, /\.policy-tabs/, "preferences policy tabs should be styled");
 assert.match(css, /\.policy-employee-list/, "searchable employee policy picker should be styled");
-assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.45fr\)\s+minmax\(360px,\s*\.82fr\)/, "preferences should use a cleaner desktop right panel that reduces overflow");
+assert.match(css, /\.preferences-page\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1\.25fr\)\s+minmax\(340px,\s*\.75fr\)/, "preferences should use a compact desktop right panel that reduces oversized layouts");
 assert.match(source, /Settings command center/, "preferences should use the rebuilt settings command center hero");
 assert.match(source, /Protected global fallback/, "preferences should surface protected global fallback status");
 assert.match(source, /selectedEditablePolicyCount/, "preferences bulk delete should count only editable non-global rules");
 assert.match(css, /\.preferences-hero/, "preferences should style the rebuilt responsive hero");
 assert.match(css, /\.preferences-insight-grid/, "preferences should show responsive settings insight cards");
 assert.match(css, /\.preferences-bulk-toolbar/, "preferences should use a responsive bulk action toolbar");
+assert.match(css, /--topbar-h:\s*52px/, "whole app topbar should use compact operations-console sizing");
+assert.match(css, /--control-h:\s*42px/, "whole app controls should use compact default height");
+assert.match(css, /\.preference-insight-card\s*{[\s\S]*min-height:\s*104px/, "preferences cards should be compact instead of oversized");
 assert.match(css, /\.preferences-policy-card/, "airfare policy editor should be styled as a main preferences section");
 assert.match(css, /\.table-row\.preference-current-row\s*{[\s\S]*min-width:\s*850px/, "main preference rows should be simplified to reduce horizontal overflow");
 assert.match(css, /\.preference-lock-pill\s*{[\s\S]*white-space:\s*nowrap/, "preference lock pills should stay horizontal");
@@ -289,7 +292,7 @@ assert.match(css, /\.employee-form-overlay\s*{[\s\S]*position:\s*fixed/, "employ
 assert.match(css, /\.employee-form-panel \.form-grid\.two\s*{[\s\S]*repeat\(3/, "employee full-screen form should use a wider three-column desktop layout");
 assert.match(css, /\.airfare-layout\.recent-closed\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/, "airfare form should use the full width when recent allocations are hidden");
 assert.match(css, /\.topbar-logo\s*{[\s\S]*width:\s*42px/, "topbar should include a compact company logo slot");
-assert.match(css, /h1\s*{[\s\S]*clamp\(22px/, "main header should be smaller for daily workspace comfort");
+assert.match(css, /h1\s*{[\s\S]*clamp\(19px/, "main header should be compact for daily workspace comfort");
 assert.match(source, /reportOptions/, "reports screen should expose all report choices visibly");
 assert.match(source, /Airfare Policy Rules/, "reports screen should include airfare policy rules report");
 assert.match(source, /Employee exception profile[\s\S]*Pay group matrix[\s\S]*Department matrix[\s\S]*Company default[\s\S]*Global default/, "airfare policy rules report should explain all policy priority scopes");
