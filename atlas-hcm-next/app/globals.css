@@ -1854,8 +1854,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
   min-width: 1120px;
 }
 .table-row.preference-current-row {
-  grid-template-columns: minmax(220px, 1.1fr) minmax(150px, .75fr) minmax(130px, .65fr) minmax(120px, .58fr) minmax(120px, .58fr) minmax(130px, .58fr) minmax(236px, .95fr);
-  min-width: 1160px;
+  grid-template-columns: minmax(220px, 1.25fr) minmax(150px, .8fr) minmax(130px, .65fr) minmax(150px, .7fr) minmax(220px, .95fr);
+  min-width: 850px;
 }
 .policy-rule-label {
   color: var(--muted);
@@ -1906,8 +1906,9 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .preferences-page {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, .95fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(340px, .78fr);
   gap: 16px;
+  align-items: start;
 }
 .preferences-page > .glass-panel {
   width: 100%;
@@ -1917,6 +1918,8 @@ h3 { font-size: 20px; letter-spacing: 0; }
 .preferences-policy-card {
   max-width: none;
   min-width: 0;
+  position: sticky;
+  top: calc(var(--topbar-h) + 26px);
 }
 .preferences-policy-card .policy-rule-picker {
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
@@ -2026,8 +2029,9 @@ h3 { font-size: 20px; letter-spacing: 0; }
   background: #f8fafc;
 }
 .policy-history-panel {
-  max-height: 620px;
+  max-height: min(68vh, 760px);
   overflow: auto;
+  border-radius: 12px;
 }
 .danger-pill {
   color: #be123c;
@@ -3072,12 +3076,15 @@ h3 { font-size: 20px; letter-spacing: 0; }
   font-size: clamp(26px, 2vw, 34px);
 }
 .preference-row-actions {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: flex-start;
+  gap: 6px;
 }
 .preference-row-actions .mini-soft,
 .preference-row-actions .mini-danger {
   white-space: nowrap;
+  min-height: 36px;
+  padding: 8px 10px;
 }
 .preference-lock-pill {
   white-space: nowrap;
@@ -3086,6 +3093,11 @@ h3 { font-size: 20px; letter-spacing: 0; }
 }
 .preference-lock-button {
   cursor: pointer;
+}
+.preference-guard-note {
+  margin-bottom: 14px;
+  border-color: rgba(5, 150, 105, .20);
+  background: linear-gradient(135deg, rgba(236, 253, 245, .92), rgba(255,255,255,.98));
 }
 .loan-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .metric { padding: 11px 12px; min-height: 84px; display: grid; align-content: space-between; }

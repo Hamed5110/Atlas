@@ -56,6 +56,8 @@ assert.match(serverText, /fallbackDeactivateAirfarePolicyRate/i, 'Airfare policy
 assert.match(serverText, /sp_Preference_DeleteSoft/i, 'Airfare policy delete should call the SQL-owned delete procedure');
 assert.match(serverText, /forcePurge[\s\S]*sp_ATLAS_PurgeAirfarePolicyRate/i, 'Airfare policy delete should support an explicit force purge path');
 assert.match(serverText, /Force purged[\s\S]*airfare policy/i, 'Airfare policy force purge should write an audit message');
+assert.match(serverText, /AIRFARE_GLOBAL_DEFAULT_PROTECTED/i, 'Airfare policy delete should protect global defaults');
+assert.match(serverText, /app\.post\('\/api\/airfare-policy-rates\/bulk-delete'[\s\S]*app\.post\('\/api\/airfare-policy-rates\/:policyRateId'/i, 'Bulk airfare policy delete route should be registered before generic policy POST route');
 assert.match(serverText, /DELETE FROM dbo\.AirfarePolicyRates WHERE PolicyRateID = @PolicyRateID/i, 'Airfare policy fallback should hard-delete the policy row when delete is safe');
 assert.match(serverText, /status:\s*'success'/i, 'Airfare policy delete should return a structured success status');
 assert.match(serverText, /Airfare policy rule deleted completely\./i, 'Airfare policy delete should report complete delete success');

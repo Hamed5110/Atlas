@@ -5477,6 +5477,13 @@ app.get('/api/airfare-policy-rates/:policyRateId(\\d+)/references', authenticate
                         r.CycleDays,
                         CAST(r.MaxPayoutAmount / NULLIF(r.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
                         CAST(dbo.fn_Preference_CanDelete(r.PolicyRateID) AS BIT) AS CanDelete,
+                        CAST(CASE
+                            WHEN r.CompanyID IS NULL
+                             AND r.EmployeeID IS NULL
+                             AND NULLIF(LTRIM(RTRIM(COALESCE(r.Department, N''))), N'') IS NULL
+                             AND NULLIF(LTRIM(RTRIM(COALESCE(r.EmpGroup, N''))), N'') IS NULL
+                            THEN 0 ELSE 1
+                        END AS BIT) AS CanForcePurge,
                         dbo.fn_Preference_LockReason(r.PolicyRateID) AS LockReason
                     FROM dbo.AirfarePolicyRates r
                     LEFT JOIN dbo.Companies c ON c.CompanyID = r.CompanyID
@@ -5494,7 +5501,7 @@ app.get('/api/airfare-policy-rates/:policyRateId(\\d+)/references', authenticate
         res.json({
             policyRateId,
             canDelete: Boolean(policy.CanDelete),
-            canForcePurge: true,
+            canForcePurge: Boolean(policy.CanForcePurge),
             lockReason: policy.LockReason || 'Preference is locked.',
             references: referenceResult.recordset || []
         });
@@ -5548,6 +5555,29 @@ app.post('/api/airfare-policy-rates', authenticateToken, requireRole('admin', 'm
     }
 });
 
+async function getAirfarePolicyDeleteGuard(db, policyRateId) {
+    const result = await db.request()
+        .input('PolicyRateID', sql.BigInt, policyRateId)
+        .query(`
+            SELECT TOP 1
+                PolicyRateID,
+                CAST(CASE
+                    WHEN CompanyID IS NULL
+                     AND EmployeeID IS NULL
+                     AND NULLIF(LTRIM(RTRIM(COALESCE(Department, N''))), N'') IS NULL
+                     AND NULLIF(LTRIM(RTRIM(COALESCE(EmpGroup, N''))), N'') IS NULL
+                    THEN 1 ELSE 0
+                END AS BIT) AS IsGlobalDefault
+            FROM dbo.AirfarePolicyRates
+            WHERE PolicyRateID = @PolicyRateID
+        `);
+    const row = result.recordset?.[0] || null;
+    return {
+        exists: Boolean(row),
+        isGlobalDefault: Boolean(row?.IsGlobalDefault)
+    };
+}
+
 async function deactivateAirfarePolicyRate(req, res) {
     const policyRateId = Number(req.params.policyRateId);
     if (!Number.isInteger(policyRateId) || policyRateId <= 0) {
@@ -5560,6 +5590,13 @@ async function deactivateAirfarePolicyRate(req, res) {
             await ensureAtlasSqlObjects(db);
         } catch (sqlObjectErr) {
             logger.warn('ATLAS SQL object verification could not finish before delete; runtime delete fallback remains available.', sqlObjectErr);
+        }
+        const guard = await getAirfarePolicyDeleteGuard(db, policyRateId);
+        if (guard.isGlobalDefault) {
+            return res.status(409).json({
+                code: 'AIRFARE_GLOBAL_DEFAULT_PROTECTED',
+                error: 'Global airfare default cannot be deleted. Create another scoped rule or update the global value instead.'
+            });
         }
         let result;
         const forcePurge = String(req.query.force || '').toLowerCase() === 'true' || Boolean(req.body?.forcePurge);
@@ -5623,6 +5660,81 @@ async function deactivateAirfarePolicyRate(req, res) {
         res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
     }
 }
+
+app.post('/api/airfare-policy-rates/bulk-delete', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+    const schema = Joi.object({
+        policyRateIds: Joi.array().items(Joi.number().integer().positive()).min(1).max(500).required(),
+        forcePurge: Joi.boolean().default(false),
+        confirm: Joi.string().valid('DELETE', 'DELETE ALL AIRFARE').required()
+    });
+    const { error, value } = schema.validate(req.body || {});
+    if (error) return res.status(400).json(toApiValidationError(error));
+    if (value.forcePurge && value.confirm !== 'DELETE ALL AIRFARE') {
+        return res.status(400).json({ error: 'Type DELETE ALL AIRFARE to confirm forced preference purge.' });
+    }
+    if (!value.forcePurge && value.confirm !== 'DELETE') {
+        return res.status(400).json({ error: 'Type DELETE to confirm preference delete.' });
+    }
+
+    try {
+        const db = await getConnection();
+        await ensureAtlasSqlObjects(db);
+        const uniqueIds = Array.from(new Set(value.policyRateIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)));
+        const deleted = [];
+        const protectedRows = [];
+        const failed = [];
+
+        for (const policyRateId of uniqueIds) {
+            const guard = await getAirfarePolicyDeleteGuard(db, policyRateId);
+            if (guard.isGlobalDefault) {
+                protectedRows.push({ policyRateId, reason: 'Global airfare default cannot be deleted.' });
+                continue;
+            }
+            try {
+                const request = db.request()
+                    .input('PolicyRateID', sql.BigInt, policyRateId)
+                    .input('DeletedBy', sql.Int, req.user.userId)
+                    .input('DeleteReason', sql.NVarChar(400), value.forcePurge
+                        ? `Bulk forced airfare preference purge requested by ${req.user.username || 'system'}`
+                        : `Bulk airfare preference delete requested by ${req.user.username || 'system'}`);
+                const result = value.forcePurge
+                    ? await withSqlRetry(() => request.execute('dbo.sp_ATLAS_PurgeAirfarePolicyRate'), 'bulk force purge airfare policy rate')
+                    : await withSqlRetry(() => db.request()
+                        .input('PreferenceID', sql.BigInt, policyRateId)
+                        .input('DeletedBy', sql.Int, req.user.userId)
+                        .input('AuditReason', sql.NVarChar(400), `Bulk airfare preference delete requested by ${req.user.username || 'system'}`)
+                        .execute('dbo.sp_Preference_DeleteSoft'), 'bulk soft delete airfare policy rate');
+                const policyRate = result.recordset?.[0] || { PolicyRateID: policyRateId };
+                if (String(policyRate.ApiStatus || '').toLowerCase() === 'blocked') {
+                    failed.push({ policyRateId, error: policyRate.LockReason || 'Preference is locked.' });
+                    continue;
+                }
+                deleted.push({ policyRateId, action: policyRate.DeleteAction || (value.forcePurge ? 'hard_delete' : 'delete'), policyRate });
+            } catch (deleteErr) {
+                failed.push({ policyRateId, error: deleteErr.originalError?.info?.message || deleteErr.message || 'Delete failed.' });
+            }
+        }
+
+        await logAudit(req.user.userId, req.user.username, value.forcePurge ? 'BULK_PURGE' : 'BULK_DELETE', 'AirfarePolicyRate', null, null,
+            { requested: uniqueIds.length, deleted: deleted.length, protected: protectedRows.length, failed: failed.length, deletedPolicyRateIds: deleted.map((row) => row.policyRateId) },
+            `${value.forcePurge ? 'Bulk force purged' : 'Bulk deleted'} ${deleted.length} airfare policy rule(s)`, req);
+
+        res.json({
+            status: failed.length ? 'partial' : 'success',
+            requested: uniqueIds.length,
+            deleted: deleted.length,
+            protected: protectedRows.length,
+            failed: failed.length,
+            deletedPolicyRateIds: deleted.map((row) => row.policyRateId),
+            protectedRows,
+            failedRows: failed,
+            results: deleted
+        });
+    } catch (err) {
+        logger.error('Bulk delete airfare policy rate error:', err);
+        res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Bulk preference delete failed' });
+    }
+});
 
 app.delete('/api/airfare-policy-rates/:policyRateId', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);
 app.post('/api/airfare-policy-rates/:policyRateId/delete', authenticateToken, requireRole('admin', 'manager'), deactivateAirfarePolicyRate);

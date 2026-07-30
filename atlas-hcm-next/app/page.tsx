@@ -107,6 +107,16 @@ type AirfarePolicyDeleteResult = {
   alreadyHistorical?: boolean;
   referenceReportJson?: string;
 };
+type AirfarePolicyBulkDeleteResult = {
+  status: string;
+  requested: number;
+  deleted: number;
+  protected: number;
+  failed: number;
+  deletedPolicyRateIds: number[];
+  protectedRows?: Array<{ policyRateId: number; reason: string }>;
+  failedRows?: Array<{ policyRateId: number; error: string }>;
+};
 type UpdateCheckStatus = {
   state: UpdateCheckState;
   checkedAt?: string;
@@ -2446,8 +2456,12 @@ export default function DashboardPage() {
     return Boolean(rate.IsActive && !rate.EffectiveTo);
   }
 
+  function isGlobalAirfarePolicyRate(rate: AirfarePolicyRate) {
+    return !rate.CompanyID && !rate.EmployeeID && !rate.Department && !rate.EmpGroup;
+  }
+
   function canDeleteAirfarePolicyRate(rate: AirfarePolicyRate) {
-    return Boolean(rate.PolicyRateID);
+    return Boolean(rate.PolicyRateID && !isGlobalAirfarePolicyRate(rate));
   }
 
   function getAirfarePolicyLockBadge(rate: AirfarePolicyRate) {
@@ -2456,6 +2470,7 @@ export default function DashboardPage() {
   }
 
   function getAirfarePolicyLockMessage(rate: AirfarePolicyRate) {
+    if (isGlobalAirfarePolicyRate(rate)) return "Global airfare default is protected. Update it by saving a new global value; do not delete the fallback setting.";
     if (!rate.CanDelete) return rate.LockReason || "This rule has linked data. Use forced delete only when you intentionally want to clear preference links and keep transaction snapshots.";
     if (rate.LockReason) return rate.LockReason;
     if (rate.IsSystem) return "History locked - system default policy. This rule stays protected even when unused.";
@@ -2468,6 +2483,7 @@ export default function DashboardPage() {
   async function openAirfarePolicyDeleteModal(rate: AirfarePolicyRate) {
     if (!session) return setMessage("Please sign in first.");
     if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can review preference delete details.");
+    if (isGlobalAirfarePolicyRate(rate)) return setMessage("Global airfare default cannot be deleted. Save a new global value to update the default instead.");
     setPolicyDeleteTarget(rate);
     setPolicyDeletePreview(null);
     setPolicyDeleteConfirmText("");
@@ -2559,6 +2575,7 @@ export default function DashboardPage() {
   }
 
   function getAirfarePolicyDeleteButtonLabel(rate: AirfarePolicyRate) {
+    if (isGlobalAirfarePolicyRate(rate)) return "Protected";
     if (canDeleteAirfarePolicyRate(rate)) return "Delete";
     if (rate.IsSystem) return "Delete";
     return "Delete";
@@ -2597,7 +2614,7 @@ export default function DashboardPage() {
   async function handleBulkDeleteAirfarePolicyRates() {
     if (!session) return setMessage("Please sign in first.");
     if (!["admin", "manager"].includes(session.user.role)) return setMessage("Only admin or manager can delete preference policy rules.");
-    const selectedRates = airfarePolicyRates.filter((rate) => selectedPolicyRateIds.has(rate.PolicyRateID));
+    const selectedRates = airfarePolicyRates.filter((rate) => selectedPolicyRateIds.has(rate.PolicyRateID) && canDeleteAirfarePolicyRate(rate));
     if (!selectedRates.length) return setMessage("Select at least one airfare preference rule to delete.");
     const forceCount = selectedRates.filter((rate) => !rate.CanDelete).length;
     const typed = window.prompt([
@@ -2610,14 +2627,15 @@ export default function DashboardPage() {
     setBusy(true);
     setMessage("");
     try {
-      const results: string[] = [];
-      for (const rate of selectedRates) {
-        const result = await deleteAirfarePolicyRate(rate.PolicyRateID, !rate.CanDelete);
-        results.push(formatAirfarePolicyDeleteMessage(getPolicyScopeLabel(rate), rate.PolicyRateID, result));
-      }
+      const result = await atlasMutation<AirfarePolicyBulkDeleteResult>("/airfare-policy-rates/bulk-delete", session.token, session.sessionId, "POST", {
+        policyRateIds: selectedRates.map((rate) => rate.PolicyRateID),
+        forcePurge: forceCount > 0,
+        confirm: requiredText
+      });
       setSelectedPolicyRateIds(new Set());
       await loadLiveData();
-      setMessage(results.length === 1 ? results[0] : `Deleted ${results.length} selected preference rule(s) completely.`);
+      const issueText = result.protected || result.failed ? ` ${result.protected} protected, ${result.failed} failed.` : "";
+      setMessage(`Deleted ${result.deleted} airfare preference rule(s) in one request.${issueText}`);
     } catch (error) {
       setMessage(`Selected airfare policy delete failed: ${error instanceof Error ? error.message : "Unable to delete selected airfare policies."}`);
     } finally {
@@ -7624,6 +7642,13 @@ export default function DashboardPage() {
                 </div>
                 <button className="mini-soft" onClick={() => setActiveView("Airfare")}>Open Airfare</button>
               </div>
+              <div className="standard-note preference-guard-note">
+                <div>
+                  <strong>Global default is protected.</strong>
+                  <span>Use Save preference value to update the global fallback. Delete tools remove company, employee, department, and pay-group airfare rules only.</span>
+                </div>
+                <span className="pill">Safe settings</span>
+              </div>
               <div className="metric-grid">
                 <Metric title="Current Policies" value={String(currentAirfarePolicyRates.length)} icon={<Database />} tone="blue" />
                 <Metric title="Latest Current Amount" value={money.format(currentAirfarePolicyRates[0]?.MaxPayoutAmount || 150)} icon={<WalletCards />} tone="cyan" />
@@ -7673,7 +7698,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="premium-table">
-                <div className="table-row loan-head policy-rate-row preference-current-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Cycle</span><span>Per day</span><span>Status</span><span>Action</span></div>
+                <div className="table-row loan-head policy-rate-row preference-current-row"><span>Scope</span><span>Effective period</span><span>Amount</span><span>Status</span><span>Action</span></div>
                 {airfarePolicyRates.length === 0 && <p className="muted">No custom airfare policy found. System will use BHD 150.00 default.</p>}
                 {airfarePolicyRates.map((rate) => (
                   <div className="table-row loan-head policy-rate-row preference-current-row" key={rate.PolicyRateID}>
@@ -7683,15 +7708,13 @@ export default function DashboardPage() {
                     </span>
                     <span><strong>{formatExportDate(rate.EffectiveFrom)}</strong><small>to {rate.EffectiveTo ? formatExportDate(rate.EffectiveTo) : "Current"}</small></span>
                     <span><strong>{money.format(rate.MaxPayoutAmount)}</strong><small>Stored as policy #{rate.PolicyRateID}</small></span>
-                    <span><strong>{Number(rate.CycleDays || 0).toFixed(0)} days</strong><small>{Number(rate.WorkingDaysPerMonth || 0).toFixed(0)} working days / month</small></span>
-                    <span><strong>{money.format(rate.PerDayRate || 0)}</strong><small>SQL per-day rate</small></span>
-                    <span><strong>{rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Default"}</small></span>
+                    <span><strong>{isGlobalAirfarePolicyRate(rate) ? "Global protected" : rate.IsActive && !rate.EffectiveTo ? "Current" : rate.IsActive ? "Historical" : "Replaced"}</strong><small>{rate.EmployeeID ? "Highest priority" : rate.EmpGroup ? "Pay group rule" : rate.Department ? "Department rule" : rate.CompanyID ? "Company override" : "Fallback default"}</small></span>
                     <span className="row-actions preference-row-actions">
                       <button className="mini-soft" type="button" disabled={busy || !session || !["admin", "manager"].includes(session.user.role)} onClick={() => handleEditAirfarePolicyRate(rate)} title="Edit preference as draft"><Pencil size={14} /> Edit</button>
                       <button
                         className={canDeleteAirfarePolicyRate(rate) ? "mini-danger" : "mini-danger preference-delete-locked preference-lock-pill"}
                         type="button"
-                        disabled={busy || !session || !["admin", "manager"].includes(session.user.role)}
+                        disabled={busy || !session || !["admin", "manager"].includes(session.user.role) || !canDeleteAirfarePolicyRate(rate)}
                         onClick={() => handleDeleteAirfarePolicyRate(rate)}
                         title={getAirfarePolicyLockMessage(rate)}
                       >
@@ -7840,8 +7863,8 @@ export default function DashboardPage() {
                     <button className="mini-danger" type="button" disabled={busy || selectedPolicyRateIds.size === 0} onClick={handleBulkDeleteAirfarePolicyRates}>
                       <Trash2 size={14} /> Delete selected ({selectedPolicyRateIds.size})
                     </button>
-                    <button className="mini-soft" type="button" disabled={busy || airfarePolicyRates.length === 0} onClick={() => setSelectedPolicyRateIds(new Set(airfarePolicyRates.map((rate) => rate.PolicyRateID)))}>
-                      Select all airfare
+                    <button className="mini-soft" type="button" disabled={busy || airfarePolicyRates.every((rate) => !canDeleteAirfarePolicyRate(rate))} onClick={() => setSelectedPolicyRateIds(new Set(airfarePolicyRates.filter((rate) => canDeleteAirfarePolicyRate(rate)).map((rate) => rate.PolicyRateID)))}>
+                      Select all non-global airfare
                     </button>
                     <button className="mini-soft" type="button" disabled={busy || selectedPolicyRateIds.size === 0} onClick={() => setSelectedPolicyRateIds(new Set())}>
                       Clear selection
@@ -7851,7 +7874,7 @@ export default function DashboardPage() {
                   {airfarePolicyRates.length === 0 && <p className="muted">No custom airfare policy found. System will use BHD 150.00 default.</p>}
                   {airfarePolicyRates.map((rate) => (
                     <div className="table-row loan-head policy-rate-row" key={`history-${rate.PolicyRateID}`}>
-                      <span><input type="checkbox" checked={selectedPolicyRateIds.has(rate.PolicyRateID)} disabled={busy} onChange={(event) => togglePolicyRateSelection(rate.PolicyRateID, event.target.checked)} /></span>
+                      <span><input type="checkbox" checked={selectedPolicyRateIds.has(rate.PolicyRateID)} disabled={busy || !canDeleteAirfarePolicyRate(rate)} onChange={(event) => togglePolicyRateSelection(rate.PolicyRateID, event.target.checked)} /></span>
                       <span>
                         <strong>{rate.EmployeeID ? "Employee exception" : rate.EmpGroup ? "Pay group matrix" : rate.Department ? "Department matrix" : rate.CompanyID ? "Company default" : "Global default"}</strong>
                         <small>{rate.EmployeeID ? `${rate.EmployeeCode || rate.EmployeeID} - ${rate.FullName || ""}` : rate.EmpGroup ? rate.EmpGroup : rate.Department ? rate.Department : rate.CompanyID ? rate.CompanyName || `Company ${rate.CompanyID}` : "All companies and employees"}</small>
@@ -7866,11 +7889,11 @@ export default function DashboardPage() {
                         <button
                           className={canDeleteAirfarePolicyRate(rate) ? "mini-danger" : "mini-danger preference-delete-locked preference-lock-pill"}
                           type="button"
-                          disabled={busy || !session || !["admin", "manager"].includes(session.user.role)}
+                          disabled={busy || !session || !["admin", "manager"].includes(session.user.role) || !canDeleteAirfarePolicyRate(rate)}
                           onClick={() => handleDeleteAirfarePolicyRate(rate)}
                           title={getAirfarePolicyLockMessage(rate)}
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={14} /> {isGlobalAirfarePolicyRate(rate) ? "Protected" : ""}
                         </button>
                         <button className="mini-soft" type="button" onClick={() => openAirfarePolicyHistory(rate)} title="View preference history"><Eye size={14} /></button>
                       </span>
