@@ -5787,12 +5787,13 @@ export default function DashboardPage() {
 
   return (
     <main
-      className={`shell ${themeMode === "dark" ? "theme-dark" : ""} accent-${themeAccent} density-${uiDensity} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${rightPanelsCollapsed ? "right-panels-collapsed" : ""}`}
+      className={`shell atlas-app-shell ${themeMode === "dark" ? "theme-dark" : ""} accent-${themeAccent} density-${uiDensity} view-${viewMode} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${rightPanelsCollapsed ? "right-panels-collapsed" : ""}`}
       data-theme={themeMode}
       data-accent={themeAccent}
       data-density={uiDensity}
+      data-view={viewMode}
     >
-      <aside className="sidebar glass-panel">
+      <aside className="sidebar atlas-sidebar glass-panel" aria-label="Primary navigation">
         <button
           className="sidebar-toggle"
           type="button"
@@ -5839,8 +5840,8 @@ export default function DashboardPage() {
             </div>
           </div>
         ) : null}
-        <nav>
-          {visibleNav.map((item) => {
+        <nav className="atlas-nav">
+          {visibleNav.map((item, index) => {
             const Icon = item.icon;
             return (
               <button
@@ -5854,6 +5855,7 @@ export default function DashboardPage() {
               >
                 <Icon size={18} />
                 <span className="nav-label">{item.label}</span>
+                <kbd className="nav-hint">⌘{index + 1}</kbd>
               </button>
             );
           })}
@@ -5865,8 +5867,8 @@ export default function DashboardPage() {
         </div> : null}
       </aside>
 
-      <section className="workspace">
-        <header className="topbar glass-panel">
+      <section className="workspace atlas-workspace">
+        <header className="topbar atlas-commandbar glass-panel">
           <div className="topbar-title">
             <div className="topbar-logo">
               {companyLogoUrl ? <img src={companyLogoUrl} alt={`${activeCompany?.CompanyName || "ATLAS"} logo`} /> : <Plane size={20} />}
@@ -5890,7 +5892,7 @@ export default function DashboardPage() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && handleSearchSubmit()}
-                placeholder="Search employees, loans, companies"
+                placeholder="Search employees, loans, companies — ⌘K"
               />
             </label> : null}
             {!isEmployeePortalSession ? <button className="icon-button" onClick={handleSearchSubmit} title="Run search"><Search size={18} /></button> : null}

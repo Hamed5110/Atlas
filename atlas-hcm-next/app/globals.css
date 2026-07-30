@@ -39,6 +39,27 @@
   --control-h: 42px;
   --depth-soft: 0 8px 22px rgba(15, 23, 42, 0.06);
   --depth-lift: 0 12px 28px rgba(15, 23, 42, 0.08);
+  --atlas-bg: #f6f8fa;
+  --atlas-canvas: #ffffff;
+  --atlas-subtle: #f6f8fa;
+  --atlas-muted: #57606a;
+  --atlas-text: #24292f;
+  --atlas-border: #d0d7de;
+  --atlas-border-muted: #d8dee4;
+  --atlas-accent: #0969da;
+  --atlas-success: #1a7f37;
+  --atlas-danger: #cf222e;
+  --atlas-radius-sm: 6px;
+  --atlas-radius-md: 8px;
+  --atlas-radius-lg: 12px;
+  --atlas-space-1: 4px;
+  --atlas-space-2: 8px;
+  --atlas-space-3: 12px;
+  --atlas-space-4: 16px;
+  --atlas-space-5: 20px;
+  --atlas-space-6: 24px;
+  --atlas-shadow-sm: 0 1px 2px rgba(27, 31, 36, .06);
+  --atlas-shadow-md: 0 8px 24px rgba(140, 149, 159, .18);
 }
 
 [data-theme="light"] {
@@ -151,6 +172,280 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .62; }
 input, select, button { max-width: 100%; }
+
+.atlas-app-shell {
+  --page-gap: var(--atlas-space-3);
+  --card-pad: var(--atlas-space-4);
+  --control-h: 40px;
+  --radius: var(--atlas-radius-lg);
+  min-height: 100vh;
+  grid-template-columns: minmax(220px, 248px) minmax(0, 1fr);
+  gap: var(--atlas-space-3);
+  padding: var(--atlas-space-3);
+  color: var(--atlas-text);
+  background:
+    radial-gradient(circle at top left, rgba(9, 105, 218, .08), transparent 28%),
+    linear-gradient(180deg, #ffffff 0%, var(--atlas-bg) 44%, #eef2f7 100%);
+  perspective: none;
+  transform-style: flat;
+}
+
+.atlas-app-shell .glass-panel,
+.atlas-app-shell .table-card,
+.atlas-app-shell .form-card,
+.atlas-app-shell .hcm-card,
+.atlas-app-shell .calc-card,
+.atlas-app-shell .notifications {
+  border: 1px solid var(--atlas-border);
+  border-radius: var(--atlas-radius-lg);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: var(--atlas-shadow-sm);
+  backdrop-filter: none;
+  transform: none;
+}
+
+.atlas-app-shell .table-card:hover,
+.atlas-app-shell .form-card:hover,
+.atlas-app-shell .hcm-card:hover,
+.atlas-app-shell .calc-card:hover {
+  box-shadow: var(--atlas-shadow-sm);
+}
+
+.atlas-sidebar {
+  top: var(--atlas-space-3);
+  height: calc(100vh - (var(--atlas-space-3) * 2));
+  padding: var(--atlas-space-3);
+  gap: var(--atlas-space-3);
+  border-radius: var(--atlas-radius-lg);
+  background: rgba(255, 255, 255, .98);
+}
+
+.atlas-sidebar .brand-mark {
+  min-height: 40px;
+  padding: 0 38px 0 0;
+  border-bottom: 1px solid var(--atlas-border-muted);
+  padding-bottom: var(--atlas-space-3);
+}
+
+.atlas-sidebar .brand-orb,
+.atlas-commandbar .topbar-logo {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  border-radius: var(--atlas-radius-md);
+  box-shadow: none;
+}
+
+.atlas-sidebar .company-switcher,
+.atlas-sidebar .fiscal-context-switcher,
+.atlas-sidebar .sidebar-card {
+  border: 1px solid var(--atlas-border-muted);
+  border-radius: var(--atlas-radius-md);
+  background: var(--atlas-subtle);
+  padding: var(--atlas-space-3);
+}
+
+.atlas-sidebar .fiscal-context-switcher {
+  background: #f0fff4;
+}
+
+.atlas-nav {
+  gap: var(--atlas-space-1);
+}
+
+.atlas-nav .nav-item {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: var(--atlas-space-2);
+  padding: 8px 10px;
+  border-radius: var(--atlas-radius-md);
+  background: transparent;
+  color: var(--atlas-muted);
+  box-shadow: none;
+  transform: none;
+}
+
+.atlas-nav .nav-item:hover,
+.atlas-nav .nav-item.active {
+  color: var(--atlas-text);
+  border-color: var(--atlas-border-muted);
+  background: #f6f8fa;
+  box-shadow: none;
+  transform: none;
+}
+
+.atlas-nav .nav-item.active {
+  border-color: rgba(9, 105, 218, .28);
+  background: #ddf4ff;
+  color: var(--atlas-accent);
+}
+
+.atlas-nav .nav-item svg,
+.atlas-nav .nav-item:hover svg,
+.atlas-nav .nav-item.active svg {
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+  transform: none;
+}
+
+.nav-hint {
+  padding: 2px 5px;
+  border: 1px solid var(--atlas-border-muted);
+  border-radius: var(--atlas-radius-sm);
+  color: var(--atlas-muted);
+  background: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.atlas-workspace {
+  container-type: inline-size;
+  gap: var(--atlas-space-3);
+}
+
+.atlas-commandbar {
+  top: var(--atlas-space-3);
+  min-height: 52px;
+  grid-template-columns: minmax(210px, .32fr) minmax(0, 1fr);
+  padding: 8px 10px;
+  border-radius: var(--atlas-radius-lg);
+  background: rgba(255, 255, 255, .98);
+}
+
+.atlas-commandbar .top-actions {
+  gap: var(--atlas-space-2);
+}
+
+.atlas-commandbar .search-box,
+.atlas-commandbar .icon-button,
+.atlas-commandbar .profile-chip,
+.atlas-commandbar .logout-button,
+.atlas-app-shell .shine-button,
+.atlas-app-shell .soft-button,
+.atlas-app-shell .mini-soft,
+.atlas-app-shell .mini-danger,
+.atlas-app-shell .form-grid input,
+.atlas-app-shell .form-grid select,
+.atlas-app-shell .form-grid textarea,
+.atlas-app-shell .calc-fields input {
+  min-height: 38px;
+  border-radius: var(--atlas-radius-md);
+  box-shadow: none;
+}
+
+.atlas-commandbar .search-box {
+  width: clamp(220px, 26vw, 420px);
+  background: var(--atlas-subtle);
+}
+
+.atlas-commandbar .icon-button {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border-color: var(--atlas-border-muted);
+  background: #fff;
+}
+
+.atlas-commandbar .profile-chip {
+  max-width: 220px;
+  border-color: var(--atlas-border-muted);
+  background: #fff;
+}
+
+.atlas-commandbar .logout-button {
+  border-color: rgba(207, 34, 46, .22);
+  background: #ffebe9;
+}
+
+.atlas-app-shell .hero,
+.atlas-app-shell .overview-summary,
+.atlas-app-shell .overview-ai,
+.atlas-app-shell .table-card,
+.atlas-app-shell .form-card,
+.atlas-app-shell .hcm-card,
+.atlas-app-shell .calc-card {
+  padding: var(--atlas-space-4);
+}
+
+.atlas-app-shell .card-title {
+  min-height: 28px;
+  margin-bottom: var(--atlas-space-3);
+  color: var(--atlas-text);
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.atlas-app-shell .metric-grid,
+.atlas-app-shell .preferences-insight-grid,
+.atlas-app-shell .settings-system-matrix,
+.atlas-app-shell .readiness-grid {
+  gap: var(--atlas-space-3);
+}
+
+.atlas-app-shell .preferences-page {
+  grid-template-columns: minmax(0, 1.28fr) minmax(330px, .72fr);
+  gap: var(--atlas-space-3);
+  align-items: start;
+}
+
+.atlas-app-shell .preferences-policy-card {
+  top: calc(52px + var(--atlas-space-6));
+  border-left: 3px solid var(--atlas-accent);
+}
+
+.atlas-app-shell .preferences-hero {
+  padding: var(--atlas-space-4);
+  border-radius: var(--atlas-radius-lg);
+  border-color: rgba(9, 105, 218, .22);
+  background: linear-gradient(135deg, #f6f8fa, #ffffff);
+  box-shadow: none;
+}
+
+.atlas-app-shell .preferences-hero h3 {
+  font-size: clamp(20px, 1.6vw, 26px);
+}
+
+.atlas-app-shell .preference-insight-card,
+.atlas-app-shell .preferences-settings-card,
+.atlas-app-shell .settings-module-card {
+  border-color: var(--atlas-border-muted);
+  border-radius: var(--atlas-radius-lg);
+  box-shadow: none;
+}
+
+.atlas-app-shell .preference-insight-card.primary {
+  background: #0969da;
+}
+
+.atlas-app-shell .settings-json-card textarea {
+  border-color: var(--atlas-border-muted);
+  background: #f6f8fa;
+}
+
+.atlas-app-shell.view-list .metric-grid,
+.atlas-app-shell.view-list .preferences-insight-grid {
+  grid-template-columns: 1fr;
+}
+
+.atlas-app-shell.view-split .overview-command,
+.atlas-app-shell.view-split .preferences-page {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, .62fr);
+}
+
+.sidebar-collapsed.atlas-app-shell {
+  grid-template-columns: 68px minmax(0, 1fr);
+}
+
+.sidebar-collapsed .atlas-nav .nav-item {
+  grid-template-columns: 1fr;
+}
+
+.sidebar-collapsed .nav-hint {
+  display: none;
+}
 
 .shell {
   display: grid;
@@ -2603,6 +2898,106 @@ h3 { font-size: 17px; letter-spacing: 0; }
   }
   .recent-allocations-panel .stack-list {
     max-height: calc(100vh - 248px);
+  }
+}
+
+@container (max-width: 980px) {
+  .atlas-app-shell .preferences-page,
+  .atlas-app-shell.view-split .preferences-page,
+  .atlas-app-shell .overview-command,
+  .atlas-app-shell.view-split .overview-command {
+    grid-template-columns: 1fr;
+  }
+
+  .atlas-app-shell .preferences-policy-card {
+    position: static;
+    border-left-width: 1px;
+  }
+
+  .atlas-app-shell .settings-system-matrix,
+  .atlas-app-shell .preferences-insight-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1040px) {
+  .atlas-app-shell,
+  .sidebar-collapsed.atlas-app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .atlas-sidebar {
+    position: relative;
+    top: auto;
+    height: auto;
+    max-height: none;
+  }
+
+  .atlas-sidebar .brand-mark {
+    padding-right: 0;
+  }
+
+  .atlas-nav {
+    display: flex;
+    gap: var(--atlas-space-2);
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .atlas-nav .nav-item {
+    width: auto;
+    min-width: max-content;
+  }
+
+  .atlas-commandbar {
+    position: sticky;
+    top: var(--atlas-space-2);
+    grid-template-columns: 1fr;
+  }
+
+  .atlas-commandbar .top-actions {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .atlas-commandbar .search-box {
+    flex: 0 0 min(420px, 80vw);
+  }
+}
+
+@media (max-width: 560px) {
+  .atlas-app-shell {
+    --page-gap: 8px;
+    --card-pad: 12px;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .atlas-sidebar,
+  .atlas-commandbar,
+  .atlas-app-shell .glass-panel,
+  .atlas-app-shell .table-card,
+  .atlas-app-shell .form-card {
+    border-radius: 10px;
+  }
+
+  .atlas-sidebar .company-switcher,
+  .atlas-sidebar .fiscal-context-switcher,
+  .atlas-sidebar .sidebar-card {
+    display: none;
+  }
+
+  .atlas-nav .nav-hint {
+    display: none;
+  }
+
+  .atlas-commandbar .profile-meta {
+    display: none;
+  }
+
+  .atlas-commandbar .logout-button {
+    padding-inline: 8px;
   }
 }
 

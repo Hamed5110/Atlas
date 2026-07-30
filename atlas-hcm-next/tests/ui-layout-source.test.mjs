@@ -284,6 +284,13 @@ assert.match(source, /Keyboard shortcuts[\s\S]*Notifications[\s\S]*Privacy[\s\S]
 assert.match(source, /type="color"[\s\S]*updateCustomAccent/, "preferences should support custom accent color management");
 assert.match(source, /value=\{viewMode\}[\s\S]*updateViewMode/, "preferences should expose layout view modes");
 assert.match(css, /\.settings-system-matrix[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "advanced preferences matrix should align in a responsive grid");
+assert.match(source, /shell atlas-app-shell[\s\S]*data-view=\{viewMode\}/, "app should render through the rebuilt visual shell with view-mode state");
+assert.match(source, /className="atlas-nav"[\s\S]*<kbd className="nav-hint">⌘\{index \+ 1\}<\/kbd>/, "sidebar navigation should expose keyboard hint affordances");
+assert.match(source, /placeholder="Search employees, loans, companies — ⌘K"/, "command search should expose command-palette keyboard hint");
+assert.match(css, /\.atlas-app-shell\s*{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*248px\)\s+minmax\(0,\s*1fr\)/, "rebuilt shell should use strict sidebar-centric grid architecture");
+assert.match(css, /\.atlas-nav \.nav-item\s*{[\s\S]*grid-template-columns:\s*22px\s+minmax\(0,\s*1fr\)\s+auto/, "rebuilt nav rows should align icon, label, and shortcut hint");
+assert.match(css, /@container \(max-width:\s*980px\)[\s\S]*\.atlas-app-shell \.preferences-page/, "preferences layout should collapse through container queries");
+assert.match(css, /@media \(max-width:\s*1040px\)[\s\S]*\.atlas-nav\s*{[\s\S]*display:\s*flex/, "tablet navigation should convert into a horizontal responsive rail");
 assert.match(css, /\.preferences-policy-card/, "airfare policy editor should be styled as a main preferences section");
 assert.match(css, /\.table-row\.preference-current-row\s*{[\s\S]*min-width:\s*850px/, "main preference rows should be simplified to reduce horizontal overflow");
 assert.match(css, /\.preference-lock-pill\s*{[\s\S]*white-space:\s*nowrap/, "preference lock pills should stay horizontal");
