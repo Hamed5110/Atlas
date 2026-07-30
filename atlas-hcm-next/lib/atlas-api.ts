@@ -384,6 +384,13 @@ async function readApiError(res: Response, fallback: string) {
         const remaining = Number(data.currentYearRemaining || 0);
         return `${data.error || "Allocation review required."} First ticket ${firstDate}, ${moneyFormat(firstCost)}. Current year remaining ${moneyFormat(remaining)}.`;
       }
+      if (res.status === 429) {
+        const retryAfter = res.headers.get("Retry-After") || String(data.retryAfterSeconds || "");
+        const retryText = retryAfter ? ` Retry after ${retryAfter} seconds.` : "";
+        const codeText = data.code ? ` Code: ${data.code}.` : "";
+        const message = data.error || data.message || "Too many requests.";
+        return statusPrefix ? `${message}${retryText}${codeText} (${statusPrefix})` : `${message}${retryText}${codeText}`;
+      }
       const message = data.error || data.message || fallback;
       return statusPrefix ? `${message} (${statusPrefix})` : message;
     }

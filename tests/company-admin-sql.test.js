@@ -20,6 +20,10 @@ assert.match(serverText, /POST \/api\/companies/i, 'Company create API should ex
 assert.match(serverText, /PUT \/api\/companies\/:id/i, 'Company update API should exist');
 assert.match(serverText, /CREATE DATABASE/i, 'Company API should create company database');
 assert.match(serverText, /POST \/api\/auth\/forgot-password/i, 'Forgot password API should exist');
+assert.match(serverText, /API_RATE_LIMIT_LOCAL_MAX[\s\S]*30000/i, 'Local network API limiter should have a high dashboard-safe floor');
+assert.match(serverText, /skip:\s*\(req\)[\s\S]*requestPath\.startsWith\('\/api\/auth\/'\)/i, 'General API limiter should not double-count auth routes');
+assert.match(serverText, /Retry-After[\s\S]*API_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'API rate-limit response should include retry guidance');
+assert.match(serverText, /AUTH_RATE_LIMITED[\s\S]*retryAfterSeconds/i, 'Auth rate-limit response should include structured retry guidance');
 assert.match(serverText, /GET \/api\/opening-balances/i, 'Opening balance list API should exist');
 assert.match(serverText, /GET \/api\/opening-loan-balances/i, 'Opening loan balance list API should exist');
 assert.match(serverText, /POST \/api\/opening-balances/i, 'Opening balance save API should exist');

@@ -1019,6 +1019,7 @@ export default function DashboardPage() {
   const [workspacePreferences, setWorkspacePreferences] = useState<AtlasUserPreferences>(() => createDefaultAtlasPreferences());
   const [preferencesJsonDraft, setPreferencesJsonDraft] = useState("");
   const themeTelemetryReadyRef = useRef(false);
+  const themeTelemetryTimerRef = useRef<number | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [loginLogoUrl, setLoginLogoUrl] = useState("");
@@ -1730,7 +1731,15 @@ export default function DashboardPage() {
       themeTelemetryReadyRef.current = true;
       return;
     }
-    if (nextPreferences.privacy.telemetryHealthPing) void atlasHealth().catch(() => undefined);
+    if (themeTelemetryTimerRef.current) window.clearTimeout(themeTelemetryTimerRef.current);
+    if (nextPreferences.privacy.telemetryHealthPing) {
+      themeTelemetryTimerRef.current = window.setTimeout(() => {
+        void atlasHealth().catch(() => undefined);
+      }, 1200);
+    }
+    return () => {
+      if (themeTelemetryTimerRef.current) window.clearTimeout(themeTelemetryTimerRef.current);
+    };
   }, [workspacePreferences, themePreset, themeMode, themeAccent, customAccent, uiDensity, viewMode, sidebarCollapsed, rightPanelsCollapsed, showSyncStatus]);
 
   useEffect(() => {

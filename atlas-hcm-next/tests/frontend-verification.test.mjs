@@ -12,6 +12,7 @@ assert.match(source, /function syncWorkspaceThemeDom\(themeMode: ThemeMode, them
 assert.match(source, /document\.documentElement[\s\S]*dataset\.theme\s*=\s*themeMode[\s\S]*dataset\.themeRevision/, "theme changes should force root DOM dataset updates");
 assert.match(source, /atlas:theme-preference-change/, "theme mutations should emit a local UI telemetry event");
 assert.match(source, /void atlasHealth\(\)\.catch\(\(\) => undefined\)/, "theme preference mutations should ping the existing backend service path");
+assert.match(source, /themeTelemetryTimerRef[\s\S]*setTimeout[\s\S]*1200[\s\S]*atlasHealth/, "theme preference health pings should be debounced to avoid API bursts");
 assert.match(source, /data-theme=\{themeMode\}[\s\S]*data-accent=\{themeAccent\}[\s\S]*data-density=\{uiDensity\}/, "root shell should expose active theme state as data attributes");
 
 const allocationSubmit = source.match(/async function handleCreateAllocation\(\)[\s\S]*?const allocation = await atlasMutation<Allocation>/)?.[0] || "";

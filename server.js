@@ -1602,20 +1602,63 @@ app.use((req, res, next) => {
 app.use(express.static(FRONTEND_BUILD_DIR, FRONTEND_STATIC_OPTIONS));
 
 // Rate limiting
+function parsePositiveInt(value, fallback) {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function isLocalNetworkRequest(req) {
+    const rawIp = String(req.ip || req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim().replace(/^::ffff:/, '');
+    const host = String(req.headers.host || '');
+    const ip = forwarded || rawIp;
+    return ip === '127.0.0.1'
+        || ip === '::1'
+        || ip.startsWith('10.')
+        || ip.startsWith('192.168.')
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)
+        || /^localhost(?::|$)/i.test(host)
+        || /^127\.0\.0\.1(?::|$)/.test(host)
+        || /^192\.168\./.test(host);
+}
+
+const apiRateLimitMax = Math.max(parsePositiveInt(process.env.API_RATE_LIMIT_MAX, 5000), 5000);
+const localApiRateLimitMax = Math.max(parsePositiveInt(process.env.API_RATE_LIMIT_LOCAL_MAX, 30000), apiRateLimitMax);
+const authRateLimitMax = Math.max(parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 100), 100);
+
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.API_RATE_LIMIT_MAX, 10) || 5000,
+    max: (req) => isLocalNetworkRequest(req) ? localApiRateLimitMax : apiRateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: 'Too many requests in a short time. Please wait one minute, then use Refresh. Admin can increase API_RATE_LIMIT_MAX if needed.' }
+    skip: (req) => {
+        const requestPath = String(req.originalUrl || '').split('?')[0];
+        return requestPath.startsWith('/api/auth/');
+    },
+    handler: (req, res) => {
+        res.setHeader('Retry-After', '60');
+        res.status(429).json({
+            error: 'Too many requests in a short time. Please wait one minute, then use Refresh. Admin can increase API_RATE_LIMIT_MAX or API_RATE_LIMIT_LOCAL_MAX if needed.',
+            code: 'API_RATE_LIMITED',
+            retryAfterSeconds: 60,
+            localNetwork: isLocalNetworkRequest(req)
+        });
+    }
 });
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) || 100,
+    max: (req) => isLocalNetworkRequest(req) ? Math.max(authRateLimitMax, 500) : authRateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
     skipSuccessfulRequests: true,
-    message: { error: 'Too many login attempts. Please wait a few minutes or ask admin to unlock the user.' }
+    handler: (_req, res) => {
+        res.setHeader('Retry-After', '300');
+        res.status(429).json({
+            error: 'Too many login attempts. Please wait a few minutes or ask admin to unlock the user.',
+            code: 'AUTH_RATE_LIMITED',
+            retryAfterSeconds: 300
+        });
+    }
 });
 app.use('/api/auth', authLimiter);
 app.use('/api/', apiLimiter);

@@ -88,6 +88,7 @@ assert.match(server, /SET SINGLE_USER WITH ROLLBACK IMMEDIATE/, "restore should 
 assert.match(server, /SET MULTI_USER/, "restore should always return the database to multi-user mode");
 assert.match(server, /getAtlasBackupRoots/, "backup list should include data-root and legacy backup folders");
 assert.match(server, /ensureCompanyDatabase/, "company creation database query should remain available");
-assert.match(server, /API_RATE_LIMIT_MAX[\s\S]*\|\|\s*5000/, "general API limiter should allow normal dashboard and company setup usage on local network");
+assert.match(server, /apiRateLimitMax[\s\S]*Math\.max[\s\S]*API_RATE_LIMIT_MAX[\s\S]*5000/, "general API limiter should keep a dashboard-safe minimum limit");
+assert.match(server, /localApiRateLimitMax[\s\S]*API_RATE_LIMIT_LOCAL_MAX[\s\S]*30000/, "local network API limiter should allow normal dashboard and company setup usage");
 
 console.log("airfare excess, reports, company, and backup source checks passed");
