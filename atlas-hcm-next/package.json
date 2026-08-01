@@ -16,8 +16,9 @@
         "test:airfare-company": "node tests/airfare-excess-reports-company-source.test.mjs",
         "test:opening-balance": "node tests/opening-balance-source.test.mjs",
         "test:ui-layout": "node tests/ui-layout-source.test.mjs",
+        "test:preferences-modern": "node tests/preferences-modern-source.test.mjs",
         "test:frontend-verification": "node tests/frontend-verification.test.mjs",
-        "test": "npm run test:formula && npm run test:import && npm run test:dropdowns && npm run test:loans && npm run test:airfare-attachments && npm run test:airfare-company && npm run test:opening-balance && npm run test:ui-layout && npm run test:frontend-verification",
+        "test": "npm run test:formula && npm run test:import && npm run test:dropdowns && npm run test:loans && npm run test:airfare-attachments && npm run test:airfare-company && npm run test:opening-balance && npm run test:ui-layout && npm run test:preferences-modern && npm run test:frontend-verification",
         "dev-public": "next dev -H 0.0.0.0",
         "start-public": "next start -H 0.0.0.0"
     },
@@ -32,7 +33,8 @@
         "react-dom": "latest",
         "read-excel-file": "^9.2.0",
         "recharts": "latest",
-        "write-excel-file": "^4.1.1"
+        "write-excel-file": "^4.1.1",
+        "zod": "^4.4.3"
     },
     "devDependencies": {
         "@types/node": "latest",

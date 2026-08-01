@@ -42,6 +42,7 @@ const AIRFARE_ENTITLEMENT_CYCLE_DAYS = 720;
 const AIRFARE_CYCLE_DAYS = 60;
 const AIRFARE_WORKING_DAYS_PER_AIRFARE_DAY = 30;
 const ALLOCATION_PAYMENT_MODES = Object.freeze(["entitlement", "company", "company_full", "employee", "employee_full", "loan"]);
+const preferencesSaveCache = new Map();
 
 fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
 
@@ -2697,6 +2698,146 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     } catch (err) {
         logger.error('Get user error:', err);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/preferences
+app.get('/api/preferences', authenticateToken, async (req, res) => {
+    const schema = Joi.object({
+        fiscalYear: Joi.number().integer().min(2000).max(2100).default(new Date().getFullYear())
+    });
+    const { error, value } = schema.validate(req.query);
+    if (error) return res.status(400).json({ error: error.details[0].message, code: 'PREFERENCES_QUERY_INVALID' });
+
+    try {
+        const db = await getConnection();
+        await ensureUserPreferencesStorage(db);
+        const result = await db.request()
+            .input('UserID', sql.Int, req.user.userId)
+            .input('FiscalYear', sql.Int, value.fiscalYear)
+            .query(`
+                SELECT TOP (1)
+                    UserPreferenceID,
+                    UserID,
+                    SelectedCompanyID,
+                    FiscalYear,
+                    PreferencesJSON,
+                    ThemeSettingsJSON,
+                    LayoutSettingsJSON,
+                    NavigationSettingsJSON,
+                    IsActive,
+                    CreatedAt,
+                    UpdatedAt
+                FROM dbo.UserPreferences
+                WHERE UserID = @UserID
+                  AND FiscalYear = @FiscalYear
+                  AND IsActive = 1
+                ORDER BY UpdatedAt DESC;
+            `);
+        res.json(buildPreferencesEnvelope(result.recordset[0], value.fiscalYear));
+    } catch (err) {
+        logger.error('Preferences fetch error:', err);
+        res.status(500).json({ error: 'Could not load preferences.', code: 'PREFERENCES_LOAD_FAILED' });
+    }
+});
+
+// PUT /api/preferences
+app.put('/api/preferences', authenticateToken, async (req, res) => {
+    const schema = Joi.object({
+        fiscalYear: Joi.number().integer().min(2000).max(2100).required(),
+        selectedCompanyId: Joi.number().integer().allow(null),
+        idempotencyKey: Joi.string().min(12).max(120).required(),
+        preferences: Joi.object().required(),
+        persisted: Joi.object().required(),
+        uiOnly: Joi.object().required()
+    });
+    const { error, value } = schema.validate(req.body, { stripUnknown: false });
+    if (error) return res.status(400).json({ error: error.details[0].message, code: 'PREFERENCES_PAYLOAD_INVALID' });
+
+    prunePreferencesSaveCache();
+    const cacheKey = `${req.user.userId}:${value.fiscalYear}:${value.idempotencyKey}`;
+    if (preferencesSaveCache.has(cacheKey)) {
+        return res.json(preferencesSaveCache.get(cacheKey).response);
+    }
+
+    try {
+        const db = await getConnection();
+        await ensureUserPreferencesStorage(db);
+        const preferencesJson = JSON.stringify(value.preferences);
+        const themeJson = JSON.stringify(value.preferences.appearance || {});
+        const layoutJson = JSON.stringify(value.preferences.workspace || {});
+        const navigationJson = JSON.stringify({
+            activeSection: value.preferences.uiOnly?.activeSection || 'appearance',
+            keyboard: value.preferences.keyboard || {}
+        });
+
+        const result = await db.request()
+            .input('UserID', sql.Int, req.user.userId)
+            .input('SelectedCompanyID', sql.Int, value.selectedCompanyId)
+            .input('FiscalYear', sql.Int, value.fiscalYear)
+            .input('PreferencesJSON', sql.NVarChar(sql.MAX), preferencesJson)
+            .input('ThemeSettingsJSON', sql.NVarChar(sql.MAX), themeJson)
+            .input('LayoutSettingsJSON', sql.NVarChar(sql.MAX), layoutJson)
+            .input('NavigationSettingsJSON', sql.NVarChar(sql.MAX), navigationJson)
+            .query(`
+                IF ISJSON(@PreferencesJSON) <> 1 THROW 51101, 'PreferencesJSON must be valid JSON.', 1;
+                IF ISJSON(@ThemeSettingsJSON) <> 1 THROW 51102, 'ThemeSettingsJSON must be valid JSON.', 1;
+                IF ISJSON(@LayoutSettingsJSON) <> 1 THROW 51103, 'LayoutSettingsJSON must be valid JSON.', 1;
+                IF ISJSON(@NavigationSettingsJSON) <> 1 THROW 51104, 'NavigationSettingsJSON must be valid JSON.', 1;
+
+                MERGE dbo.UserPreferences WITH (HOLDLOCK) AS target
+                USING (SELECT @UserID AS UserID, @FiscalYear AS FiscalYear) AS source
+                   ON target.UserID = source.UserID
+                  AND target.FiscalYear = source.FiscalYear
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        SelectedCompanyID = @SelectedCompanyID,
+                        PreferencesJSON = @PreferencesJSON,
+                        ThemeSettingsJSON = @ThemeSettingsJSON,
+                        LayoutSettingsJSON = @LayoutSettingsJSON,
+                        NavigationSettingsJSON = @NavigationSettingsJSON,
+                        IsActive = 1,
+                        UpdatedAt = SYSUTCDATETIME()
+                WHEN NOT MATCHED THEN
+                    INSERT (UserID, SelectedCompanyID, FiscalYear, PreferencesJSON, ThemeSettingsJSON, LayoutSettingsJSON, NavigationSettingsJSON)
+                    VALUES (@UserID, @SelectedCompanyID, @FiscalYear, @PreferencesJSON, @ThemeSettingsJSON, @LayoutSettingsJSON, @NavigationSettingsJSON);
+
+                SELECT TOP (1)
+                    UserPreferenceID,
+                    UserID,
+                    SelectedCompanyID,
+                    FiscalYear,
+                    PreferencesJSON,
+                    ThemeSettingsJSON,
+                    LayoutSettingsJSON,
+                    NavigationSettingsJSON,
+                    IsActive,
+                    CreatedAt,
+                    UpdatedAt
+                FROM dbo.UserPreferences
+                WHERE UserID = @UserID
+                  AND FiscalYear = @FiscalYear
+                  AND IsActive = 1
+                ORDER BY UpdatedAt DESC;
+            `);
+
+        const response = {
+            ...buildPreferencesEnvelope(result.recordset[0], value.fiscalYear),
+            persisted: true,
+            source: 'database',
+            idempotencyKey: value.idempotencyKey
+        };
+        preferencesSaveCache.set(cacheKey, { response, createdAt: Date.now() });
+        res.json(response);
+    } catch (err) {
+        logger.error('Preferences save error:', err);
+        if ([2601, 2627].includes(Number(err.number))) {
+            return res.status(409).json({ error: 'Preferences were already saved. Refresh and retry if the screen is stale.', code: 'PREFERENCES_CONFLICT' });
+        }
+        if (Number(err.number) >= 51101 && Number(err.number) <= 51104) {
+            return res.status(422).json({ error: err.message, code: 'PREFERENCES_JSON_INVALID' });
+        }
+        res.status(500).json({ error: 'Could not save preferences.', code: 'PREFERENCES_SAVE_FAILED' });
     }
 });
 
@@ -5824,6 +5965,85 @@ async function deactivateAirfarePolicyRate(req, res) {
         logger.error('Delete airfare policy rate error:', err);
         res.status(500).json({ error: err.originalError?.info?.message || err.message || 'Server error' });
     }
+}
+
+async function ensureUserPreferencesStorage(db) {
+    await db.request().query(`
+        IF OBJECT_ID(N'dbo.UserPreferences', N'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.UserPreferences (
+                UserPreferenceID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_UserPreferences PRIMARY KEY,
+                UserID INT NOT NULL,
+                SelectedCompanyID INT NULL,
+                FiscalYear INT NOT NULL,
+                PreferencesJSON NVARCHAR(MAX) NULL,
+                ThemeSettingsJSON NVARCHAR(MAX) NOT NULL CONSTRAINT DF_UserPreferences_ThemeSettingsJSON DEFAULT (N'{}'),
+                LayoutSettingsJSON NVARCHAR(MAX) NOT NULL CONSTRAINT DF_UserPreferences_LayoutSettingsJSON DEFAULT (N'{}'),
+                NavigationSettingsJSON NVARCHAR(MAX) NOT NULL CONSTRAINT DF_UserPreferences_NavigationSettingsJSON DEFAULT (N'{}'),
+                IsActive BIT NOT NULL CONSTRAINT DF_UserPreferences_IsActive DEFAULT (1),
+                CreatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_UserPreferences_CreatedAt DEFAULT (SYSUTCDATETIME()),
+                UpdatedAt DATETIME2(0) NOT NULL CONSTRAINT DF_UserPreferences_UpdatedAt DEFAULT (SYSUTCDATETIME()),
+                CONSTRAINT UQ_UserPreferences_User_Year UNIQUE (UserID, FiscalYear),
+                CONSTRAINT CK_UserPreferences_FiscalYear CHECK (FiscalYear BETWEEN 2000 AND 2100),
+                CONSTRAINT CK_UserPreferences_ThemeSettingsJSON CHECK (ISJSON(ThemeSettingsJSON) = 1),
+                CONSTRAINT CK_UserPreferences_LayoutSettingsJSON CHECK (ISJSON(LayoutSettingsJSON) = 1),
+                CONSTRAINT CK_UserPreferences_NavigationSettingsJSON CHECK (ISJSON(NavigationSettingsJSON) = 1),
+                CONSTRAINT CK_UserPreferences_PreferencesJSON CHECK (PreferencesJSON IS NULL OR ISJSON(PreferencesJSON) = 1)
+            );
+        END;
+
+        IF COL_LENGTH(N'dbo.UserPreferences', N'PreferencesJSON') IS NULL
+        BEGIN
+            ALTER TABLE dbo.UserPreferences ADD PreferencesJSON NVARCHAR(MAX) NULL;
+        END;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.check_constraints
+            WHERE name = N'CK_UserPreferences_PreferencesJSON'
+              AND parent_object_id = OBJECT_ID(N'dbo.UserPreferences')
+        )
+        BEGIN
+            ALTER TABLE dbo.UserPreferences WITH CHECK
+            ADD CONSTRAINT CK_UserPreferences_PreferencesJSON CHECK (PreferencesJSON IS NULL OR ISJSON(PreferencesJSON) = 1);
+        END;
+    `);
+}
+
+function prunePreferencesSaveCache() {
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    for (const [key, value] of preferencesSaveCache.entries()) {
+        if (!value || value.createdAt < cutoff) preferencesSaveCache.delete(key);
+    }
+}
+
+function buildPreferencesEnvelope(row, fallbackFiscalYear) {
+    if (!row) {
+        return {
+            preferences: null,
+            persisted: false,
+            source: 'default',
+            fiscalYear: fallbackFiscalYear
+        };
+    }
+    let preferences = null;
+    for (const candidate of [row.PreferencesJSON, row.ThemeSettingsJSON]) {
+        if (!candidate) continue;
+        try {
+            preferences = JSON.parse(candidate);
+            break;
+        } catch {
+            preferences = null;
+        }
+    }
+    return {
+        preferences,
+        persisted: Boolean(preferences),
+        source: preferences ? 'database' : 'default',
+        selectedCompanyId: row.SelectedCompanyID ?? null,
+        fiscalYear: row.FiscalYear || fallbackFiscalYear,
+        updatedAt: row.UpdatedAt
+    };
 }
 
 app.post('/api/airfare-policy-rates/bulk-delete', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {

@@ -5863,6 +5863,10 @@ export default function DashboardPage() {
                   key={`${item.view}-${item.label}`}
                   type="button"
                   onClick={() => {
+                    if (item.view === "Preferences") {
+                      window.location.href = "/preferences/";
+                      return;
+                    }
                     setActiveView(item.view);
                     window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
                   }}
@@ -5962,7 +5966,7 @@ export default function DashboardPage() {
                     <span>{session.user.role === "admin" ? "Administrator tools" : "User profile"}</span>
                   </div>
                   <button type="button" role="menuitem" onClick={() => {
-                    setActiveView("Preferences");
+                    window.location.href = "/preferences/";
                     setShowAdminMenu(false);
                   }}><Settings size={16} /> Preferences</button>
                   <button type="button" role="menuitem" disabled={session.user.role !== "admin"} onClick={openSystemMaintenance}><ShieldCheck size={16} /> System Maintenance</button>
