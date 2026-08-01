@@ -2,8 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [string]$ManifestPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "release\atlas-release-manifest.json"),
-    [string]$OutputRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts"),
+    [string]$ManifestPath = "",
+    [string]$OutputRoot = "",
     [switch]$SkipVerify,
     [switch]$SkipExe
 )
@@ -11,6 +11,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ManifestPath)) { $ManifestPath = Join-Path $Root "release\atlas-release-manifest.json" }
+if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $Root "artifacts" }
 $PatchDir = Join-Path $OutputRoot "patch-$Version"
 $PayloadDir = Join-Path $PatchDir "payload"
 $ReportsDir = Join-Path $PatchDir "reports"
