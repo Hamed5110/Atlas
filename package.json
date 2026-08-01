@@ -13,6 +13,7 @@
                     "test:loan-sql":  "node tests/loan-sql-objects.test.js",
                     "test:attachments-sql":  "node tests/allocation-attachments-sql.test.js",
                     "test:company-admin":  "node tests/company-admin-sql.test.js",
+                    "test:release-manifest":  "node tests/release-manifest-contract.test.js",
                     "test:full":  "node tests/full-system-test.js",
                     "test:phase1":  "node tests/phase1-smoke-test.js",
                     "test:employee-status":  "node tests/employee-status-eligibility.test.js",

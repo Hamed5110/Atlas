@@ -1,0 +1,93 @@
+{
+  "manifestSchemaVersion": 1,
+  "product": "ATLAS Airfare Allowance",
+  "productCode": "ATLAS_AIRFARE_ALLOWANCE",
+  "version": "2.3.87",
+  "channel": "stable",
+  "gitCommit": "pending-build",
+  "buildTimestampUtc": "2026-08-01T10:00:00Z",
+  "frontendBuildHash": "sha256:pending-build",
+  "backendBuildHash": "sha256:pending-build",
+  "databaseSchemaVersion": "2026.08.01.001",
+  "service": {
+    "name": "ATLASAirfareAllowance",
+    "port": 3355,
+    "healthUrl": "http://127.0.0.1:3355/api/version"
+  },
+  "artifacts": {
+    "msi": {
+      "file": "ATLAS-Airfare-Allowance-2.3.87-x64.msi",
+      "sha256": "sha256:computed-after-package"
+    },
+    "exe": {
+      "file": "ATLAS-Airfare-Allowance-Setup-2.3.87-x64.exe",
+      "sha256": "sha256:computed-after-package"
+    }
+  },
+  "minimumUpgradeableVersion": "2.3.70",
+  "migrationPlan": [
+    {
+      "id": "20260730-employee-portal-claim-upsert",
+      "from": "<2.3.85",
+      "to": ">=2.3.85",
+      "type": "sql",
+      "description": "Apply employee portal claim UPSERT procedure.",
+      "script": "extensions/employee-portal/sql/ATLAS_Employee_Portal_Extension.sql",
+      "verify": {
+        "kind": "sqlObjectExists",
+        "object": "dbo.ext_sp_UpsertEmployeeAuthClaim",
+        "objectType": "P"
+      },
+      "rollback": {
+        "kind": "none",
+        "reason": "Forward-compatible stored procedure replacement."
+      }
+    },
+    {
+      "id": "20260730-support-diagnostics-rate-limit",
+      "from": "<2.3.84",
+      "to": ">=2.3.84",
+      "type": "config",
+      "description": "Ensure support diagnostics limiter config exists.",
+      "writeEnv": {
+        "SUPPORT_RATE_LIMIT_MAX": "2000",
+        "SUPPORT_RATE_LIMIT_LOCAL_MAX": "60000"
+      },
+      "verify": {
+        "kind": "httpHeader",
+        "url": "http://127.0.0.1:3355/api/health",
+        "header": "RateLimit-Limit",
+        "expected": "60000"
+      },
+      "rollback": {
+        "kind": "restorePreviousEnv"
+      }
+    },
+    {
+      "id": "20260801-version-endpoint-contract",
+      "from": "<2.3.87",
+      "to": ">=2.3.87",
+      "type": "fileAndHttp",
+      "description": "Install runtime version.json and verify /api/version manifest identity.",
+      "files": [
+        "release/version.json"
+      ],
+      "verify": {
+        "kind": "httpJsonEqualsManifest",
+        "url": "http://127.0.0.1:3355/api/version",
+        "fields": [
+          "productCode",
+          "version",
+          "gitCommit",
+          "frontendBuildHash",
+          "backendBuildHash",
+          "databaseSchemaVersion",
+          "artifact.manifestVersion"
+        ]
+      },
+      "rollback": {
+        "kind": "restorePreviousFiles"
+      }
+    }
+  ]
+}

@@ -22,6 +22,10 @@ const app = express();
 const PORT = Number(process.env.PORT || 3355);
 const HOST = process.env.ATLAS_BIND_HOST || process.env.HOST || '0.0.0.0';
 const FRONTEND_BUILD_DIR = path.join(__dirname, "atlas-hcm-next", "out");
+const RELEASE_DIR = path.join(__dirname, "release");
+const RELEASE_VERSION_PATH = path.join(RELEASE_DIR, "version.json");
+const RELEASE_MANIFEST_PATH = path.join(RELEASE_DIR, "atlas-release-manifest.json");
+const PROCESS_STARTED_AT_UTC = new Date().toISOString();
 const FRONTEND_STATIC_OPTIONS = {
     etag: false,
     lastModified: false,
@@ -40,6 +44,59 @@ const AIRFARE_WORKING_DAYS_PER_AIRFARE_DAY = 30;
 const ALLOCATION_PAYMENT_MODES = Object.freeze(["entitlement", "company", "company_full", "employee", "employee_full", "loan"]);
 
 fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+
+function readJsonFileIfExists(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return null;
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (err) {
+        console.warn(`Could not read JSON file ${filePath}: ${err.message}`);
+        return null;
+    }
+}
+
+function sha256FileIfExists(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return null;
+        return `sha256:${crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex').toUpperCase()}`;
+    } catch {
+        return null;
+    }
+}
+
+function getAtlasVersionIdentity() {
+    const versionFile = readJsonFileIfExists(RELEASE_VERSION_PATH);
+    const manifestFile = readJsonFileIfExists(RELEASE_MANIFEST_PATH);
+    const packageFile = readJsonFileIfExists(path.join(__dirname, 'package.json')) || {};
+    const source = versionFile || manifestFile || {};
+    const manifestHash = sha256FileIfExists(RELEASE_VERSION_PATH) || sha256FileIfExists(RELEASE_MANIFEST_PATH);
+    const programData = process.env.ProgramData || process.env.PROGRAMDATA || 'C:\\ProgramData';
+    const dataRoot = process.env.ATLAS_DATA_ROOT || process.env.DATA_ROOT || path.join(programData, 'ATLAS Airfare Allowance');
+
+    return {
+        product: source.product || 'ATLAS Airfare Allowance',
+        productCode: source.productCode || 'ATLAS_AIRFARE_ALLOWANCE',
+        version: source.version || packageFile.version || '0.0.0-dev',
+        channel: source.channel || 'local',
+        gitCommit: source.gitCommit || process.env.ATLAS_GIT_COMMIT || 'unknown',
+        buildTimestampUtc: source.buildTimestampUtc || null,
+        frontendBuildHash: source.frontendBuildHash || 'sha256:unknown',
+        backendBuildHash: source.backendBuildHash || 'sha256:unknown',
+        databaseSchemaVersion: source.databaseSchemaVersion || process.env.ATLAS_DB_SCHEMA_VERSION || 'unknown',
+        runtime: {
+            nodeVersion: process.version,
+            port: PORT,
+            processStartedAtUtc: PROCESS_STARTED_AT_UTC,
+            installRoot: process.env.ATLAS_INSTALL_PATH || __dirname,
+            dataRoot
+        },
+        artifact: {
+            installedBy: process.env.ATLAS_INSTALLED_BY || source.installedBy || 'unknown',
+            manifestVersion: source.version || manifestFile?.version || packageFile.version || '0.0.0-dev',
+            manifestHash
+        }
+    };
+}
 
 // =====================================================
 // WINSTON LOGGER
@@ -1656,6 +1713,8 @@ function rateLimitPathCandidates(req) {
 function isSupportApiPath(req) {
     return rateLimitPathCandidates(req).some((requestPath) => requestPath === '/api/health'
         || requestPath === '/health'
+        || requestPath === '/api/version'
+        || requestPath === '/version'
         || requestPath.startsWith('/api/diagnostics/')
         || requestPath.startsWith('/diagnostics/'));
 }
@@ -1722,6 +1781,7 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api/auth', authLimiter);
 app.use('/api/health', supportLimiter);
+app.use('/api/version', supportLimiter);
 app.use('/api/diagnostics', supportLimiter);
 app.use('/api/', apiLimiter);
 
@@ -1786,7 +1846,7 @@ function requireNonEmployeePortal(req, res, next) {
 }
 
 app.use('/api', (req, res, next) => {
-    const publicApiPaths = ['/api/health', '/api/auth/login', '/api/auth/forgot-password'];
+    const publicApiPaths = ['/api/health', '/api/version', '/api/auth/login', '/api/auth/forgot-password'];
     const requestPath = String(req.originalUrl || '').split('?')[0];
     if (publicApiPaths.includes(requestPath)) return next();
     authenticateToken(req, res, () => requireNonEmployeePortal(req, res, next));
@@ -7386,13 +7446,59 @@ app.get('/api/year-end/history', authenticateToken, async (req, res) => {
 // =====================================================
 // HEALTH CHECK
 // =====================================================
+app.get('/api/version', async (req, res) => {
+    const identity = getAtlasVersionIdentity();
+    let database = {
+        connected: false,
+        name: process.env.DB_NAME || 'Atlasairfare010',
+        schemaVersion: identity.databaseSchemaVersion
+    };
+
+    try {
+        const db = await getConnection();
+        await db.request().query('SELECT 1');
+        database = {
+            connected: true,
+            name: process.env.DB_NAME || 'Atlasairfare010',
+            schemaVersion: identity.databaseSchemaVersion
+        };
+    } catch (err) {
+        database = {
+            ...database,
+            error: err.message
+        };
+    }
+
+    res.status(database.connected ? 200 : 503).json({
+        product: identity.product,
+        productCode: identity.productCode,
+        version: identity.version,
+        channel: identity.channel,
+        gitCommit: identity.gitCommit,
+        buildTimestampUtc: identity.buildTimestampUtc,
+        frontendBuildHash: identity.frontendBuildHash,
+        backendBuildHash: identity.backendBuildHash,
+        databaseSchemaVersion: identity.databaseSchemaVersion,
+        runtime: identity.runtime,
+        database,
+        artifact: identity.artifact
+    });
+});
+
 app.get('/api/health', async (req, res) => {
     try {
         const db = await getConnection();
         await db.request().query('SELECT 1');
+        const identity = getAtlasVersionIdentity();
         res.json({
             status: 'healthy',
             database: 'connected',
+            productCode: identity.productCode,
+            version: identity.version,
+            gitCommit: identity.gitCommit,
+            frontendBuildHash: identity.frontendBuildHash,
+            backendBuildHash: identity.backendBuildHash,
+            databaseSchemaVersion: identity.databaseSchemaVersion,
             payableReportSource: 'mssql-procedure-payable-bhd',
             selfServiceWorkflowSource: 'phase2-same-port-allocation-link',
             yearEndSafetySource: 'company-scoped-close-workbench-v2',
