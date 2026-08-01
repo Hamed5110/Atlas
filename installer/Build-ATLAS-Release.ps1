@@ -106,9 +106,12 @@ function Assert-ReleaseManifestCore {
     param([pscustomobject]$Manifest)
     $required = @("manifestSchemaVersion", "product", "productCode", "version", "gitCommit", "frontendBuildHash", "backendBuildHash", "databaseSchemaVersion", "artifacts", "minimumUpgradeableVersion", "migrationPlan")
     foreach ($name in $required) {
-        if ($null -eq $Manifest.$name -or [string]::IsNullOrWhiteSpace([string]$Manifest.$name)) {
+        if ($null -eq $Manifest.$name) {
             throw "Release manifest is missing required field '$name'."
         }
+    }
+    if (-not @($Manifest.migrationPlan).Count) {
+        throw "Release manifest is missing required field 'migrationPlan'."
     }
     foreach ($migration in @($Manifest.migrationPlan)) {
         foreach ($name in @("id", "from", "to", "type", "description", "verify", "rollback")) {
