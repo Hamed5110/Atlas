@@ -1,10 +1,10 @@
 {
   "product": "ATLAS Airfare Allowance",
   "productCode": "ATLAS_AIRFARE_ALLOWANCE",
-  "version": "2.3.87",
+  "version": "2.3.88",
   "channel": "stable",
   "gitCommit": "pending-build",
-  "buildTimestampUtc": "2026-08-01T10:00:00Z",
+  "buildTimestampUtc": "2026-08-01T13:00:00Z",
   "frontendBuildHash": "sha256:pending-build",
   "backendBuildHash": "sha256:pending-build",
   "databaseSchemaVersion": "2026.08.01.001",

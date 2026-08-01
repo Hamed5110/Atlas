@@ -2,10 +2,10 @@
   "manifestSchemaVersion": 1,
   "product": "ATLAS Airfare Allowance",
   "productCode": "ATLAS_AIRFARE_ALLOWANCE",
-  "version": "2.3.87",
+  "version": "2.3.88",
   "channel": "stable",
   "gitCommit": "pending-build",
-  "buildTimestampUtc": "2026-08-01T10:00:00Z",
+  "buildTimestampUtc": "2026-08-01T13:00:00Z",
   "frontendBuildHash": "sha256:pending-build",
   "backendBuildHash": "sha256:pending-build",
   "databaseSchemaVersion": "2026.08.01.001",
@@ -16,11 +16,11 @@
   },
   "artifacts": {
     "msi": {
-      "file": "ATLAS-Airfare-Allowance-2.3.87-x64.msi",
+      "file": "ATLAS-Airfare-Allowance-2.3.88-x64.msi",
       "sha256": "sha256:computed-after-package"
     },
     "exe": {
-      "file": "ATLAS-Airfare-Allowance-Setup-2.3.87-x64.exe",
+      "file": "ATLAS-Airfare-Allowance-Setup-2.3.88-x64.exe",
       "sha256": "sha256:computed-after-package"
     }
   },
@@ -87,6 +87,23 @@
       },
       "rollback": {
         "kind": "restorePreviousFiles"
+      }
+    },
+    {
+      "id": "20260801-preferences-schema-v2",
+      "from": "<2.3.88",
+      "to": ">=2.3.88",
+      "type": "sql",
+      "description": "Add schema-v2 PreferencesJSON storage for the route-based Preferences module.",
+      "script": "database/UserPreferences_LayoutState.sql",
+      "verify": {
+        "kind": "sqlColumnExists",
+        "table": "dbo.UserPreferences",
+        "column": "PreferencesJSON"
+      },
+      "rollback": {
+        "kind": "none",
+        "reason": "Nullable forward-compatible JSON column; old clients keep using split theme/layout/navigation columns."
       }
     }
   ]

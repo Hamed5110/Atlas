@@ -53,6 +53,7 @@ assert.match(buildScript, /Git commit changed during release build/s, 'release b
 
 assert.match(patchScript, /Get-InstalledState[\s\S]*registry[\s\S]*install-state[\s\S]*http[\s\S]*release-version-file/s, 'patch should detect installed state from registry, file, endpoint, and version file');
 assert.match(patchScript, /Select-Migrations[\s\S]*Test-VersionRange/s, 'patch should select migrations from version ranges');
+assert.match(patchScript, /sqlColumnExists[\s\S]*COL_LENGTH/s, 'patch should verify SQL column migrations');
 assert.match(patchScript, /pending-patch\.json/s, 'patch should write a rollback marker');
 assert.match(patchScript, /patch-history\.json/s, 'patch should write patch history');
 assert.match(patchScript, /Assert-RuntimeMatchesManifest[\s\S]*frontendBuildHash[\s\S]*backendBuildHash[\s\S]*databaseSchemaVersion/s, 'patch should verify runtime identity against manifest');

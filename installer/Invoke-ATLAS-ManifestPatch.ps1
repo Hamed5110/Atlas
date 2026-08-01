@@ -266,6 +266,13 @@ function Test-MigrationVerify {
         Invoke-SqlText -SqlText $sqlText
         return $true
     }
+    if ($verify.kind -eq "sqlColumnExists") {
+        $tableName = [string]$verify.table
+        $columnName = [string]$verify.column
+        $sqlText = "IF COL_LENGTH(N'$tableName', N'$columnName') IS NULL THROW 51091, 'Migration verify failed: $tableName.$columnName missing.', 1;"
+        Invoke-SqlText -SqlText $sqlText
+        return $true
+    }
     if ($verify.kind -eq "httpHeader") {
         $response = Invoke-WebRequest -Uri ([string]$verify.url) -TimeoutSec 10 -UseBasicParsing
         return ([string]$response.Headers[[string]$verify.header]) -eq [string]$verify.expected
