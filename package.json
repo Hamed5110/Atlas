@@ -17,6 +17,7 @@
                     "test:preferences-api":  "node tests/preferences-api-contract.test.js",
                     "test:preferences-route":  "node tests/preferences-route-artifact.test.js",
                     "test:post-patch-smoke":  "node tests/post-patch-smoke.test.js",
+                    "test:continuous-entitlement":  "node tests/continuous-entitlement-blueprint.test.js",
                     "test:full":  "node tests/full-system-test.js",
                     "test:phase1":  "node tests/phase1-smoke-test.js",
                     "test:employee-status":  "node tests/employee-status-eligibility.test.js",
