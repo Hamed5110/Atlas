@@ -225,6 +225,7 @@ if ($manifest.frontendBuildHash -ne (Get-DirectoryHash -Path (Join-Path $Root "a
 if ($manifest.backendBuildHash -ne (Get-BackendHash)) { throw "Backend hash mismatch after build." }
 
 Copy-Item -LiteralPath $FinalManifestPath -Destination (Join-Path $PayloadDir "atlas-release-manifest.json") -Force
+New-Item -ItemType Directory -Path (Join-Path $PayloadDir "release") -Force | Out-Null
 Copy-Item -LiteralPath $RuntimeVersionPath -Destination (Join-Path $PayloadDir "release\version.json") -Force
 
 @(
