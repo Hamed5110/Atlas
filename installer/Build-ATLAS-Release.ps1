@@ -47,6 +47,21 @@ function Get-GitCommit {
     }
 }
 
+function Get-RelativePathCompat {
+    param(
+        [Parameter(Mandatory = $true)][string]$BasePath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+    $baseFull = [System.IO.Path]::GetFullPath($BasePath)
+    $targetFull = [System.IO.Path]::GetFullPath($TargetPath)
+    if (-not $baseFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+        $baseFull += [System.IO.Path]::DirectorySeparatorChar
+    }
+    $baseUri = [System.Uri]::new($baseFull)
+    $targetUri = [System.Uri]::new($targetFull)
+    return [System.Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace('/', '\')
+}
+
 function Get-DirectoryHash {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -60,7 +75,7 @@ function Get-DirectoryHash {
     Get-ChildItem -LiteralPath $Path -Recurse -File -Force |
         Sort-Object FullName |
         ForEach-Object {
-            $relative = [System.IO.Path]::GetRelativePath($Path, $_.FullName).Replace('/', '\')
+            $relative = Get-RelativePathCompat -BasePath $Path -TargetPath $_.FullName
             if ($exclude.Contains($relative)) { return }
             $fileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
             [void]$builder.AppendLine("$relative|$($_.Length)|$fileHash")
@@ -88,7 +103,7 @@ function Get-BackendHash {
                 Where-Object { $_.FullName -notmatch '\\stage\\|\\logs\\|\\node_modules\\' } |
                 Sort-Object FullName |
                 ForEach-Object {
-                    $relative = [System.IO.Path]::GetRelativePath($Root, $_.FullName).Replace('/', '\')
+                    $relative = Get-RelativePathCompat -BasePath $Root -TargetPath $_.FullName
                     $fileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
                     [void]$builder.AppendLine("$relative|$($_.Length)|$fileHash")
                 }
