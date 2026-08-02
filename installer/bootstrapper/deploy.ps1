@@ -2333,8 +2333,7 @@ function Save-SqlExpressRedistributable {
     $downloadArgs = @(
         "/ACTION=Download",
         "/MEDIATYPE=Core",
-        "/MEDIAPATH=`"$mediaDir`"",
-        "/QUIET"
+        "/MEDIAPATH=`"$mediaDir`""
     )
     $process = Start-Process -FilePath $webInstaller -ArgumentList $downloadArgs -Wait -PassThru
     if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
