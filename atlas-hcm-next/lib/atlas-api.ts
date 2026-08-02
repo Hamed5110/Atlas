@@ -267,6 +267,50 @@ export type YearSummary = {
   emergencyTickets: { TotalEmergency: number };
 };
 
+export type AtlasFeatureState = {
+  continuousAirfareEntitlement?: boolean;
+  continuousAirfareBackfill?: boolean;
+  continuousAirfareReconciliation?: boolean;
+  continuousAirfareWrites?: boolean;
+  continuousAirfareUi?: boolean;
+  continuousAirfareAdminOnly?: boolean;
+};
+
+export type AtlasVersionInfo = {
+  product?: string;
+  productCode?: string;
+  version?: string;
+  gitCommit?: string;
+  databaseSchemaVersion?: string;
+  features?: AtlasFeatureState;
+};
+
+export type AirfareEntitlementReconciliationRow = {
+  employeeId: number;
+  employeeCode?: string;
+  fullName?: string;
+  legacyAirfareBalance: number;
+  continuousAirfareBalance: number;
+  difference: number;
+  status: "OK" | "MISSING_CONTINUOUS" | "INVESTIGATE" | string;
+  notes?: string;
+};
+
+export type AirfareEntitlementReconciliationResult = {
+  mode: "migration-reconciliation";
+  asOfDate: string;
+  tolerance: number;
+  features?: AtlasFeatureState;
+  summary: {
+    checked: number;
+    ok: number;
+    missingContinuous?: number;
+    investigate: number;
+    materialDifferences?: number;
+  };
+  rows: AirfareEntitlementReconciliationRow[];
+};
+
 export type AtlasSession = {
   token: string;
   sessionId: string;
@@ -359,6 +403,12 @@ export async function atlasMutation<T>(
 export async function atlasHealth() {
   const res = await fetch(atlasUrl("/health"), { cache: "no-store" });
   if (!res.ok) throw new Error(await readApiError(res, "API health check failed"));
+  return res.json();
+}
+
+export async function atlasVersion(): Promise<AtlasVersionInfo> {
+  const res = await fetch(atlasUrl("/version"), { cache: "no-store" });
+  if (!res.ok) throw new Error(await readApiError(res, "API version check failed"));
   return res.json();
 }
 

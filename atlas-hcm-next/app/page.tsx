@@ -68,11 +68,14 @@ import {
   AllocationAttachment,
   AllocationEligibilityReview,
   AirfarePolicyRate,
+  AirfareEntitlementReconciliationResult,
   atlasApiBase,
   atlasFetch,
   atlasHealth,
   atlasLogin,
   atlasMutation,
+  atlasVersion,
+  AtlasVersionInfo,
   AtlasSession,
   AtlasUser,
   calculateExcelTotal,
@@ -988,6 +991,14 @@ export default function DashboardPage() {
   const [systemIntegrity, setSystemIntegrity] = useState<SystemIntegrityModel | null>(null);
   const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<AtlasVersionInfo | null>(null);
+  const [entitlementReconLoading, setEntitlementReconLoading] = useState(false);
+  const [entitlementRecon, setEntitlementRecon] = useState<AirfareEntitlementReconciliationResult | null>(null);
+  const [entitlementReconForm, setEntitlementReconForm] = useState({
+    employeeId: "",
+    asOfDate: `${new Date().getFullYear()}-12-31`,
+    tolerance: "0.010"
+  });
   const [airfarePayableReport, setAirfarePayableReport] = useState<AirfarePayableReportRow[]>([]);
   const [status, setStatus] = useState("Checking API");
   const [showSyncStatus, setShowSyncStatus] = useState(true);
@@ -1634,10 +1645,20 @@ export default function DashboardPage() {
       detail: "Year-end screens do not change formulas; airfare values stay tied to policy snapshots and preference lookup."
     }
   ];
+  const continuousAirfareFeatures = versionInfo?.features || {};
+  const canShowEntitlementReconciliation = Boolean(
+    session?.user.role === "admin" &&
+    continuousAirfareFeatures.continuousAirfareEntitlement &&
+    continuousAirfareFeatures.continuousAirfareReconciliation &&
+    continuousAirfareFeatures.continuousAirfareUi
+  );
 
   useEffect(() => {
-    atlasHealth()
-      .then(() => setStatus("API online: sign in for live SQL"))
+    Promise.all([atlasHealth(), atlasVersion()])
+      .then(([, version]) => {
+        setVersionInfo(version);
+        setStatus("API online: sign in for live SQL");
+      })
       .catch(() => setStatus("Preview mode: API not reachable"));
   }, []);
 
@@ -1960,6 +1981,7 @@ export default function DashboardPage() {
 
   async function loadLiveData(activeSession = session, fiscalYearValue: string | number = activeFiscalYear) {
     if (!activeSession) return;
+    atlasVersion().then(setVersionInfo).catch(() => undefined);
     if (activeSession.user.role === "employee") {
       const [selfServiceSummaryData, selfServiceRequestData] = await Promise.all([
         atlasFetch<EmployeeSelfServiceSummary>("/employee-self-service/summary", activeSession.token, activeSession.sessionId),
@@ -2382,6 +2404,51 @@ export default function DashboardPage() {
     } finally {
       setDiagnosticsLoading(false);
     }
+  }
+
+  async function handleRunEntitlementReconciliation() {
+    if (!session) return setMessage("Sign in as admin to run entitlement reconciliation.");
+    if (session.user.role !== "admin") return setMessage("Airfare entitlement reconciliation is available for administrators only.");
+    if (!canShowEntitlementReconciliation) return setMessage("Continuous airfare entitlement reconciliation is disabled on this installation.");
+    try {
+      setEntitlementReconLoading(true);
+      const params = new URLSearchParams();
+      if (selectedCompanyId) params.set("companyId", selectedCompanyId);
+      if (entitlementReconForm.employeeId.trim()) params.set("employeeId", entitlementReconForm.employeeId.trim());
+      params.set("asOfDate", entitlementReconForm.asOfDate || `${activeFiscalYearNumber}-12-31`);
+      params.set("tolerance", entitlementReconForm.tolerance || "0.010");
+      const result = await atlasFetch<AirfareEntitlementReconciliationResult>(`/airfare/entitlement/reconciliation?${params.toString()}`, session.token, session.sessionId);
+      setEntitlementRecon(result);
+      setMessage(`Entitlement reconciliation checked ${result.summary.checked} employee row(s); ${result.summary.investigate || 0} need review.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Airfare entitlement reconciliation failed.");
+    } finally {
+      setEntitlementReconLoading(false);
+    }
+  }
+
+  function exportEntitlementReconciliationCsv() {
+    if (!entitlementRecon?.rows.length) return setMessage("Run reconciliation before exporting.");
+    const headers = ["Employee ID", "Employee Code", "Full Name", "Legacy Airfare Balance", "Continuous Airfare Balance", "Difference", "Status", "Notes"];
+    const rows = entitlementRecon.rows.map((row) => [
+      row.employeeId,
+      row.employeeCode || "",
+      row.fullName || "",
+      row.legacyAirfareBalance,
+      row.continuousAirfareBalance,
+      row.difference,
+      row.status,
+      row.notes || ""
+    ]);
+    const escapeCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map((row) => row.map(escapeCell).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `atlas-airfare-entitlement-reconciliation-${entitlementRecon.asOfDate}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    setMessage("Airfare entitlement reconciliation exported.");
   }
 
   useEffect(() => {
@@ -8320,6 +8387,76 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
+            {canShowEntitlementReconciliation && (
+              <div className="glass-panel table-card intelligence-wide" data-testid="airfare-entitlement-reconciliation">
+                <div className="diagnostics-header">
+                  <div>
+                    <div className="card-title"><Database size={18} /> Airfare Entitlement - Migration Debug</div>
+                    <p className="muted">Migration Debug / Reconciliation - not used for payroll. Read-only comparison; this does not change Year End, Opening Balances, loans, allocations, reports, or payroll results.</p>
+                  </div>
+                  <div className="row-actions">
+                    <button className="mini-soft" type="button" disabled={!entitlementRecon?.rows.length} onClick={exportEntitlementReconciliationCsv}>
+                      <Download size={14} /> Export CSV
+                    </button>
+                    <button className="shine-button" type="button" disabled={entitlementReconLoading} onClick={handleRunEntitlementReconciliation}>
+                      <RefreshCw size={16} /> {entitlementReconLoading ? "Checking..." : "Run reconciliation"}
+                    </button>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <Field label="Company scope">
+                    <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
+                      <option value="">All mapped companies</option>
+                      {companies.map((company) => (
+                        <option key={company.CompanyID} value={company.CompanyID}>{company.CompanyName}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Employee ID (optional)">
+                    <input
+                      inputMode="numeric"
+                      placeholder="Leave blank for company/all"
+                      value={entitlementReconForm.employeeId}
+                      onChange={(event) => setEntitlementReconForm((current) => ({ ...current, employeeId: event.target.value }))}
+                    />
+                  </Field>
+                  <Field label="As-of date">
+                    <input
+                      type="date"
+                      value={entitlementReconForm.asOfDate}
+                      onChange={(event) => setEntitlementReconForm((current) => ({ ...current, asOfDate: event.target.value }))}
+                    />
+                  </Field>
+                  <Field label="Tolerance BHD">
+                    <input
+                      inputMode="decimal"
+                      value={entitlementReconForm.tolerance}
+                      onChange={(event) => setEntitlementReconForm((current) => ({ ...current, tolerance: event.target.value }))}
+                    />
+                  </Field>
+                </div>
+                <div className="metric-grid compact">
+                  <Metric title="Checked" value={String(entitlementRecon?.summary.checked ?? 0)} icon={<ClipboardCheck />} tone="blue" />
+                  <Metric title="OK" value={String(entitlementRecon?.summary.ok ?? 0)} icon={<CheckCircle2 />} tone="cyan" />
+                  <Metric title="Missing seed" value={String(entitlementRecon?.summary.missingContinuous ?? 0)} icon={<AlertTriangle />} tone="violet" />
+                  <Metric title="Investigate" value={String(entitlementRecon?.summary.investigate ?? 0)} icon={<Bell />} tone="rose" />
+                </div>
+                <div className="intelligence-table" aria-label="Airfare entitlement reconciliation rows">
+                  {!entitlementRecon && <p className="muted">Run reconciliation to compare Legacy Airfare Balance against Continuous Airfare Balance.</p>}
+                  {entitlementRecon?.rows.slice(0, 50).map((row) => (
+                    <div className="intelligence-row" key={`${row.employeeId}-${row.employeeCode || "employee"}`}>
+                      <span className={`risk-badge ${row.status === "OK" ? "info" : row.status === "MISSING_CONTINUOUS" ? "warning" : "critical"}`}>{row.status}</span>
+                      <span><strong>{row.employeeCode || `Employee ${row.employeeId}`}</strong><small>{row.fullName || "Employee"}</small></span>
+                      <span><small>Legacy Airfare Balance</small><strong>{money.format(Number(row.legacyAirfareBalance || 0))}</strong></span>
+                      <span><small>Continuous Airfare Balance</small><strong>{money.format(Number(row.continuousAirfareBalance || 0))}</strong></span>
+                      <span><small>Difference</small><strong>{money.format(Number(row.difference || 0))}</strong></span>
+                      <span>{row.notes || "No notes"}</span>
+                    </div>
+                  ))}
+                  {entitlementRecon && entitlementRecon.rows.length > 50 && <p className="muted">Showing first 50 row(s). Export CSV for the full reconciliation set.</p>}
+                </div>
+              </div>
+            )}
             <div className="glass-panel table-card intelligence-wide">
               <div className="card-title"><ShieldCheck size={18} /> Phase 2 system verification</div>
               <div className="standard-note">

@@ -2,13 +2,13 @@
   "manifestSchemaVersion": 1,
   "product": "ATLAS Airfare Allowance",
   "productCode": "ATLAS_AIRFARE_ALLOWANCE",
-  "version": "2.3.88",
+  "version": "2.3.89",
   "channel": "stable",
   "gitCommit": "pending-build",
-  "buildTimestampUtc": "2026-08-01T13:00:00Z",
+  "buildTimestampUtc": "2026-08-02T10:00:00Z",
   "frontendBuildHash": "sha256:pending-build",
   "backendBuildHash": "sha256:pending-build",
-  "databaseSchemaVersion": "2026.08.01.001",
+  "databaseSchemaVersion": "2026.08.02.001",
   "service": {
     "name": "ATLASAirfareAllowance",
     "port": 3355,
@@ -16,11 +16,11 @@
   },
   "artifacts": {
     "msi": {
-      "file": "ATLAS-Airfare-Allowance-2.3.88-x64.msi",
+      "file": "ATLAS-Airfare-Allowance-2.3.89-x64.msi",
       "sha256": "sha256:computed-after-package"
     },
     "exe": {
-      "file": "ATLAS-Airfare-Allowance-Setup-2.3.88-x64.exe",
+      "file": "ATLAS-Airfare-Allowance-Setup-2.3.89-x64.exe",
       "sha256": "sha256:computed-after-package"
     }
   },
@@ -104,6 +104,29 @@
       "rollback": {
         "kind": "none",
         "reason": "Nullable forward-compatible JSON column; old clients keep using split theme/layout/navigation columns."
+      }
+    },
+    {
+      "id": "20260802-continuous-airfare-entitlement-phase1",
+      "from": "<2.3.89",
+      "to": ">=2.3.89",
+      "type": "sql",
+      "description": "Install additive continuous airfare entitlement Phase 0-1 objects and idempotent comparison seed data.",
+      "script": "database/migrations/2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql",
+      "verify": {
+        "kind": "sqlObjectExists",
+        "object": "dbo.sp_ATLAS_GetAirfareEntitlementBalance",
+        "objectType": "P"
+      },
+      "rollback": {
+        "kind": "featureFlagOff",
+        "flags": [
+          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT",
+          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION",
+          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_UI",
+          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_WRITES"
+        ],
+        "reason": "Patch is additive; leave new SQL objects unused and keep legacy Year End workflow active."
       }
     }
   ]

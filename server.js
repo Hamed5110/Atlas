@@ -99,6 +99,73 @@ function getAtlasVersionIdentity() {
     };
 }
 
+function readBooleanEnv(name, fallback = false) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+}
+
+const config = {
+    flags: {
+        ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT: readBooleanEnv('ATLAS_ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', false),
+        ENABLE_CONTINUOUS_AIRFARE_BACKFILL: readBooleanEnv('ATLAS_ENABLE_CONTINUOUS_AIRFARE_BACKFILL', false),
+        ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION: readBooleanEnv('ATLAS_ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION', false),
+        ENABLE_CONTINUOUS_AIRFARE_WRITES: readBooleanEnv('ATLAS_ENABLE_CONTINUOUS_AIRFARE_WRITES', false),
+        ENABLE_CONTINUOUS_AIRFARE_UI: readBooleanEnv('ATLAS_ENABLE_CONTINUOUS_AIRFARE_UI', false),
+        CONTINUOUS_AIRFARE_ADMIN_ONLY: readBooleanEnv('ATLAS_CONTINUOUS_AIRFARE_ADMIN_ONLY', true)
+    }
+};
+
+function getContinuousAirfareFeatureState() {
+    return {
+        continuousAirfareEntitlement: Boolean(config.flags.ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT),
+        continuousAirfareBackfill: Boolean(config.flags.ENABLE_CONTINUOUS_AIRFARE_BACKFILL),
+        continuousAirfareReconciliation: Boolean(config.flags.ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION),
+        continuousAirfareWrites: Boolean(config.flags.ENABLE_CONTINUOUS_AIRFARE_WRITES),
+        continuousAirfareUi: Boolean(config.flags.ENABLE_CONTINUOUS_AIRFARE_UI),
+        continuousAirfareAdminOnly: Boolean(config.flags.CONTINUOUS_AIRFARE_ADMIN_ONLY)
+    };
+}
+
+function requireFeatureFlag(flagName, res) {
+    if (config.flags[flagName]) return true;
+    res.status(404).json({
+        code: 'FEATURE_DISABLED',
+        feature: flagName,
+        message: 'Continuous airfare entitlement is disabled on this installation.'
+    });
+    return false;
+}
+
+function parseOptionalPositiveInt(raw, fieldName) {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) {
+        const err = new Error(`${fieldName} must be a positive integer.`);
+        err.statusCode = 400;
+        err.code = 'VALIDATION_ERROR';
+        err.field = fieldName;
+        throw err;
+    }
+    return value;
+}
+
+function parseRequiredSqlDate(raw, fieldName) {
+    const value = String(raw || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+        const err = new Error(`${fieldName} is required in YYYY-MM-DD format.`);
+        err.statusCode = 400;
+        err.code = 'VALIDATION_ERROR';
+        err.field = fieldName;
+        throw err;
+    }
+    return value;
+}
+
+function toSqlMoney(value) {
+    return Number(Number(value || 0).toFixed(2));
+}
+
 // =====================================================
 // WINSTON LOGGER
 // =====================================================
@@ -7030,6 +7097,268 @@ app.get('/api/diagnostics/system', authenticateToken, async (req, res) => {
     res.status(diagnostics.status === 'DOWN' || diagnostics.status === 'DEGRADED' ? 207 : 200).json(diagnostics);
 });
 
+app.get('/api/diagnostics/entitlement', authenticateToken, requireRole('admin'), async (_req, res) => {
+    const started = Date.now();
+    const features = getContinuousAirfareFeatureState();
+    try {
+        const db = await getConnection();
+        const result = await db.request().query(`
+            SELECT
+                CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfareEntitlementPlans', N'U') IS NULL THEN 0 ELSE 1 END AS SchemaInstalled,
+                CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_GetAirfareEntitlementBalance', N'P') IS NULL THEN 0 ELSE 1 END AS HasBalanceProc,
+                CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_PreviewAirfareEntitlementReset', N'P') IS NULL THEN 0 ELSE 1 END AS HasPreviewResetProc,
+                CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_ApplyAirfareTransaction', N'P') IS NULL THEN 0 ELSE 1 END AS HasApplyTransactionProc,
+                CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfareEntitlementPlans', N'U') IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM dbo.EmployeeAirfareEntitlementPlans) END AS PlanCount,
+                CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfarePlanEnrollments', N'U') IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM dbo.EmployeeAirfarePlanEnrollments) END AS EnrollmentCount,
+                CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfareTransactions', N'U') IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM dbo.EmployeeAirfareTransactions) END AS TransactionCount
+        `);
+        const row = result.recordset?.[0] || {};
+        res.json({
+            name: 'Continuous airfare entitlement',
+            success: Boolean(row.SchemaInstalled && row.HasBalanceProc && row.HasPreviewResetProc && row.HasApplyTransactionProc),
+            latencyMs: Date.now() - started,
+            checkedAt: new Date().toISOString(),
+            features,
+            schemaInstalled: Boolean(row.SchemaInstalled),
+            planCount: Number(row.PlanCount || 0),
+            enrollmentCount: Number(row.EnrollmentCount || 0),
+            transactionCount: Number(row.TransactionCount || 0),
+            procedures: {
+                balance: Boolean(row.HasBalanceProc),
+                previewReset: Boolean(row.HasPreviewResetProc),
+                applyTransaction: Boolean(row.HasApplyTransactionProc)
+            }
+        });
+    } catch (err) {
+        logger.error('Continuous airfare entitlement diagnostics failed:', err);
+        res.status(503).json({
+            name: 'Continuous airfare entitlement',
+            success: false,
+            latencyMs: Date.now() - started,
+            checkedAt: new Date().toISOString(),
+            features,
+            error: err.message
+        });
+    }
+});
+
+app.get('/api/airfare/entitlement/balance', authenticateToken, async (req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
+    const started = Date.now();
+    const features = getContinuousAirfareFeatureState();
+    try {
+        const employeeId = parseOptionalPositiveInt(req.query.employeeId, 'employeeId');
+        const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
+        const asOfDate = parseRequiredSqlDate(req.query.asOfDate, 'asOfDate');
+        const db = await getConnection();
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('CompanyID', sql.Int, companyId)
+            .input('AsOfDate', sql.Date, asOfDate)
+            .execute('dbo.sp_ATLAS_GetAirfareEntitlementBalance');
+        logger.info('continuous airfare balance read', {
+            userId: req.user?.id || req.user?.userId || null,
+            employeeId,
+            companyId,
+            asOfDate,
+            flags: features,
+            rowCount: result.recordset.length,
+            elapsedMs: Date.now() - started
+        });
+        res.json({
+            mode: 'continuous-readonly',
+            asOfDate,
+            features,
+            rows: result.recordset
+        });
+    } catch (err) {
+        logger.error('continuous airfare balance failed:', err);
+        const status = err.statusCode || 500;
+        res.status(status).json({
+            code: err.code || 'CONTINUOUS_AIRFARE_BALANCE_FAILED',
+            field: err.field,
+            error: err.message || 'Failed to read continuous airfare balance.'
+        });
+    }
+});
+
+app.get('/api/airfare/entitlement/preview-reset', authenticateToken, requireRole('admin'), async (req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
+    const started = Date.now();
+    const features = getContinuousAirfareFeatureState();
+    try {
+        const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
+        const fiscalYear = req.query.fiscalYear ? parseOptionalPositiveInt(req.query.fiscalYear, 'fiscalYear') : null;
+        const resetDate = req.query.resetDate
+            ? parseRequiredSqlDate(req.query.resetDate, 'resetDate')
+            : `${fiscalYear || new Date().getFullYear()}-12-31`;
+        const db = await getConnection();
+        const result = await db.request()
+            .input('CompanyID', sql.Int, companyId)
+            .input('ResetDate', sql.Date, resetDate)
+            .execute('dbo.sp_ATLAS_PreviewAirfareEntitlementReset');
+        logger.info('continuous airfare reset preview read', {
+            userId: req.user?.id || req.user?.userId || null,
+            companyId,
+            fiscalYear,
+            resetDate,
+            flags: features,
+            rowCount: result.recordset.length,
+            elapsedMs: Date.now() - started
+        });
+        res.json({
+            mode: 'continuous-reset-preview-readonly',
+            resetDate,
+            fiscalYear: fiscalYear || Number(resetDate.slice(0, 4)),
+            features,
+            rows: result.recordset
+        });
+    } catch (err) {
+        logger.error('continuous airfare reset preview failed:', err);
+        const status = err.statusCode || 500;
+        res.status(status).json({
+            code: err.code || 'CONTINUOUS_AIRFARE_RESET_PREVIEW_FAILED',
+            field: err.field,
+            error: err.message || 'Failed to preview continuous airfare reset.'
+        });
+    }
+});
+
+app.get('/api/airfare/entitlement/reconciliation', authenticateToken, requireRole('admin'), async (req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION', res)) return;
+    const started = Date.now();
+    const features = getContinuousAirfareFeatureState();
+    try {
+        const employeeId = parseOptionalPositiveInt(req.query.employeeId, 'employeeId');
+        const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
+        const asOfDate = parseRequiredSqlDate(req.query.asOfDate, 'asOfDate');
+        const tolerance = Number.isFinite(Number(req.query.tolerance)) ? Math.max(0, Number(req.query.tolerance)) : 0.01;
+        const db = await getConnection();
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('CompanyID', sql.Int, companyId)
+            .input('AsOfDate', sql.Date, asOfDate)
+            .input('Tolerance', sql.Decimal(12, 4), tolerance)
+            .query(`
+                DECLARE @FiscalYear INT = YEAR(@AsOfDate);
+                ;WITH Legacy AS (
+                    SELECT
+                        e.EmployeeID,
+                        MAX(e.EmployeeCode) AS EmployeeCode,
+                        MAX(e.FullName) AS FullName,
+                        SUM(COALESCE(ob.OpeningBHD, e.OpeningBHD, 0)) AS OpeningAmount,
+                        SUM(COALESCE(a.Entitlement, 0)) AS UsedAmount
+                    FROM dbo.Employees e
+                    LEFT JOIN dbo.OpeningBalances ob
+                      ON ob.EmployeeID = e.EmployeeID
+                     AND ob.BalanceYear = @FiscalYear
+                    LEFT JOIN dbo.Allocations a
+                      ON a.EmployeeID = e.EmployeeID
+                     AND a.AllocYear = @FiscalYear
+                     AND (a.AllocationDate IS NULL OR a.AllocationDate <= @AsOfDate)
+                    WHERE (@EmployeeID IS NULL OR e.EmployeeID = @EmployeeID)
+                      AND (
+                          @CompanyID IS NULL
+                          OR EXISTS (
+                              SELECT 1
+                              FROM dbo.Companies c
+                              WHERE c.CompanyID = @CompanyID
+                                AND (
+                                    LOWER(LTRIM(RTRIM(c.CompanyName))) = LOWER(LTRIM(RTRIM(e.Company)))
+                                    OR LOWER(LTRIM(RTRIM(c.CompanyCode))) = LOWER(LTRIM(RTRIM(e.Company)))
+                                )
+                          )
+                      )
+                    GROUP BY e.EmployeeID
+                ),
+                Continuous AS (
+                    SELECT
+                        t.EmployeeID,
+                        SUM(CASE
+                            WHEN t.TransactionType IN (N'accrual', N'adjustment', N'carryover') THEN t.Amount
+                            WHEN t.TransactionType IN (N'usage', N'payout', N'forfeiture') THEN -t.Amount
+                            WHEN t.TransactionType = N'reversal' THEN t.Amount
+                            ELSE 0
+                        END) AS ContinuousRemaining
+                    FROM dbo.EmployeeAirfareTransactions t
+                    WHERE t.TransactionDate <= @AsOfDate
+                      AND (@EmployeeID IS NULL OR t.EmployeeID = @EmployeeID)
+                      AND (@CompanyID IS NULL OR t.CompanyID = @CompanyID)
+                    GROUP BY t.EmployeeID
+                )
+                SELECT
+                    l.EmployeeID AS employeeId,
+                    l.EmployeeCode AS employeeCode,
+                    l.FullName AS fullName,
+                    CAST(l.OpeningAmount - l.UsedAmount AS DECIMAL(12,2)) AS legacyAirfareBalance,
+                    CAST(COALESCE(c.ContinuousRemaining, 0) AS DECIMAL(12,2)) AS continuousAirfareBalance,
+                    CAST((l.OpeningAmount - l.UsedAmount) - COALESCE(c.ContinuousRemaining, 0) AS DECIMAL(12,2)) AS difference,
+                    CASE
+                        WHEN ABS((l.OpeningAmount - l.UsedAmount) - COALESCE(c.ContinuousRemaining, 0)) <= @Tolerance THEN N'OK'
+                        WHEN c.EmployeeID IS NULL THEN N'MISSING_CONTINUOUS'
+                        ELSE N'INVESTIGATE'
+                    END AS status,
+                    CASE
+                        WHEN ABS((l.OpeningAmount - l.UsedAmount) - COALESCE(c.ContinuousRemaining, 0)) <= @Tolerance THEN N'Within tolerance'
+                        WHEN c.EmployeeID IS NULL THEN N'Continuous seed is missing for this legacy balance'
+                        ELSE N'Review policy, opening balance, allocation usage, and employee-company mapping'
+                    END AS notes
+                FROM Legacy l
+                LEFT JOIN Continuous c ON c.EmployeeID = l.EmployeeID
+                ORDER BY ABS((l.OpeningAmount - l.UsedAmount) - COALESCE(c.ContinuousRemaining, 0)) DESC, l.EmployeeCode;
+            `);
+        const rows = (result.recordset || []).map((row) => ({
+            ...row,
+            legacyAirfareBalance: toSqlMoney(row.legacyAirfareBalance),
+            continuousAirfareBalance: toSqlMoney(row.continuousAirfareBalance),
+            difference: toSqlMoney(row.difference)
+        }));
+        const summary = rows.reduce((acc, row) => {
+            acc.checked += 1;
+            if (row.status === 'OK') acc.ok += 1;
+            else if (row.status === 'MISSING_CONTINUOUS') acc.missingContinuous += 1;
+            else acc.investigate += 1;
+            if (Math.abs(Number(row.difference || 0)) > tolerance) acc.materialDifferences += 1;
+            return acc;
+        }, { checked: 0, ok: 0, missingContinuous: 0, investigate: 0, materialDifferences: 0 });
+        logger.warn('continuous airfare reconciliation read', {
+            userId: req.user?.id || req.user?.userId || null,
+            employeeId,
+            companyId,
+            asOfDate,
+            tolerance,
+            flags: features,
+            ...summary,
+            elapsedMs: Date.now() - started
+        });
+        res.json({
+            mode: 'migration-reconciliation',
+            asOfDate,
+            tolerance,
+            features,
+            summary,
+            rows
+        });
+    } catch (err) {
+        logger.error('continuous airfare reconciliation failed:', err);
+        const status = err.statusCode || 500;
+        res.status(status).json({
+            code: err.code || 'CONTINUOUS_AIRFARE_RECONCILIATION_FAILED',
+            field: err.field,
+            error: err.message || 'Failed to reconcile continuous airfare entitlement.'
+        });
+    }
+});
+
+app.post('/api/airfare/entitlement/transaction', authenticateToken, requireRole('admin'), async (_req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_WRITES', res)) return;
+    res.status(501).json({
+        code: 'NOT_IMPLEMENTED_IN_PATCH_2_3_89',
+        message: 'Continuous airfare writes are not implemented in Patch 2.3.89.'
+    });
+});
+
 // GET /api/reports/employee-master
 app.get('/api/reports/employee-master', authenticateToken, async (req, res) => {
     try {
@@ -7668,6 +7997,7 @@ app.get('/api/year-end/history', authenticateToken, async (req, res) => {
 // =====================================================
 app.get('/api/version', async (req, res) => {
     const identity = getAtlasVersionIdentity();
+    const features = getContinuousAirfareFeatureState();
     let database = {
         connected: false,
         name: process.env.DB_NAME || 'Atlasairfare010',
@@ -7699,6 +8029,7 @@ app.get('/api/version', async (req, res) => {
         frontendBuildHash: identity.frontendBuildHash,
         backendBuildHash: identity.backendBuildHash,
         databaseSchemaVersion: identity.databaseSchemaVersion,
+        features,
         runtime: identity.runtime,
         database,
         artifact: identity.artifact
@@ -7710,6 +8041,7 @@ app.get('/api/health', async (req, res) => {
         const db = await getConnection();
         await db.request().query('SELECT 1');
         const identity = getAtlasVersionIdentity();
+        const features = getContinuousAirfareFeatureState();
         res.json({
             status: 'healthy',
             database: 'connected',
@@ -7722,6 +8054,7 @@ app.get('/api/health', async (req, res) => {
             payableReportSource: 'mssql-procedure-payable-bhd',
             selfServiceWorkflowSource: 'phase2-same-port-allocation-link',
             yearEndSafetySource: 'company-scoped-close-workbench-v2',
+            features,
             timestamp: new Date().toISOString()
         });
     } catch (err) {
