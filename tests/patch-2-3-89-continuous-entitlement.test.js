@@ -38,6 +38,7 @@ mustInclude(
     "GET /api/entitlement/compute",
     "GET /api/entitlement/accruals",
     "GET /api/entitlement/usage",
+    "GET /api/entitlement/accrual-forecast",
     "GET /api/airfare/entitlement/balance",
     "GET /api/airfare/entitlement/reconciliation",
     "POST /api/airfare/entitlement/transaction",
@@ -91,8 +92,9 @@ mustInclude(
 assert.doesNotMatch(migration, /\bDROP\s+TABLE\b/i, "patch migration must not drop tables");
 assert.doesNotMatch(migration, /\bTRUNCATE\s+TABLE\b/i, "patch migration must not truncate tables");
 assert.doesNotMatch(migration, /\bALTER\s+TABLE\s+dbo\.(OpeningBalances|OpeningLoanBalances|YearEndHistory|YearEndEmployeeSnapshots)\b/i, "patch migration must not alter legacy close tables");
-assert.doesNotMatch(migration, /N'calendar_year'|N'annual'|N'lump_sum'/i, "Patch 2.3.89 seed must not install annual reset/accrual defaults");
+assert.doesNotMatch(migration, /N'calendar_year'|N'annual'|N'lump_sum'|CREATE OR ALTER PROCEDURE\s+dbo\.sp_ATLAS_PreviewAirfareEntitlementReset|CREATE OR ALTER PROCEDURE\s+dbo\.sp_ATLAS_GetYearEndPreview/i, "Patch 2.3.89 seed must not install annual close/reset defaults or procedures");
 
 assert.ok(pkg.scripts["test:patch-2-3-89"], "package.json must expose test:patch-2-3-89");
 
 console.log("Patch 2.3.89 continuous entitlement contract passed");
+

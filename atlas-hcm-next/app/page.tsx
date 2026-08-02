@@ -98,7 +98,7 @@ import {
   serializeAtlasPreferences
 } from "../lib/atlas-preferences";
 
-type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Year End" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance" | "Import / Export Center";
+type ViewKey = "Overview" | "Employees" | "Opening Balance" | "Airfare" | "Employee Self-Service" | "Loans" | "Reports" | "Companies" | "Preferences" | "AI Insights" | "Security" | "Support" | "System Maintenance" | "Import / Export Center";
 type ReportDrillType = "employee" | "allocation" | "loan" | "company";
 type ThemeMode = "light" | "dark" | "system" | "contrast";
 type ThemeAccent = "blue" | "emerald" | "slate" | "ocean" | "sunset" | "custom";
@@ -293,7 +293,6 @@ type OpeningLoanBalanceRow = {
   PendingLoanCount: number;
   MonthlyEMI: number;
   CarriedFromYear?: number;
-  SourceYearEndID?: number;
 };
 type OpeningBalanceCalculation = {
   openingDays: number;
@@ -464,61 +463,6 @@ type AirfarePayableReportRow = {
   AirfareEntitlementAmount: number;
   CurrentYearRemainingBHD: number;
   VerificationNote?: string;
-};
-type YearEndPreview = {
-  companyId?: number;
-  companyName?: string;
-  previewId?: string;
-  previewHash?: string;
-  closedYear: number;
-  nextYear: number;
-  closingDate: string;
-  employeeCount: number;
-  balancesCarried: number;
-  totalOpeningBalance: number;
-  totalClosingDays?: number;
-  pendingLoanCount?: number;
-  pendingLoanAmount?: number;
-  totalOpeningLoanBalance?: number;
-  loansCarriedForward?: number;
-  readiness?: {
-    canClose?: boolean;
-    blockers?: string[];
-    warnings?: string[];
-    previewExpiresAt?: string | null;
-    checks?: Array<{ title: string; status: string; tone: string; detail: string }>;
-    steps?: Array<{ step: number; title: string; status: string; detail: string }>;
-    policy?: {
-      requiresCalendarYearEnd?: boolean;
-      requiresFreshPreview?: boolean;
-      previewMinutes?: number;
-      writesNextYearOpeningBalances?: boolean;
-      writesOpeningLoanBalances?: boolean;
-      locksClosedYearMutations?: boolean;
-    };
-  };
-  totals?: { TotalAllocations?: number; LoansCreated?: number; TotalLoansCreated?: number; EmergencyTickets?: number; TotalEmergencyTickets?: number; PendingLoans?: number; PendingLoanAmount?: number };
-  employees?: Array<{
-    EmployeeID: number;
-    EmployeeCode: string;
-    FullName: string;
-    OpeningDays: number;
-    OpeningBHD: number;
-    CurrentYearEarnedDays?: number;
-    CurrentYearEarnedBHD?: number;
-    PaidDays?: number;
-    PaidAmount?: number;
-    ClosingDays: number;
-    ClosingBHD: number;
-    PendingLoanCount?: number;
-    PendingLoanAmount?: number;
-    PendingMonthlyEMI?: number;
-    ClosingLoanBalance?: number;
-    NextOpeningLoanBalance?: number;
-    CloseStatus?: string;
-    MaximumPayout: number;
-  }>;
-  yearEndId?: number;
 };
 type LoanEmiPreview = {
   paymentDate: string;
@@ -1328,14 +1272,7 @@ export default function DashboardPage() {
   });
   const [activeFiscalYear, setActiveFiscalYear] = useState(new Date().getFullYear().toString());
   const [reportDensity, setReportDensity] = useState<"comfortable" | "standard" | "compact">("standard");
-  const [reportFitMode, setReportFitMode] = useState<"wide" | "fit">("wide");
-  const [yearEndForm, setYearEndForm] = useState({
-    year: String(new Date().getFullYear()),
-    closingDate: `${new Date().getFullYear()}-12-31`,
-    employeeId: "",
-    remarks: ""
-  });
-  const [yearEndPreview, setYearEndPreview] = useState<YearEndPreview | null>(null);
+  const [reportFitMode, setReportFitMode] = useState<"wide" | "fit">("wide");
 
   const selectedEmployee = employees.find((item) => item.EmployeeID === Number(allocationForm.employeeId));
   const canSelectSelfServiceEmployee = Boolean(selfServiceSummary?.canSelectEmployee || ["admin", "manager", "hr"].includes(session?.user.role || ""));
@@ -1564,124 +1501,18 @@ export default function DashboardPage() {
   const loanTenure = Math.max(1, toNumber(loanForm.tenure, 1));
   const loanEmiPreview = Math.round((loanAmount / loanTenure) * 100) / 100;
   const selectedLoanEmployee = employees.find((item) => item.EmployeeID === Number(loanForm.employeeId));
-  const yearEndPendingLoans = Number(yearEndPreview?.pendingLoanCount ?? yearEndPreview?.totals?.PendingLoans ?? 0);
-  const yearEndPendingLoanAmount = Number(yearEndPreview?.pendingLoanAmount ?? yearEndPreview?.totals?.PendingLoanAmount ?? 0);
-  const yearEndOpeningLoanBalance = Number(yearEndPreview?.totalOpeningLoanBalance ?? yearEndPendingLoanAmount);
-  const yearEndLoansCarriedForward = Number(yearEndPreview?.loansCarriedForward ?? (yearEndPreview?.employees || []).filter((row) => Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0) > 0).length);
-  const yearEndNegativeBalances = (yearEndPreview?.employees || []).filter((row) => Number(row.ClosingDays || 0) < 0 || Number(row.ClosingBHD || 0) < 0).length;
-  const yearEndCalendarYear = new Date().getFullYear();
+  const currentFiscalCalendarYear = new Date().getFullYear();
   const activeFiscalYearNumber = normalizeOpeningYear(activeFiscalYear);
   const fiscalYearOptions = Array.from(new Set([
-    yearEndCalendarYear - 2,
-    yearEndCalendarYear - 1,
-    yearEndCalendarYear,
-    yearEndCalendarYear + 1,
-    yearEndCalendarYear + 2,
+    currentFiscalCalendarYear - 2,
+    currentFiscalCalendarYear - 1,
+    currentFiscalCalendarYear,
+    currentFiscalCalendarYear + 1,
+    currentFiscalCalendarYear + 2,
     activeFiscalYearNumber - 1,
     activeFiscalYearNumber,
     activeFiscalYearNumber + 1
-  ])).filter((year) => year >= 2000 && year <= 2100).sort((left, right) => left - right);
-  const yearEndSelectedYear = normalizeOpeningYear(yearEndForm.year || activeFiscalYearNumber);
-  const yearEndNextYear = yearEndSelectedYear + 1;
-  const yearEndIsHistorical = Boolean(yearEndPreview?.yearEndId || yearEndSelectedYear < yearEndCalendarYear);
-  const yearEndModeLabel = yearEndIsHistorical ? "Historical lock review" : yearEndSelectedYear === yearEndCalendarYear ? "Current closing year" : "Future setup year";
-  const yearEndLockStatus = yearEndPreview?.yearEndId ? "Closed snapshot locked" : yearEndIsHistorical ? "Historical review only" : "Open for preview";
-  const yearEndReadinessChecks = [
-    {
-      title: "Preview calculated from SQL",
-      detail: yearEndPreview ? `${yearEndPreview.balancesCarried} employee balance row(s) reviewed.` : "Run preview to calculate closing days and amount before close.",
-      status: yearEndPreview ? "Ready" : "Required",
-      tone: yearEndPreview ? "success" : "warning"
-    },
-    {
-      title: "Pending loan visibility",
-      detail: yearEndPreview ? `${yearEndPendingLoans} pending loan(s), ${money.format(yearEndOpeningLoanBalance)} becomes next-year opening loan balance.` : "Pending loan count appears after preview.",
-      status: yearEndPendingLoans > 0 ? "Review" : yearEndPreview ? "Clear" : "Required",
-      tone: yearEndPendingLoans > 0 ? "warning" : yearEndPreview ? "success" : "warning"
-    },
-    {
-      title: "Negative balance check",
-      detail: yearEndPreview ? `${yearEndNegativeBalances} employee(s) have negative closing balance.` : "Negative balances are checked from preview rows.",
-      status: yearEndNegativeBalances > 0 ? "Review" : yearEndPreview ? "Clear" : "Required",
-      tone: yearEndNegativeBalances > 0 ? "warning" : yearEndPreview ? "success" : "warning"
-    },
-    {
-      title: "Carry-forward snapshot",
-      detail: "Closing airfare balance and opening loan balance are copied into next-year SQL ledgers with audit history.",
-      status: yearEndPreview ? "Protected" : "Pending",
-      tone: yearEndPreview ? "success" : "info"
-    }
-  ];
-  const yearEndServerReadinessChecks = yearEndPreview?.readiness?.checks?.length ? yearEndPreview.readiness.checks : yearEndReadinessChecks;
-  const yearEndCloseSteps = yearEndPreview?.readiness?.steps || [];
-  const yearEndBlockers = yearEndPreview?.readiness?.blockers || [];
-  const yearEndWarnings = yearEndPreview?.readiness?.warnings || [];
-  const yearEndCanClose = Boolean(yearEndPreview?.previewId && yearEndPreview?.previewHash && (yearEndPreview?.readiness?.canClose ?? true));
-  const yearEndMatrixCompany = companies.find((company) => String(company.CompanyID) === selectedCompanyId) || companies[0];
-  const yearEndMatrixRows = [
-    {
-      label: "Company partition",
-      value: yearEndMatrixCompany ? `${yearEndMatrixCompany.CompanyCode || "Company"} - ${yearEndMatrixCompany.CompanyName}` : "Active company required",
-      state: yearEndMatrixCompany ? "Isolated" : "Select company",
-      detail: "Logos, name, sessions, and tenant records stay scoped to the selected company."
-    },
-    {
-      label: "Selected year",
-      value: String(yearEndSelectedYear || "-"),
-      state: yearEndIsHistorical ? "Historical read-only" : "Active operational",
-      detail: yearEndIsHistorical ? "Closed or prior year opens as a snapshot review surface." : "Open year can preview and close through admin workflow."
-    },
-    {
-      label: "Next-year ledger",
-      value: String(yearEndNextYear || "-"),
-      state: yearEndPreview ? "Mapped" : "Preview required",
-      detail: "Closing days, closing BHD, and pending loan balances map to next-year opening evidence after close."
-    },
-    {
-      label: "Preference guard",
-      value: "Runtime airfare policy",
-      state: "Formula locked",
-      detail: "Year-end screens do not change formulas; airfare values stay tied to policy snapshots and preference lookup."
-    }
-  ];
-  const yearEndBlueprintPhases = [
-    {
-      phase: "01",
-      title: "Select company + fiscal year",
-      detail: "Company and fiscal year are taken from the global left-side context. No second hidden year switch is allowed inside the legacy close archive.",
-      status: selectedCompanyId ? "Context locked" : "Select company",
-      tone: selectedCompanyId ? "success" : "warning"
-    },
-    {
-      phase: "02",
-      title: "Preview only",
-      detail: "SQL calculates closing days, closing BHD, pending loans, and next-year opening balances without final writes.",
-      status: yearEndPreview ? "Preview evidence ready" : "Preview required",
-      tone: yearEndPreview ? "success" : "warning"
-    },
-    {
-      phase: "03",
-      title: "Readiness gate",
-      detail: "The close button stays blocked until preview hash, company scope, closing date, negative balances, and loan carry-forward checks are valid.",
-      status: yearEndBlockers.length ? `${yearEndBlockers.length} blocker(s)` : yearEndPreview ? "Gate clear" : "Waiting for preview",
-      tone: yearEndBlockers.length ? "danger" : yearEndPreview ? "success" : "info"
-    },
-    {
-      phase: "04",
-      title: "Final close with evidence",
-      detail: "Final close is disabled. Continuous entitlement now writes auditable accrual and usage ledgers instead of new-year opening batches.",
-      status: yearEndPreview?.yearEndId ? "Closed snapshot" : "Admin controlled",
-      tone: yearEndPreview?.yearEndId ? "success" : "info"
-    }
-  ];
-  const yearEndBlueprintGuards = [
-    "No annual close job: entitlement is computed on demand from rules and ledger history.",
-    "No cross-company leakage: every entitlement query is scoped to selected company or employee.",
-    "No destructive reset: historical opening balances remain only as legacy seed data.",
-    "No formula edits here: airfare policy remains locked to SQL/preference snapshots.",
-    "No silent data movement: accrual, usage, adjustment, and payout transactions stay reviewable."
-  ];
-  const continuousAirfareFeatures = versionInfo?.features || {};
+  ])).filter((year) => year >= 2000 && year <= 2100).sort((left, right) => left - right);  const continuousAirfareFeatures = versionInfo?.features || {};
   const canShowEntitlementReconciliation = Boolean(
     session?.user.role === "admin" &&
     continuousAirfareFeatures.continuousAirfareEntitlement &&
@@ -1983,7 +1814,6 @@ export default function DashboardPage() {
     setEditingOpeningBalanceKey(null);
     setOpeningEditModalOpen(false);
     setSelectedOpeningBalanceKeys(new Set());
-    setYearEndPreview(null);
     setAllocationEligibilityReview(null);
     setMonthlyEmiRunPreview(null);
     setMonthlyEmiReturnPreview(null);
@@ -1993,11 +1823,6 @@ export default function DashboardPage() {
       year: yearText,
       date: shiftDateToFiscalYear(current.date || today, year, "07-01")
     }));
-    setYearEndForm((current) => ({
-      ...current,
-      year: yearText,
-      closingDate: `${year}-12-31`
-    }));
     setReportForm((current) => ({
       ...current,
       from: `${year}-01-01`,
@@ -2006,7 +1831,7 @@ export default function DashboardPage() {
     if (options.targetView) setActiveView(options.targetView);
     if (session) await loadLiveData(session, year);
     if (options.announce !== false) {
-      setMessage(`Fiscal year switched to ${year}. Application data, reports, opening balances, allocations, and year-end context reloaded for ${year}.`);
+      setMessage(`Fiscal year switched to ${year}. Application data, reports, opening balances, allocations, and continuous entitlement context reloaded for ${year}.`);
     }
   }
 
@@ -2083,7 +1908,6 @@ export default function DashboardPage() {
     setActiveOpeningYear(String(reportYear));
     setOpeningForm((current) => ({ ...current, year: String(reportYear) }));
     setAllocationForm((current) => ({ ...current, year: String(reportYear), date: shiftDateToFiscalYear(current.date || today, reportYear, "07-01") }));
-    setYearEndForm((current) => ({ ...current, year: String(reportYear), closingDate: `${reportYear}-12-31` }));
     setReportForm((current) => ({ ...current, from: `${reportYear}-01-01`, to: `${reportYear}-12-31` }));
     setSelectedCompanyId((current) => current || (companyData[0]?.CompanyID ? String(companyData[0].CompanyID) : ""));
     setBackupForm((current) => ({ ...current, databaseName: current.databaseName || companyData[0]?.DatabaseName || "" }));
@@ -4687,26 +4511,6 @@ export default function DashboardPage() {
         Progress: `${loan.MonthsPaid || 0}/${loan.Tenure || 0}`,
         Status: loan.Status || "-"
       }));
-    } else if (activeView === "Year End") {
-      title = "Year End Closing Preview";
-      columns = ["Metric", "Value"];
-      rows = yearEndPreview ? [
-        { Metric: "Closing Year", Value: yearEndPreview.closedYear },
-        { Metric: "Next Opening Year", Value: yearEndPreview.nextYear },
-        { Metric: "Closing Date", Value: yearEndPreview.closingDate },
-        { Metric: "Employees Carried", Value: yearEndPreview.balancesCarried },
-        { Metric: "Closing Days", Value: Number(yearEndPreview.totalClosingDays || 0).toFixed(2) },
-        { Metric: "Closing Amount", Value: money.format(yearEndPreview.totalOpeningBalance || 0) },
-        { Metric: "Pending Loans", Value: yearEndPreview.pendingLoanCount ?? yearEndPreview.totals?.PendingLoans ?? 0 },
-        { Metric: "Pending Loan Amount", Value: money.format(yearEndPreview.pendingLoanAmount ?? yearEndPreview.totals?.PendingLoanAmount ?? 0) },
-        { Metric: "Opening Loan Balance", Value: money.format(yearEndPreview.totalOpeningLoanBalance ?? 0) },
-        { Metric: "Loans Carried Forward", Value: yearEndPreview.loansCarriedForward ?? 0 },
-        { Metric: "Allocations", Value: yearEndPreview.totals?.TotalAllocations ?? 0 },
-        { Metric: "Loans Created", Value: yearEndPreview.totals?.LoansCreated ?? yearEndPreview.totals?.TotalLoansCreated ?? 0 },
-        { Metric: "Emergency Tickets", Value: yearEndPreview.totals?.EmergencyTickets ?? yearEndPreview.totals?.TotalEmergencyTickets ?? 0 }
-      ] : [
-        { Metric: "Status", Value: "Run preview before printing year end." }
-      ];
     } else if (activeView === "Reports") {
       title = "Reports Control Sheet";
       columns = ["Report", "Purpose"];
@@ -4780,16 +4584,6 @@ export default function DashboardPage() {
     printPremiumReport(title, rows, columns, activeCompany, companyLogoUrl);
   }
 
-  async function handleYearEndPreview() {
-    setActiveView("AI Insights");
-    setMessage("Annual close preview is removed. Use continuous entitlement reconciliation instead.");
-  }
-
-  function handleYearEndYearChange(value: string | number, announce = false) {
-    const year = normalizeOpeningYear(value);
-    void handleFiscalYearSwitch(year, { announce, targetView: "AI Insights" });
-  }
-
   async function openOpeningBalanceForYear(yearValue: string | number) {
     const year = normalizeOpeningYear(yearValue);
     await handleFiscalYearSwitch(year, { announce: false, targetView: "Opening Balance" });
@@ -4807,37 +4601,6 @@ export default function DashboardPage() {
       maximumPayout: String(row.MaximumPayout || 150)
     });
     setMessage(`Prepared ${row.EmployeeCode} opening balance for ${nextYear}. Review values, then Save opening balance to update the next year.`);
-  }
-
-  async function handleYearEndClose() {
-    if (!session) return setMessage("Please sign in as admin before year-end closing.");
-    if (session.user.role !== "admin") return setMessage("Year-end closing is available for administrators only.");
-    const year = Number(yearEndForm.year);
-    if (!yearEndPreview || yearEndPreview.closedYear !== year) return setMessage("Run preview before closing year.");
-    if (!yearEndPreview.previewId || !yearEndPreview.previewHash) return setMessage("Run preview again before closing year.");
-    if (yearEndPreview.readiness?.canClose === false) return setMessage(yearEndPreview.readiness.blockers?.[0] || "Year-end readiness is blocked. Review the readiness gate first.");
-    const ok = window.confirm(`Close ${year} and create opening balances for ${year + 1}?`);
-    if (!ok) return;
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await atlasMutation<YearEndPreview>("/year-end/close", session.token, session.sessionId, "POST", {
-        year,
-        closingDate: yearEndForm.closingDate,
-        companyId: Number(selectedCompanyId),
-        previewId: yearEndPreview.previewId,
-        previewHash: yearEndPreview.previewHash,
-        remarks: yearEndForm.remarks,
-        dryRun: false
-      });
-      setYearEndPreview(result);
-      await loadLiveData();
-      setMessage(`Year ${result.closedYear} closed. Opening balances created for ${result.nextYear}.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Year-end close failed");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function handleSaveCompany() {
@@ -5112,7 +4875,6 @@ export default function DashboardPage() {
     const company = companies.find((item) => String(item.CompanyID) === value) || companies[0];
     const nextCompanyId = company?.CompanyID ? String(company.CompanyID) : "";
     setSelectedCompanyId(nextCompanyId);
-    setYearEndPreview(null);
     setBackupForm((current) => ({ ...current, databaseName: company?.DatabaseName || current.databaseName }));
     setMessage(company ? `Company workspace changed to ${company.CompanyName}.` : "Company workspace unavailable.");
   }
@@ -5956,7 +5718,7 @@ export default function DashboardPage() {
                 >
                   <Icon size={18} />
                   <span className="nav-label">{item.label}</span>
-                  <kbd className="nav-hint">⌘{index + 1}</kbd>
+                  <kbd className="nav-hint">âŒ˜{index + 1}</kbd>
                 </button>
               );
             })}
@@ -5996,7 +5758,7 @@ export default function DashboardPage() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && handleSearchSubmit()}
-                placeholder="Search employees, loans, companies — ⌘K"
+                placeholder="Search employees, loans, companies â€” âŒ˜K"
               />
             </label> : null}
             {!isEmployeePortalSession ? <button className="icon-button" onClick={handleSearchSubmit} title="Run search"><Search size={18} /></button> : null}
@@ -6510,7 +6272,7 @@ export default function DashboardPage() {
                 <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>{openingFormIsUpdate ? "Update opening balance" : "Save opening balance"}</button>
                 {openingFormIsUpdate && <button className="soft-button" disabled={busy} onClick={() => resetOpeningBalanceForm(openingForm.year)}>Cancel edit</button>}
               </div>
-              <p className="muted">Opening balance is the approved carry-forward balance used by Airfare Allocation.</p>
+              <p className="muted">Opening balance is legacy seed evidence; live entitlement is computed from rules and transaction history.</p>
             </div>
           </section>
         )}
@@ -6853,7 +6615,7 @@ export default function DashboardPage() {
                 <button type="button" className={`payment-card ${allocationForm.paymentMode === "employee_full" ? "active" : ""}`} disabled={fullSelfPayDisabled} onClick={() => setAllocationForm({ ...allocationForm, paymentMode: "employee_full" })}>
                   <small>Paid by self employee full</small>
                   <strong>{money.format(displayedFullSelfPaidOptionAmount)}</strong>
-                  <span>Employee pays full ticket; entitlement remains for carry-forward</span>
+                  <span>Employee pays full ticket; entitlement remains available in the ledger</span>
                 </button>
                 <button type="button" className={`payment-card ${allocationForm.paymentMode === "loan" ? "active" : ""}`} disabled={settlementActionDisabled} onClick={() => setAllocationForm({ ...allocationForm, paymentMode: "loan" })}>
                   <small>Loan amount</small>
@@ -7339,7 +7101,7 @@ export default function DashboardPage() {
                 <div className="loan-action-panel">
                   <div className="loan-action-copy">
                     <strong>Loan action controls</strong>
-                    <p>Use selected EMI run for controlled monthly deductions. Opening loan balance shows {openingLoanBalanceEmployeeCount} employee ledger row(s) carried by year-end SQL.</p>
+                    <p>Use selected EMI run for controlled monthly deductions. Opening loan balance shows {openingLoanBalanceEmployeeCount} employee ledger row(s) for controlled loan reconciliation.</p>
                   </div>
                   <div className="loan-action-fields">
                     <Field label="Action date">
@@ -7478,167 +7240,6 @@ export default function DashboardPage() {
             </section>
           </>
         )}
-
-        {activeView === "Year End" && (
-          <section className="table-grid">
-            <div className="glass-panel table-card">
-              <div className="card-title"><CalendarClock size={18} /> Year End Process</div>
-              <div className="standard-note year-end-global-note">
-                <div>
-                  <strong>Use one fiscal year switch only.</strong>
-                  <span>The left sidebar controls fiscal year for all modules. Year End now follows that global selection, so you do not need a second year switch here.</span>
-                </div>
-                <span className={`pill ${yearEndIsHistorical ? "warning" : "success"}`}>{yearEndModeLabel}</span>
-              </div>
-              <div className="year-end-blueprint-panel">
-                <div className="year-end-blueprint-head">
-                  <div>
-                    <small>Operational blueprint</small>
-                    <strong>Year End close is a controlled SQL evidence workflow — not a simple screen button.</strong>
-                    <span>Follow the four gates below. If any gate is not ready, do not close the year.</span>
-                  </div>
-                  <span className={yearEndCanClose ? "pill success" : "pill warning"}>
-                    {yearEndCanClose ? "Close-ready after preview" : "Preview / gate required"}
-                  </span>
-                </div>
-                <div className="year-end-blueprint-grid">
-                  {yearEndBlueprintPhases.map((item) => (
-                    <div className={`year-end-blueprint-card ${item.tone}`} key={item.phase}>
-                      <span className="year-end-blueprint-phase">{item.phase}</span>
-                      <div>
-                        <strong>{item.title}</strong>
-                        <p>{item.detail}</p>
-                        <em>{item.status}</em>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="year-end-guardrail-strip">
-                  {yearEndBlueprintGuards.map((guard) => (
-                    <span key={guard}><ShieldCheck size={14} /> {guard}</span>
-                  ))}
-                </div>
-              </div>
-              <div className="metric-strip">
-                <span><small>Close year</small><strong>{yearEndForm.year}</strong></span>
-                <span><small>New opening year</small><strong>{Number(yearEndForm.year || new Date().getFullYear()) + 1}</strong></span>
-                <span><small>Employees to carry</small><strong>{yearEndPreview?.balancesCarried ?? "-"}</strong></span>
-                <span><small>Closing days</small><strong>{yearEndPreview ? Number(yearEndPreview.totalClosingDays || 0).toFixed(2) : "-"}</strong></span>
-                <span><small>Closing amount</small><strong>{money.format(yearEndPreview?.totalOpeningBalance ?? 0)}</strong></span>
-                <span><small>Pending loans</small><strong>{yearEndPreview ? `${yearEndPreview.pendingLoanCount || 0} / ${money.format(yearEndPreview.pendingLoanAmount || 0)}` : "-"}</strong></span>
-                <span><small>Opening loan balance</small><strong>{yearEndPreview ? `${yearEndLoansCarriedForward} / ${money.format(yearEndOpeningLoanBalance)}` : "-"}</strong></span>
-              </div>
-              <div className="company-year-matrix">
-                <div className="matrix-head">
-                  <div>
-                    <strong>Company-wise and year-wise shifting matrix</strong>
-                    <span>Switching company or year reloads scoped assets, preferences, and historical/current state boundaries.</span>
-                  </div>
-                  <span className="pill">{yearEndIsHistorical ? "Read-only historical mode" : "Current operational mode"}</span>
-                </div>
-                <div className="matrix-grid">
-                  {yearEndMatrixRows.map((row) => (
-                    <span key={row.label}>
-                      <small>{row.label}</small>
-                      <strong>{row.value}</strong>
-                      <em>{row.state}: {row.detail}</em>
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="premium-table">
-                <div className="table-row employee-head"><span>Control</span><span>Value</span><span>Status</span><span>Action</span></div>
-                <div className="table-row employee-head">
-                  <span><strong>Preview close</strong><small>Calculate balances before writing data.</small></span>
-                  <span>{yearEndForm.year} to {Number(yearEndForm.year || new Date().getFullYear()) + 1}</span>
-                  <span className="pill">{yearEndPreview ? "Preview Ready" : "Not Previewed"}</span>
-                  <span className="row-actions"><button className="mini-soft" disabled={busy || session?.user.role !== "admin"} onClick={handleYearEndPreview}>Run preview</button></span>
-                </div>
-                <div className="table-row employee-head">
-                  <span><strong>Final close</strong><small>Create next year opening balances and audit history.</small></span>
-                  <span>{yearEndPreview ? `${yearEndPreview.balancesCarried} employee(s)` : "Preview required"}</span>
-                  <span className={yearEndBlockers.length ? "pill danger-pill" : "pill"}>{yearEndPreview?.yearEndId ? "Closed" : yearEndBlockers.length ? "Blocked" : "Pending"}</span>
-                  <span className="row-actions"><button className="danger-button" disabled={busy || session?.user.role !== "admin" || !yearEndCanClose} onClick={handleYearEndClose}>Close year</button></span>
-                </div>
-              </div>
-              {yearEndPreview && (
-                <div className="standard-note year-end-global-note">
-                  <div>
-                    <strong>{yearEndPreview.readiness?.canClose ? "Close gate passed" : "Close gate needs attention"}</strong>
-                    <span>{yearEndBlockers[0] || yearEndWarnings[0] || "Preview evidence is fresh and the selected company/year is ready for final close."}</span>
-                  </div>
-                  <span className={yearEndPreview.readiness?.canClose ? "pill success" : "pill danger-pill"}>
-                    {yearEndPreview.readiness?.canClose ? "Ready" : "Blocked / review"}
-                  </span>
-                </div>
-              )}
-              <div className="readiness-panel">
-                <div className="card-title"><ShieldCheck size={18} /> Year End readiness gate</div>
-                <div className="readiness-grid">
-                  {yearEndServerReadinessChecks.map((check) => (
-                    <div className={`notice notice-${check.tone}`} key={check.title}>
-                      <span />
-                      <div>
-                        <strong>{check.title}</strong>
-                        <p>{check.detail}</p>
-                        <small>{check.status}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {yearEndCloseSteps.length > 0 && (
-                <div className="premium-table">
-                  <div className="table-row employee-head"><span>Step</span><span>Action</span><span>Status</span><span>Evidence</span></div>
-                  {yearEndCloseSteps.map((step) => (
-                    <div className="table-row employee-head" key={`${step.step}-${step.title}`}>
-                      <span>{step.step}</span>
-                      <span><strong>{step.title}</strong></span>
-                      <span className={step.status === "blocked" ? "pill danger-pill" : "pill"}>{step.status}</span>
-                      <span>{step.detail}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {yearEndPreview && (
-                <div className="preview-grid">
-                  <div className="preview-row year-end-head"><span>Employee</span><span>Opening</span><span>Earned</span><span>Paid/Used</span><span>Closing</span><span>Opening loan balance</span><span>Status</span></div>
-                  {(yearEndPreview.employees || []).slice(0, 12).map((row) => (
-                    <div className="preview-row year-end-head" key={row.EmployeeID}>
-                      <span>{row.EmployeeCode} - {row.FullName}</span>
-                      <span><strong>{Number(row.OpeningDays || 0).toFixed(2)} days</strong><small>{money.format(row.OpeningBHD || 0)}</small></span>
-                      <span><strong>{Number(row.CurrentYearEarnedDays || 0).toFixed(2)} days</strong><small>{money.format(row.CurrentYearEarnedBHD || 0)}</small></span>
-                      <span><strong>{Number(row.PaidDays || 0).toFixed(2)} days</strong><small>{money.format(row.PaidAmount || 0)}</small></span>
-                      <span><strong>{Number(row.ClosingDays || 0).toFixed(2)} days</strong><small>{money.format(row.ClosingBHD || 0)}</small></span>
-                      <span><strong>{money.format(row.NextOpeningLoanBalance ?? row.PendingLoanAmount ?? 0)}</strong><small>{row.PendingLoanCount || 0} loan(s) / EMI {money.format(row.PendingMonthlyEMI || 0)}</small></span>
-                      <span className={row.PendingLoanCount ? "pill danger-pill" : "pill"}>{row.CloseStatus || "Ready for close"}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="glass-panel form-card">
-              <div className="card-title"><ShieldCheck size={18} /> Closing setup</div>
-              <div className="form-grid one">
-                <Field label="Closing date"><input type="date" value={yearEndForm.closingDate} onChange={(event) => {
-                  setYearEndForm({ ...yearEndForm, closingDate: event.target.value });
-                  setYearEndPreview(null);
-                }} /></Field>
-                <Field label="Close scope">
-                  <input type="text" value={`${activeCompany?.CompanyName || "Select company"} / all eligible employees`} readOnly />
-                </Field>
-                <Field label="Remarks"><input placeholder="Closing remarks" value={yearEndForm.remarks} onChange={(event) => setYearEndForm({ ...yearEndForm, remarks: event.target.value })} /></Field>
-              </div>
-              <div className="button-row">
-                <button className="shine-button" disabled={busy || session?.user.role !== "admin"} onClick={handleYearEndPreview}>Preview {yearEndSelectedYear}</button>
-                <button className="soft-button" disabled={!yearEndPreview} onClick={printCurrentScreen}><Printer size={16} /> Print preview</button>
-                <button className="soft-button" disabled={busy} onClick={() => void openOpeningBalanceForYear(yearEndNextYear)}>Open {yearEndNextYear} opening balance</button>
-              </div>
-              <p className="muted">Year End closes all eligible employees in the selected company. A preview expires after 30 minutes and must match unchanged data before close.</p>
-            </div>
-          </section>
-        )}
-
         {activeView === "Import / Export Center" && (
           <section className="table-grid">
             <div className="glass-panel table-card">
@@ -7721,7 +7322,7 @@ export default function DashboardPage() {
               <div className="report-preview-head">
                 <div>
                   <strong>{displayedReport.title}</strong>
-                  <span>{reportForm.from || "Start"} to {reportForm.to || "Today"} • {displayedReport.rows.length} row(s)</span>
+                  <span>{reportForm.from || "Start"} to {reportForm.to || "Today"} â€¢ {displayedReport.rows.length} row(s)</span>
                 </div>
               </div>
               <div className={`report-view-table report-density-${reportDensity} report-fit-${reportFitMode}`}>
@@ -8049,7 +7650,7 @@ export default function DashboardPage() {
                       ["inApp", "In-app alerts"],
                       ["desktop", "Desktop alerts"],
                       ["email", "Email alerts"],
-                      ["yearEndAlerts", "Year-end alerts"],
+                      ["yearEndAlerts", "Entitlement alerts"],
                       ["installerAlerts", "Installer alerts"],
                       ["loanAlerts", "Loan alerts"],
                       ["selfServiceAlerts", "Self-service alerts"]
@@ -8353,7 +7954,7 @@ export default function DashboardPage() {
             <div className="glass-panel ai-card intelligence-hero">
               <div className="card-title"><Bot size={18} /> Intelligence Control Center</div>
               <h3>{intelligence?.summary.OverallStatus || "Live SQL rules loading"}</h3>
-              <p>SQL reviews airfare, loans, imports, company setup, backup status, and year-end readiness. Every item shows a reason and recommended action.</p>
+              <p>SQL reviews airfare, loans, imports, company setup, backup status, and continuous entitlement readiness. Every item shows a reason and recommended action.</p>
               <div className="intelligence-score">
                 <strong>{Number(intelligence?.summary.IntelligenceScore ?? 100)}</strong>
                 <span>Verification score</span>
@@ -8369,7 +7970,7 @@ export default function DashboardPage() {
               <ul>
                 <li>{systemIntegrity?.modelName || "Business rules run from MSSQL, not from visual-only frontend checks."}</li>
                 <li>Critical and warning risks are explainable with target screen links.</li>
-                <li>Imports, allocations, loans, company setup, backup, and year-end are reviewed together.</li>
+                <li>Imports, allocations, loans, company setup, backup, and continuous entitlement are reviewed together.</li>
                 <li>{systemIntegrity?.formulaPolicy || "Use Refresh after corrections to recalculate live risk status."}</li>
               </ul>
               <div className="standard-note">
@@ -8525,7 +8126,7 @@ export default function DashboardPage() {
               <div className="standard-note">
                 <div>
                   <strong>{verification?.summary.VerificationStatus || "Waiting for SQL verification"}</strong>
-                  <span>Server-side checks validate calculation consistency, import gates, duplicate ticket approval, loans, year-end, backup, security, and report drilldown links.</span>
+                  <span>Server-side checks validate calculation consistency, import gates, duplicate ticket approval, loans, continuous entitlement, backup, security, and report drilldown links.</span>
                 </div>
                 <button className="mini-soft" disabled={busy || !session} onClick={() => void loadLiveData()}><RefreshCw size={14} /> Recheck</button>
               </div>
@@ -8645,7 +8246,7 @@ export default function DashboardPage() {
               <div>
                 <p className="eyebrow">Admin Settings / System Maintenance / Updates</p>
                 <h2>Update Application</h2>
-                <p>Application updates live here so operational screens stay focused on employees, balances, airfare, loans, and year-end work.</p>
+                <p>Application updates live here so operational screens stay focused on employees, balances, airfare, loans, and continuous entitlement work.</p>
               </div>
               <div className={`update-state-card state-${updateCheckStatus.state.toLowerCase().replace(/\s+/g, "-")}`}>
                 <small>Update status</small>
@@ -8708,7 +8309,7 @@ export default function DashboardPage() {
               <div className="support-guide-main">
                 <div>
                   <h3>Help and Validation Guide</h3>
-                  <p>Open the Word support document for daily processing, validation evidence, LAN access, reports, loans, company processing, and year-end checks.</p>
+                  <p>Open the Word support document for daily processing, validation evidence, LAN access, reports, loans, company processing, and continuous entitlement checks.</p>
                 </div>
                 <div className="support-guide-actions">
                   <a className="shine-button" href="/help/ATLAS_Airfare_HCM_Support_Guide_2026-06-28.docx" target="_blank" rel="noreferrer">
@@ -10582,4 +10183,5 @@ function printAllocationLetter(employee: Employee, allocation: Allocation | null
   popup.document.close();
   */
 }
+
 

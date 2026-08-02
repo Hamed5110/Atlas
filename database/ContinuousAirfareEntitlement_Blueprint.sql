@@ -235,51 +235,79 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_PreviewAirfareEntitlementReset
+IF OBJECT_ID(N'dbo.sp_ATLAS_PreviewAirfareEntitlementReset', N'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_ATLAS_PreviewAirfareEntitlementReset;
+GO
+
+IF OBJECT_ID(N'dbo.sp_ATLAS_GetYearEndPreview', N'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_ATLAS_GetYearEndPreview;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_ForecastAirfareAccruals
     @CompanyID INT = NULL,
-    @ResetDate DATE
+    @EmployeeID INT = NULL,
+    @FromDate DATE,
+    @ToDate DATE
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    ;WITH CurrentBalance AS (
+    IF @FromDate IS NULL OR @ToDate IS NULL OR @ToDate < @FromDate
+        THROW 53101, 'Valid FromDate and ToDate are required for continuous accrual forecast.', 1;
+
+    ;WITH ActiveEnrollments AS (
         SELECT
-            t.EmployeeID,
-            t.CompanyID,
-            t.PlanID,
-            SUM(CASE
-                WHEN t.TransactionType IN (N'accrual', N'adjustment', N'carryover') THEN t.Amount
-                WHEN t.TransactionType IN (N'usage', N'payout', N'forfeiture') THEN -t.Amount
-                WHEN t.TransactionType = N'reversal' THEN t.Amount
-                ELSE 0
-            END) AS RemainingAmount
-        FROM dbo.EmployeeAirfareTransactions t
-        WHERE t.TransactionDate <= @ResetDate
-          AND (@CompanyID IS NULL OR t.CompanyID = @CompanyID)
-        GROUP BY t.EmployeeID, t.CompanyID, t.PlanID
+            en.EnrollmentID,
+            en.EmployeeID,
+            en.CompanyID,
+            en.PlanID,
+            en.EnrollmentStart,
+            COALESCE(en.EnrollmentEnd, @ToDate) AS EnrollmentEnd,
+            p.PlanName,
+            p.AccrualRule,
+            p.AccrualAmount,
+            p.AccrualFrequency,
+            p.PolicyJSON
+        FROM dbo.EmployeeAirfarePlanEnrollments en
+        JOIN dbo.EmployeeAirfareEntitlementPlans p ON p.PlanID = en.PlanID
+        WHERE en.Status = N'active'
+          AND p.IsActive = 1
+          AND p.AccrualFrequency IN (N'monthly', N'semi_monthly', N'pay_period', N'contract_cycle')
+          AND en.EnrollmentStart <= @ToDate
+          AND COALESCE(en.EnrollmentEnd, @ToDate) >= @FromDate
+          AND (@CompanyID IS NULL OR en.CompanyID = @CompanyID)
+          AND (@EmployeeID IS NULL OR en.EmployeeID = @EmployeeID)
+    ), ForecastBase AS (
+        SELECT
+            EnrollmentID, EmployeeID, CompanyID, PlanID, PlanName, AccrualRule, AccrualFrequency, PolicyJSON,
+            CASE WHEN EnrollmentStart > @FromDate THEN EnrollmentStart ELSE @FromDate END AS EffectiveFrom,
+            CASE WHEN EnrollmentEnd < @ToDate THEN EnrollmentEnd ELSE @ToDate END AS EffectiveTo,
+            CAST(AccrualAmount AS DECIMAL(12,2)) AS AccrualAmount
+        FROM ActiveEnrollments
     )
     SELECT
-        b.EmployeeID,
-        b.CompanyID,
-        b.PlanID,
-        p.PlanName,
-        @ResetDate AS ResetDate,
-        CAST(b.RemainingAmount AS DECIMAL(12,2)) AS CurrentRemainingAmount,
+        EnrollmentID,
+        EmployeeID,
+        CompanyID,
+        PlanID,
+        PlanName,
+        @FromDate AS ForecastFromDate,
+        @ToDate AS ForecastToDate,
+        AccrualRule,
+        AccrualFrequency,
+        EffectiveFrom,
+        EffectiveTo,
+        DATEDIFF(DAY, EffectiveFrom, DATEADD(DAY, 1, EffectiveTo)) AS EligibleDays,
         CAST(CASE
-            WHEN p.CarryOverRule = N'cap_amount' THEN
-                CASE WHEN b.RemainingAmount > ISNULL(p.CarryOverCapAmount, 0) THEN ISNULL(p.CarryOverCapAmount, 0) ELSE b.RemainingAmount END
-            WHEN p.CarryOverRule IN (N'none') THEN 0
-            ELSE b.RemainingAmount
-        END AS DECIMAL(12,2)) AS CarryOverAmount,
-        CAST(CASE
-            WHEN p.CarryOverRule = N'cap_amount' AND b.RemainingAmount > ISNULL(p.CarryOverCapAmount, 0) THEN b.RemainingAmount - ISNULL(p.CarryOverCapAmount, 0)
-            WHEN p.CarryOverRule = N'none' THEN b.RemainingAmount
+            WHEN AccrualFrequency = N'monthly' THEN AccrualAmount * (DATEDIFF(MONTH, DATEFROMPARTS(YEAR(EffectiveFrom), MONTH(EffectiveFrom), 1), DATEFROMPARTS(YEAR(EffectiveTo), MONTH(EffectiveTo), 1)) + 1)
+            WHEN AccrualFrequency = N'semi_monthly' THEN AccrualAmount * ((DATEDIFF(MONTH, DATEFROMPARTS(YEAR(EffectiveFrom), MONTH(EffectiveFrom), 1), DATEFROMPARTS(YEAR(EffectiveTo), MONTH(EffectiveTo), 1)) + 1) * 2)
+            WHEN AccrualFrequency = N'pay_period' THEN AccrualAmount * CEILING((DATEDIFF(DAY, EffectiveFrom, DATEADD(DAY, 1, EffectiveTo)) / 14.0))
+            WHEN AccrualFrequency = N'contract_cycle' THEN AccrualAmount * (DATEDIFF(MONTH, EffectiveFrom, EffectiveTo) + 1)
             ELSE 0
-        END AS DECIMAL(12,2)) AS ForfeitureAmount
-    FROM CurrentBalance b
-    JOIN dbo.EmployeeAirfareEntitlementPlans p ON p.PlanID = b.PlanID
-    WHERE p.IsActive = 1
-    ORDER BY b.EmployeeID, b.PlanID;
+        END AS DECIMAL(12,2)) AS ForecastAccrualAmount,
+        PolicyJSON
+    FROM ForecastBase
+    ORDER BY EmployeeID, PlanID;
 END;
 GO
 
@@ -389,6 +417,6 @@ SELECT
     OBJECT_ID(N'dbo.EmployeeAirfareBalances', N'U') AS HasBalances,
     OBJECT_ID(N'dbo.PayrollPeriodLocks', N'U') AS HasPayrollLocks,
     OBJECT_ID(N'dbo.sp_ATLAS_GetAirfareEntitlementBalance', N'P') AS HasBalanceProc,
-    OBJECT_ID(N'dbo.sp_ATLAS_PreviewAirfareEntitlementReset', N'P') AS HasResetPreviewProc,
+    OBJECT_ID(N'dbo.sp_ATLAS_ForecastAirfareAccruals', N'P') AS HasAccrualForecastProc,
     OBJECT_ID(N'dbo.sp_ATLAS_ApplyAirfareTransaction', N'P') AS HasApplyTransactionProc;
 GO

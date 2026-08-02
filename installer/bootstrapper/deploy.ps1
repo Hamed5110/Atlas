@@ -1461,8 +1461,7 @@ function Ensure-AtlasDatabase {
         "ATLAS_HCM_SQL_Objects.sql",
         "ATLAS_Company_Admin.sql",
         "ATLAS_Allocation_Attachments.sql",
-        "ATLAS_Loan_SQL_Objects.sql",
-        "ATLAS_YearEnd_Safety.sql"
+        "ATLAS_Loan_SQL_Objects.sql"
     )
     foreach ($file in $schemaFiles) {
         $path = Join-Path $InstallPath "database\$file"
@@ -2449,3 +2448,4 @@ try {
         try { Stop-Transcript | Out-Null } catch {}
     }
 }
+

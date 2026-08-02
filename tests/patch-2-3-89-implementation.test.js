@@ -30,6 +30,7 @@ includesAll(server, [
   "app.get('/api/entitlement/compute'",
   "app.get('/api/entitlement/accruals'",
   "app.get('/api/entitlement/usage'",
+  "app.get('/api/entitlement/accrual-forecast'",
   "app.get('/api/airfare/entitlement/balance'",
   "app.get('/api/airfare/entitlement/reconciliation'",
   "app.post('/api/airfare/entitlement/transaction'",
@@ -39,6 +40,7 @@ includesAll(server, [
   "continuous-entitlement-compute",
   "continuous-entitlement-accrual-ledger",
   "continuous-entitlement-usage-ledger",
+  "continuous-entitlement-accrual-forecast",
   "migration-reconciliation",
   "NOT_IMPLEMENTED_IN_PATCH_2_3_89"
 ], "backend routes");
@@ -83,17 +85,9 @@ includesAll(envExample, [
 assert.doesNotMatch(migration, /\bDROP\s+TABLE\b/i, "migration must remain additive");
 assert.doesNotMatch(migration, /\bTRUNCATE\s+TABLE\b/i, "migration must not truncate");
 
-// Regression tripwire: the executable annual close API must be tombstoned before any legacy compatibility code can run.
-includesAll(server, [
-  "app.use('/api/year-end'",
-  "YEAR_END_PROCESS_REMOVED",
-  "/api/entitlement/compute",
-  "/api/entitlement/accruals",
-  "/api/entitlement/usage"
-], "removed annual close API");
-
-assert.ok(server.indexOf("app.use('/api/year-end'") < server.indexOf("app.post('/api/year-end/preview/:year'"), "annual close tombstone must be registered before legacy compatibility handlers");
+// Regression tripwire: no annual close API route is registered.
+assert.doesNotMatch(server, /\/api\/year-end|YEAR_END_PROCESS_REMOVED|sp_ATLAS_GetYearEndPreview|sp_ATLAS_PreviewAirfareEntitlementReset/, "annual close/reset route and procedures must not be active in Patch 2.3.89");
 assert.doesNotMatch(page, /\{\s*label:\s*"Year End"/, "normal navigation must not expose annual close");
-assert.doesNotMatch(page, /Open Year End blueprint|opening-year-end-bridge/, "Opening Balance must not link to annual close");
+assert.doesNotMatch(page, /Year End|year-end|YearEnd|Open Year End blueprint|opening-year-end-bridge/, "frontend must not expose annual close labels or links");
 
 console.log("Patch 2.3.89 implementation source checks passed");

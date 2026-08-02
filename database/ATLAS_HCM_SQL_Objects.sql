@@ -3558,133 +3558,9 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_GetYearEndPreview
-    @ClosedYear INT,
-    @ClosingDate DATE,
-    @EmployeeID INT = NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    DECLARE @safeClosingDate DATE = COALESCE(@ClosingDate, DATEFROMPARTS(@ClosedYear, 12, 31));
-    DECLARE @closeIndex INT = ((MONTH(@safeClosingDate) - 1) * 30) + IIF(DAY(@safeClosingDate) > 30, 30, DAY(@safeClosingDate));
-    SET @closeIndex = CASE WHEN @closeIndex < 0 THEN 0 WHEN @closeIndex > 360 THEN 360 ELSE @closeIndex END;
-
-    ;WITH YearEndBase AS (
-        SELECT
-            e.EmployeeID,
-            e.EmployeeCode,
-            e.FullName,
-            e.Department,
-            e.JoinDate,
-            COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) AS MaximumPayout,
-            COALESCE(NULLIF(policy.CycleDays, 0), 60) AS CycleDays,
-            COALESCE(ob.OpeningDays, e.OpeningDays, 0) AS OpeningDays,
-            COALESCE(ob.OpeningBHD, e.OpeningBHD, dbo.fn_ATLAS_AirfareAmount(COALESCE(ob.OpeningDays, e.OpeningDays, 0), COALESCE(NULLIF(e.MaximumPayout, 0), 150)), 0) AS OpeningBHD,
-            COALESCE(e.AirfarePaidDays, 0) AS ManualPaidDays
-        FROM dbo.Employees e
-        LEFT JOIN dbo.OpeningBalances ob
-            ON ob.EmployeeID = e.EmployeeID
-           AND ob.BalanceYear = @ClosedYear
-        OUTER APPLY (
-            SELECT TOP 1 MaxPayoutAmount, CycleDays
-            FROM dbo.AirfarePolicyRates
-            WHERE IsActive = 1
-              AND CompanyID IS NULL
-              AND EmployeeID IS NULL
-              AND Department IS NULL
-              AND EmpGroup IS NULL
-              AND EffectiveFrom <= @safeClosingDate
-              AND (EffectiveTo IS NULL OR EffectiveTo >= @safeClosingDate)
-            ORDER BY EffectiveFrom DESC, PolicyRateID DESC
-        ) policy
-        WHERE dbo.fn_ATLAS_IsAirfareEligibleEmployeeStatus(e.Status) = 1
-          AND e.JoinDate <= @safeClosingDate
-          AND (@EmployeeID IS NULL OR e.EmployeeID = @EmployeeID)
-    ),
-    YearEndCalc AS (
-        SELECT
-            b.*,
-            CAST(b.MaximumPayout / NULLIF(b.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
-            CASE
-                WHEN b.JoinDate IS NULL OR b.JoinDate < DATEFROMPARTS(@ClosedYear, 1, 1) THEN DATEFROMPARTS(@ClosedYear, 1, 1)
-                WHEN b.JoinDate > @safeClosingDate THEN @safeClosingDate
-                ELSE b.JoinDate
-            END AS EarnStartDate
-        FROM YearEndBase b
-    )
-    SELECT
-        c.EmployeeID,
-        c.EmployeeCode,
-        c.FullName,
-        c.Department,
-        CAST(c.MaximumPayout AS DECIMAL(10,2)) AS MaximumPayout,
-        CAST(c.OpeningDays AS DECIMAL(10,4)) AS OpeningDays,
-        CAST(c.OpeningBHD AS DECIMAL(10,2)) AS OpeningBHD,
-        CAST(ROUND((CASE
-            WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-            ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-        END), 4) AS DECIMAL(10,4)) AS CurrentYearEarnedDays,
-        CAST(ROUND((CASE
-            WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-            ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-        END) * c.PerDayRate, 2) AS DECIMAL(10,2)) AS CurrentYearEarnedBHD,
-        CAST(ROUND((COALESCE(spent.EntitlementApplied, 0) / NULLIF(c.PerDayRate, 0)) + COALESCE(c.ManualPaidDays, 0), 4) AS DECIMAL(10,4)) AS PaidDays,
-        CAST(ROUND(COALESCE(spent.EntitlementApplied, 0) + (COALESCE(c.ManualPaidDays, 0) * c.PerDayRate), 2) AS DECIMAL(10,2)) AS PaidAmount,
-        CAST(ROUND(CASE
-            WHEN c.OpeningDays + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END) - ((COALESCE(spent.EntitlementApplied, 0) / NULLIF(c.PerDayRate, 0)) + COALESCE(c.ManualPaidDays, 0)) < 0 THEN 0
-            ELSE c.OpeningDays + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END) - ((COALESCE(spent.EntitlementApplied, 0) / NULLIF(c.PerDayRate, 0)) + COALESCE(c.ManualPaidDays, 0))
-        END, 4) AS DECIMAL(10,4)) AS ClosingDays,
-        CAST(ROUND(CASE
-            WHEN c.OpeningBHD + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END * c.PerDayRate) - (COALESCE(spent.EntitlementApplied, 0) + (COALESCE(c.ManualPaidDays, 0) * c.PerDayRate)) < 0 THEN 0
-            ELSE c.OpeningBHD + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END * c.PerDayRate) - (COALESCE(spent.EntitlementApplied, 0) + (COALESCE(c.ManualPaidDays, 0) * c.PerDayRate))
-        END, 2) AS DECIMAL(10,2)) AS ClosingBHD,
-        COALESCE(loans.PendingLoanCount, 0) AS PendingLoanCount,
-        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS PendingLoanAmount,
-        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS ClosingLoanBalance,
-        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS NextOpeningLoanBalance,
-        CAST(ROUND(COALESCE(loans.MonthlyEMI, 0), 2) AS DECIMAL(12,2)) AS PendingMonthlyEMI,
-        CASE WHEN COALESCE(loans.PendingLoanCount, 0) > 0 THEN 'Pending loan review required' ELSE 'Ready for close' END AS CloseStatus
-    FROM YearEndCalc c
-    OUTER APPLY (
-        SELECT
-            SUM(CASE
-                WHEN COALESCE(a.Entitlement, 0) > 0 THEN IIF(a.Entitlement > a.TicketCost, a.TicketCost, a.Entitlement)
-                WHEN ISNULL(a.PaymentMode, '') = 'company_full' THEN 0
-                ELSE COALESCE(a.CompanyPaid, 0)
-            END) AS EntitlementApplied
-        FROM dbo.Allocations a
-        WHERE a.EmployeeID = c.EmployeeID
-          AND a.AllocYear = @ClosedYear
-          AND a.AllocationDate <= @safeClosingDate
-    ) spent
-    OUTER APPLY (
-        SELECT
-            COUNT(*) AS PendingLoanCount,
-            SUM(COALESCE(l.RemainingBalance, 0)) AS PendingLoanAmount,
-            SUM(COALESCE(l.EMI, 0)) AS MonthlyEMI
-        FROM dbo.Loans l
-        WHERE l.EmployeeID = c.EmployeeID
-          AND COALESCE(l.RemainingBalance, 0) > 0
-          AND ISNULL(l.Status, 'active') <> 'settled'
-          AND (l.CreatedDate IS NULL OR l.CreatedDate <= @safeClosingDate)
-    ) loans
-    ORDER BY c.EmployeeCode;
-END;
-GO
-
+/* Patch 2.3.89: legacy annual close preview procedure intentionally removed.
+   Continuous entitlement uses dbo.sp_ATLAS_GetAirfareEntitlementBalance and
+   dbo.sp_ATLAS_ForecastAirfareAccruals instead. */
 CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_NormalizeAllocationAmounts
     @TicketCost DECIMAL(10,2),
     @PolicyEntitlement DECIMAL(10,2),
@@ -4208,3 +4084,4 @@ BEGIN
     ORDER BY SortWeight ASC, CheckID ASC;
 END;
 GO
+

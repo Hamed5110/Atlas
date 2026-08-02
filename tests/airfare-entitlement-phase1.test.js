@@ -39,7 +39,7 @@ mustInclude(
     "GET /api/airfare/entitlement/balance",
     "GET /api/airfare/entitlement/reconciliation",
     "POST /api/airfare/entitlement/transaction",
-    "YEAR_END_PROCESS_REMOVED",
+    "GET /api/entitlement/accrual-forecast",
     "Continuous Entitlement Reconciliation",
   ],
   "phase 0-1 API/UI contract"
@@ -55,6 +55,7 @@ mustInclude(
     "PayrollPeriodLocks",
     "sp_ATLAS_GetAirfareEntitlementBalance",
     "sp_ATLAS_ApplyAirfareTransaction",
+    "sp_ATLAS_ForecastAirfareAccruals",
   ],
   "phase 0-1 database objects"
 );
@@ -63,7 +64,7 @@ mustInclude(
   spec,
   [
     "Opening balances are legacy seed data only",
-    "`/api/year-end/*` must return `410 YEAR_END_PROCESS_REMOVED`",
+    "No annual close API route is registered",
     "No normal navigation item for annual close",
   ],
   "legacy close removal"
@@ -74,7 +75,7 @@ mustInclude(
   [
     "use `NOT EXISTS` guards",
     "avoid destructive SQL",
-    "No migration entry may be named like `year-end-*`",
+    "No migration entry may be named like an annual-close migration",
   ],
   "idempotency and rollback safety"
 );
@@ -87,3 +88,4 @@ assert.match(removalPlan, /Phase 1 - Parallel model, read-only/i);
 assert.match(removalPlan, /Phase 2 - Parallel writes, preview\/reset only/i);
 
 console.log("Phase 0-1 continuous airfare entitlement executable spec contract passed");
+

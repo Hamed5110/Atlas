@@ -277,8 +277,7 @@ $scripts = @(
     "ATLAS_Phase1_PolicyRate_Repair.sql",
     "ATLAS_Company_Admin.sql",
     "ATLAS_Allocation_Attachments.sql",
-    "ATLAS_Loan_SQL_Objects.sql",
-    "ATLAS_YearEnd_Safety.sql"
+    "ATLAS_Loan_SQL_Objects.sql"
 )
 
 foreach ($scriptName in $scripts) {
@@ -302,3 +301,4 @@ foreach ($scriptName in $scripts) {
 
 Write-DbSetupLog -InstallRootPath $InstallRoot -Step "database configuration" -Status "OK" -Message "Database configuration successful for '$dbName' on $serverPart."
 Write-Step "Database configuration successful for '$dbName'."
+

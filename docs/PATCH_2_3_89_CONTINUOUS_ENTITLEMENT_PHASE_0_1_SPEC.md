@@ -65,6 +65,7 @@ The migration must:
   - `dbo.vw_ATLAS_AirfareEntitlementBalanceAsOf`
   - `dbo.sp_ATLAS_GetAirfareEntitlementBalance`
   - `dbo.sp_ATLAS_ApplyAirfareTransaction`
+  - `dbo.sp_ATLAS_ForecastAirfareAccruals`
 - seed monthly continuous plans, active enrollments, legacy opening seed transactions, and allocation usage;
 - use `NOT EXISTS` guards so it can run twice without duplicate growth;
 - avoid destructive SQL such as `DROP TABLE` or `TRUNCATE TABLE`;
@@ -87,13 +88,14 @@ New continuous routes:
 - `GET /api/entitlement/usage`
 - `GET /api/airfare/entitlement/balance`
 - `GET /api/airfare/entitlement/reconciliation`
+- `GET /api/entitlement/accrual-forecast`
 - `POST /api/airfare/entitlement/transaction`
 
 Expected response modes include `continuous-readonly`, `continuous-entitlement-compute`, `continuous-entitlement-accrual-ledger`, `continuous-entitlement-usage-ledger`, and `migration-reconciliation`.
 
 Legacy close route policy:
 
-- `/api/year-end/*` must return `410 YEAR_END_PROCESS_REMOVED`.
+- No annual close API route is registered.
 - The response must point callers to:
   - `/api/entitlement/compute`
   - `/api/entitlement/accruals`
@@ -119,7 +121,7 @@ Writes:
 
 - Patch 2.3.89 manifest version remains `2.3.89`.
 - Migration plan entry must be `20260802-continuous-airfare-entitlement-phase1`.
-- No migration entry may be named like `year-end-*`.
+- No migration entry may be named like an annual-close migration.
 - The EXE/MSI must be interactive: visible wizard, SQL server/port prompts, logs, and user-visible error/success messages.
 - The installer applies the continuous migration safely and verifies `dbo.sp_ATLAS_GetAirfareEntitlementBalance`.
 
@@ -133,8 +135,9 @@ Patch success criteria:
 
 - `/api/version` shows `2.3.89`;
 - continuous feature flags are visible;
-- annual close APIs return `410`;
+- annual close APIs are not registered;
 - continuous compute/accrual/usage routes exist;
 - reconciliation UI is admin-only and exportable;
 - migration runs twice without duplicate seed growth;
 - no annual close/reset job is required for entitlement correctness.
+

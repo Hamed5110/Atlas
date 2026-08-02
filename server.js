@@ -945,7 +945,6 @@ async function ensureAtlasSqlObjects(db, options = {}) {
             await ensureAtlasSafeDeleteProcedure(db, force);
             await ensureAllocationPaymentSql(db);
             await ensureLoanOperationSql(db);
-            await ensureYearEndOperationSql(db);
             await ensureEmployeePortalExtensionSql(db);
             await cleanupQaTemporaryCompanies(db);
             sqlObjectsReady = true;
@@ -1495,7 +1494,7 @@ function buildAutomaticVerificationModel({ controlCenter, verification, diagnost
         summarizeCheckGroup(checks, ['ALLOCATION_AMOUNT_RECONCILIATION', 'POLICY_SNAPSHOT_LOCKED', 'OPENING_AMOUNT_SYSTEM_CALC', 'AIRFARE_PAYABLE_CURRENT_YEAR_RULE'], 'Formula and policy snapshot integrity', 'Airfare'),
         summarizeCheckGroup(checks, ['DUPLICATE_TICKET_APPROVAL', 'IMPORT_PREVIEW_GATES'], 'Approval and import control integrity', 'Airfare'),
         summarizeCheckGroup(checks, ['OPEN_LOAN_REVIEW'], 'Loan register integrity', 'Loans'),
-        summarizeCheckGroup(checks, ['YEAR_END_NEGATIVE_BALANCE'], 'Year-end readiness integrity', 'Year End'),
+        summarizeCheckGroup(checks, ['CONTINUOUS_ENTITLEMENT_RECONCILIATION'], 'Continuous entitlement integrity', 'Airfare'),
         summarizeCheckGroup(checks, ['COMPANY_LOGO_PRINT_READY', 'RECENT_DATABASE_BACKUP', 'ACTIVE_ADMIN_EXISTS'], 'Company, backup, and security integrity', 'Companies'),
         summarizeCheckGroup(checks, ['REPORT_DRILLDOWN_REFERENTIAL_LINKS', 'REPORT_SUBTOTAL_GRAND_TOTAL_SOURCE', 'REPORT_NUMERIC_DAYS_AMOUNT_LAYOUT', 'REPORT_SCREEN_READABILITY_LAYOUT'], 'Report and view display integrity', 'Reports')
     ];
@@ -1524,7 +1523,7 @@ function buildAutomaticVerificationModel({ controlCenter, verification, diagnost
         modelName: 'ATLAS Automatic Verification Model',
         mode: 'read-only observer',
         rulesLocked: true,
-        formulaPolicy: 'No business formulas, year-end rules, loan rules, report formulas, or company rules are changed by this model.',
+        formulaPolicy: 'No business formulas, continuous entitlement rules, loan rules, report formulas, or company rules are changed by this model.',
         generatedAt: new Date().toISOString(),
         asOfDate: asOfDate || null,
         currentYear: Number.isInteger(currentYear) ? currentYear : (verification.summary?.CurrentYear || new Date().getFullYear()),
@@ -2447,147 +2446,6 @@ BEGIN
     ORDER BY AllocationDate DESC, AllocationID DESC;
 END;
 `);
-}
-
-async function ensureYearEndOperationSql(db) {
-    if (!await hasSqlObject(db, 'dbo.sp_ATLAS_GetYearEndPreview', 'P')) {
-        logger.warn('dbo.sp_ATLAS_GetYearEndPreview missing; applying ATLAS HCM SQL objects before Year End safety controls.');
-        await applySqlScriptFile(db, path.join('database', 'ATLAS_HCM_SQL_Objects.sql'), 'ATLAS HCM SQL objects');
-    }
-    await applySqlScriptFile(db, path.join('database', 'ATLAS_YearEnd_Safety.sql'), 'ATLAS Year End safety controls');
-}
-
-async function ensureLegacyYearEndOperationSql(db) {
-    await db.request().batch(`
-CREATE OR ALTER PROCEDURE dbo.sp_ATLAS_GetYearEndPreview
-    @ClosedYear INT,
-    @ClosingDate DATE,
-    @EmployeeID INT = NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    DECLARE @safeClosingDate DATE = COALESCE(@ClosingDate, DATEFROMPARTS(@ClosedYear, 12, 31));
-    DECLARE @closeIndex INT = ((MONTH(@safeClosingDate) - 1) * 30) + IIF(DAY(@safeClosingDate) > 30, 30, DAY(@safeClosingDate));
-    SET @closeIndex = CASE WHEN @closeIndex < 0 THEN 0 WHEN @closeIndex > 360 THEN 360 ELSE @closeIndex END;
-
-    ;WITH YearEndBase AS (
-        SELECT
-            e.EmployeeID,
-            e.EmployeeCode,
-            e.FullName,
-            e.Department,
-            e.JoinDate,
-            COALESCE(NULLIF(policy.MaxPayoutAmount, 0), NULLIF(e.MaximumPayout, 0), 150) AS MaximumPayout,
-            COALESCE(NULLIF(policy.CycleDays, 0), 60) AS CycleDays,
-            COALESCE(ob.OpeningDays, e.OpeningDays, 0) AS OpeningDays,
-            COALESCE(ob.OpeningBHD, e.OpeningBHD, dbo.fn_ATLAS_AirfareAmount(COALESCE(ob.OpeningDays, e.OpeningDays, 0), COALESCE(NULLIF(e.MaximumPayout, 0), 150)), 0) AS OpeningBHD,
-            COALESCE(e.AirfarePaidDays, 0) AS ManualPaidDays
-        FROM dbo.Employees e
-        LEFT JOIN dbo.OpeningBalances ob
-            ON ob.EmployeeID = e.EmployeeID
-           AND ob.BalanceYear = @ClosedYear
-        OUTER APPLY (
-            SELECT TOP 1 MaxPayoutAmount, CycleDays
-            FROM dbo.AirfarePolicyRates
-            WHERE IsActive = 1
-              AND CompanyID IS NULL
-              AND EmployeeID IS NULL
-              AND Department IS NULL
-              AND EmpGroup IS NULL
-              AND EffectiveFrom <= @safeClosingDate
-              AND (EffectiveTo IS NULL OR EffectiveTo >= @safeClosingDate)
-            ORDER BY EffectiveFrom DESC, PolicyRateID DESC
-        ) policy
-        WHERE dbo.fn_ATLAS_IsAirfareEligibleEmployeeStatus(e.Status) = 1
-          AND e.JoinDate <= @safeClosingDate
-          AND (@EmployeeID IS NULL OR e.EmployeeID = @EmployeeID)
-    ),
-    YearEndCalc AS (
-        SELECT
-            b.*,
-            CAST(b.MaximumPayout / NULLIF(b.CycleDays, 0) AS DECIMAL(12,6)) AS PerDayRate,
-            CASE
-                WHEN b.JoinDate IS NULL OR b.JoinDate < DATEFROMPARTS(@ClosedYear, 1, 1) THEN DATEFROMPARTS(@ClosedYear, 1, 1)
-                WHEN b.JoinDate > @safeClosingDate THEN @safeClosingDate
-                ELSE b.JoinDate
-            END AS EarnStartDate
-        FROM YearEndBase b
-    )
-    SELECT
-        c.EmployeeID,
-        c.EmployeeCode,
-        c.FullName,
-        c.Department,
-        CAST(c.MaximumPayout AS DECIMAL(10,2)) AS MaximumPayout,
-        CAST(c.OpeningDays AS DECIMAL(10,4)) AS OpeningDays,
-        CAST(c.OpeningBHD AS DECIMAL(10,2)) AS OpeningBHD,
-        CAST(ROUND((CASE
-            WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-            ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-        END), 4) AS DECIMAL(10,4)) AS CurrentYearEarnedDays,
-        CAST(ROUND((CASE
-            WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-            ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-        END) * c.PerDayRate, 2) AS DECIMAL(10,2)) AS CurrentYearEarnedBHD,
-        CAST(ROUND((COALESCE(spent.EntitlementApplied, 0) / NULLIF(c.PerDayRate, 0)) + COALESCE(c.ManualPaidDays, 0), 4) AS DECIMAL(10,4)) AS PaidDays,
-        CAST(ROUND(COALESCE(spent.EntitlementApplied, 0) + (COALESCE(c.ManualPaidDays, 0) * c.PerDayRate), 2) AS DECIMAL(10,2)) AS PaidAmount,
-        CAST(ROUND(CASE
-            WHEN c.OpeningDays + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END) - ((COALESCE(spent.EntitlementApplied, 0) / NULLIF(c.PerDayRate, 0)) + COALESCE(c.ManualPaidDays, 0)) < 0 THEN 0
-            ELSE c.OpeningDays + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END) - ((COALESCE(spent.EntitlementApplied, 0) / NULLIF(c.PerDayRate, 0)) + COALESCE(c.ManualPaidDays, 0))
-        END, 4) AS DECIMAL(10,4)) AS ClosingDays,
-        CAST(ROUND(CASE
-            WHEN c.OpeningBHD + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END * c.PerDayRate) - (COALESCE(spent.EntitlementApplied, 0) + (COALESCE(c.ManualPaidDays, 0) * c.PerDayRate)) < 0 THEN 0
-            ELSE c.OpeningBHD + (CASE
-                WHEN @closeIndex <= (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) THEN 0
-                ELSE (@closeIndex - (((MONTH(c.EarnStartDate) - 1) * 30) + IIF(DAY(c.EarnStartDate) > 30, 30, DAY(c.EarnStartDate))) + 1) / 30.0 * 2.5
-            END * c.PerDayRate) - (COALESCE(spent.EntitlementApplied, 0) + (COALESCE(c.ManualPaidDays, 0) * c.PerDayRate))
-        END, 2) AS DECIMAL(10,2)) AS ClosingBHD,
-        COALESCE(loans.PendingLoanCount, 0) AS PendingLoanCount,
-        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS PendingLoanAmount,
-        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS ClosingLoanBalance,
-        CAST(ROUND(COALESCE(loans.PendingLoanAmount, 0), 2) AS DECIMAL(12,2)) AS NextOpeningLoanBalance,
-        CAST(ROUND(COALESCE(loans.MonthlyEMI, 0), 2) AS DECIMAL(12,2)) AS PendingMonthlyEMI,
-        CASE
-            WHEN COALESCE(loans.PendingLoanCount, 0) > 0 THEN 'Pending loan review required'
-            ELSE 'Ready for close'
-        END AS CloseStatus
-    FROM YearEndCalc c
-    OUTER APPLY (
-        SELECT
-            SUM(CASE
-                WHEN COALESCE(a.Entitlement, 0) > 0 THEN IIF(a.Entitlement > a.TicketCost, a.TicketCost, a.Entitlement)
-                WHEN ISNULL(a.PaymentMode, '') = 'company_full' THEN 0
-                ELSE COALESCE(a.CompanyPaid, 0)
-            END) AS EntitlementApplied
-        FROM dbo.Allocations a
-        WHERE a.EmployeeID = c.EmployeeID
-          AND a.AllocYear = @ClosedYear
-          AND a.AllocationDate <= @safeClosingDate
-    ) spent
-    OUTER APPLY (
-        SELECT
-            COUNT(*) AS PendingLoanCount,
-            SUM(COALESCE(l.RemainingBalance, 0)) AS PendingLoanAmount,
-            SUM(COALESCE(l.EMI, 0)) AS MonthlyEMI
-        FROM dbo.Loans l
-        WHERE l.EmployeeID = c.EmployeeID
-          AND COALESCE(l.RemainingBalance, 0) > 0
-          AND ISNULL(l.Status, 'active') <> 'settled'
-          AND (l.CreatedDate IS NULL OR l.CreatedDate <= @safeClosingDate)
-    ) loans
-    ORDER BY c.EmployeeCode;
-END
-    `);
 }
 
 // =====================================================
@@ -6616,7 +6474,6 @@ app.delete('/api/companies/empty', authenticateToken, requireRole('admin'), asyn
         const ids = rows.map((row) => Number(row.CompanyID)).filter(Number.isFinite);
         const idList = ids.join(',');
         await db.request().query(`
-            DELETE FROM dbo.YearEndPreviewEvidence WHERE CompanyID IN (${idList});
             DELETE FROM dbo.Companies WHERE CompanyID IN (${idList});
         `);
 
@@ -6668,17 +6525,15 @@ app.delete('/api/companies/:id(\\d+)', authenticateToken, requireRole('admin'), 
                         UPPER(LTRIM(RTRIM(ISNULL(@CompanyName, '')))),
                         UPPER(LTRIM(RTRIM(ISNULL(@DatabaseName, ''))))
                      )) AS Employees,
-                    (SELECT COUNT(*) FROM dbo.AirfarePolicyRates WHERE CompanyID = @CompanyID) AS PolicyRates,
-                    (SELECT COUNT(*) FROM dbo.YearEndHistory WHERE CompanyID = @CompanyID) AS YearEndHistory
+                    (SELECT COUNT(*) FROM dbo.AirfarePolicyRates WHERE CompanyID = @CompanyID) AS PolicyRates
             `);
         const linked = usage.recordset[0] || {};
-        if (Number(linked.Employees || 0) > 0 || Number(linked.PolicyRates || 0) > 0 || Number(linked.YearEndHistory || 0) > 0) {
+        if (Number(linked.Employees || 0) > 0 || Number(linked.PolicyRates || 0) > 0) {
             return res.status(409).json({
-                error: 'Company is linked to employees, policy values, or closed Year End history. Remove links before deleting.',
+                error: 'Company is linked to employees or policy values. Remove links before deleting.',
                 details: {
                     employees: Number(linked.Employees || 0),
-                    policyRates: Number(linked.PolicyRates || 0),
-                    yearEndHistory: Number(linked.YearEndHistory || 0)
+                    policyRates: Number(linked.PolicyRates || 0)
                 }
             });
         }
@@ -6696,7 +6551,6 @@ app.delete('/api/companies/:id(\\d+)', authenticateToken, requireRole('admin'), 
         await db.request()
             .input('CompanyID', sql.Int, companyId)
             .query(`
-                DELETE FROM dbo.YearEndPreviewEvidence WHERE CompanyID = @CompanyID;
                 DELETE FROM dbo.Companies WHERE CompanyID = @CompanyID;
             `);
 
@@ -6926,8 +6780,7 @@ app.delete('/api/admin/business-data', authenticateToken, requireRole('admin'), 
                 (SELECT COUNT(*) FROM Allocations) AS Allocations,
                 (SELECT COUNT(*) FROM Loans) AS Loans,
                 (SELECT COUNT(*) FROM EmergencyTickets) AS EmergencyTickets,
-                (SELECT COUNT(*) FROM OpeningBalances) AS OpeningBalances,
-                (SELECT COUNT(*) FROM YearEndHistory) AS YearEndHistory
+                (SELECT COUNT(*) FROM OpeningBalances) AS OpeningBalances
         `);
 
         await db.request().query(`
@@ -6935,7 +6788,6 @@ app.delete('/api/admin/business-data', authenticateToken, requireRole('admin'), 
             DELETE FROM Loans;
             DELETE FROM EmergencyTickets;
             DELETE FROM OpeningBalances;
-            DELETE FROM YearEndHistory;
             DELETE FROM AllocationAttachments;
             DELETE FROM Allocations;
             DELETE FROM Employees;
@@ -7107,7 +6959,7 @@ app.get('/api/diagnostics/entitlement', authenticateToken, requireRole('admin'),
             SELECT
                 CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfareEntitlementPlans', N'U') IS NULL THEN 0 ELSE 1 END AS SchemaInstalled,
                 CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_GetAirfareEntitlementBalance', N'P') IS NULL THEN 0 ELSE 1 END AS HasBalanceProc,
-                CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_PreviewAirfareEntitlementReset', N'P') IS NULL THEN 0 ELSE 1 END AS HasPreviewResetProc,
+                CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_ForecastAirfareAccruals', N'P') IS NULL THEN 0 ELSE 1 END AS HasAccrualForecastProc,
                 CASE WHEN OBJECT_ID(N'dbo.sp_ATLAS_ApplyAirfareTransaction', N'P') IS NULL THEN 0 ELSE 1 END AS HasApplyTransactionProc,
                 CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfareEntitlementPlans', N'U') IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM dbo.EmployeeAirfareEntitlementPlans) END AS PlanCount,
                 CASE WHEN OBJECT_ID(N'dbo.EmployeeAirfarePlanEnrollments', N'U') IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM dbo.EmployeeAirfarePlanEnrollments) END AS EnrollmentCount,
@@ -7116,7 +6968,7 @@ app.get('/api/diagnostics/entitlement', authenticateToken, requireRole('admin'),
         const row = result.recordset?.[0] || {};
         res.json({
             name: 'Continuous airfare entitlement',
-            success: Boolean(row.SchemaInstalled && row.HasBalanceProc && row.HasPreviewResetProc && row.HasApplyTransactionProc),
+            success: Boolean(row.SchemaInstalled && row.HasBalanceProc && row.HasAccrualForecastProc && row.HasApplyTransactionProc),
             latencyMs: Date.now() - started,
             checkedAt: new Date().toISOString(),
             features,
@@ -7126,7 +6978,7 @@ app.get('/api/diagnostics/entitlement', authenticateToken, requireRole('admin'),
             transactionCount: Number(row.TransactionCount || 0),
             procedures: {
                 balance: Boolean(row.HasBalanceProc),
-                previewReset: Boolean(row.HasPreviewResetProc),
+                accrualForecast: Boolean(row.HasAccrualForecastProc),
                 applyTransaction: Boolean(row.HasApplyTransactionProc)
             }
         });
@@ -7183,44 +7035,46 @@ app.get('/api/airfare/entitlement/balance', authenticateToken, async (req, res) 
     }
 });
 
-app.get('/api/airfare/entitlement/preview-reset', authenticateToken, requireRole('admin'), async (req, res) => {
+app.get('/api/entitlement/accrual-forecast', authenticateToken, requireRole('admin'), async (req, res) => {
     if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
     const started = Date.now();
     const features = getContinuousAirfareFeatureState();
     try {
+        const employeeId = parseOptionalPositiveInt(req.query.employeeId, 'employeeId');
         const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
-        const fiscalYear = req.query.fiscalYear ? parseOptionalPositiveInt(req.query.fiscalYear, 'fiscalYear') : null;
-        const resetDate = req.query.resetDate
-            ? parseRequiredSqlDate(req.query.resetDate, 'resetDate')
-            : `${fiscalYear || new Date().getFullYear()}-12-31`;
+        const fromDate = parseRequiredSqlDate(req.query.fromDate, 'fromDate');
+        const toDate = parseRequiredSqlDate(req.query.toDate, 'toDate');
         const db = await getConnection();
         const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
             .input('CompanyID', sql.Int, companyId)
-            .input('ResetDate', sql.Date, resetDate)
-            .execute('dbo.sp_ATLAS_PreviewAirfareEntitlementReset');
-        logger.info('continuous airfare reset preview read', {
+            .input('FromDate', sql.Date, fromDate)
+            .input('ToDate', sql.Date, toDate)
+            .execute('dbo.sp_ATLAS_ForecastAirfareAccruals');
+        logger.info('continuous airfare accrual forecast read', {
             userId: req.user?.id || req.user?.userId || null,
+            employeeId,
             companyId,
-            fiscalYear,
-            resetDate,
+            fromDate,
+            toDate,
             flags: features,
             rowCount: result.recordset.length,
             elapsedMs: Date.now() - started
         });
         res.json({
-            mode: 'continuous-reset-preview-readonly',
-            resetDate,
-            fiscalYear: fiscalYear || Number(resetDate.slice(0, 4)),
+            mode: 'continuous-entitlement-accrual-forecast',
+            fromDate,
+            toDate,
             features,
             rows: result.recordset
         });
     } catch (err) {
-        logger.error('continuous airfare reset preview failed:', err);
+        logger.error('continuous airfare accrual forecast failed:', err);
         const status = err.statusCode || 500;
         res.status(status).json({
-            code: err.code || 'CONTINUOUS_AIRFARE_RESET_PREVIEW_FAILED',
+            code: err.code || 'CONTINUOUS_AIRFARE_ACCRUAL_FORECAST_FAILED',
             field: err.field,
-            error: err.message || 'Failed to preview continuous airfare reset.'
+            error: err.message || 'Failed to forecast continuous airfare accruals.'
         });
     }
 });
@@ -7498,18 +7352,6 @@ app.get('/api/entitlement/usage', authenticateToken, async (req, res) => {
     }
 });
 
-app.use('/api/year-end', authenticateToken, (_req, res) => {
-    res.status(410).json({
-        code: 'YEAR_END_PROCESS_REMOVED',
-        error: 'The annual Year End process is removed in Patch 2.3.89. Use continuous entitlement compute, accrual, usage, and reconciliation APIs instead.',
-        replacementApis: [
-            '/api/entitlement/compute',
-            '/api/entitlement/accruals',
-            '/api/entitlement/usage',
-            '/api/airfare/entitlement/reconciliation'
-        ]
-    });
-});
 
 // GET /api/reports/employee-master
 app.get('/api/reports/employee-master', authenticateToken, async (req, res) => {
@@ -7591,558 +7433,9 @@ app.get('/api/reports/airfare-payable', authenticateToken, async (req, res) => {
     }
 });
 
-function normalizeYearEndClosingDate(closingDate) {
-    if (closingDate instanceof Date) return closingDate.toISOString().slice(0, 10);
-    return String(closingDate || '').slice(0, 10);
-}
-
-function assertCalendarYearEnd(closedYear, closingDate) {
-    const expected = `${closedYear}-12-31`;
-    const normalized = normalizeYearEndClosingDate(closingDate);
-    if (normalized !== expected) {
-        const error = new Error(`Only the configured calendar year-end (${expected}) can be closed.`);
-        error.statusCode = 400;
-        throw error;
-    }
-    return normalized;
-}
-
-function assertYearEndCanBeFinalClosed(closingDate) {
-    const normalized = normalizeYearEndClosingDate(closingDate);
-    const today = new Date().toISOString().slice(0, 10);
-    if (normalized >= today) {
-        const error = new Error('Year End final close is only available after the closing date has passed.');
-        error.statusCode = 400;
-        error.code = 'YEAR_END_CLOSE_NOT_MATURED';
-        throw error;
-    }
-}
-
-function numberOrZero(value) {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function summarizeYearEndRows(rows) {
-    const safeRows = Array.isArray(rows) ? rows : [];
-    const totalOpeningBalance = safeRows.reduce((sum, row) => sum + numberOrZero(row.ClosingBHD), 0);
-    const totalClosingDays = safeRows.reduce((sum, row) => sum + numberOrZero(row.ClosingDays), 0);
-    const pendingLoanCount = safeRows.reduce((sum, row) => sum + numberOrZero(row.PendingLoanCount), 0);
-    const pendingLoanAmount = safeRows.reduce((sum, row) => sum + numberOrZero(row.PendingLoanAmount), 0);
-    const totalOpeningLoanBalance = safeRows.reduce((sum, row) => sum + numberOrZero(row.NextOpeningLoanBalance || row.PendingLoanAmount), 0);
-    const loansCarriedForward = safeRows.filter((row) => numberOrZero(row.NextOpeningLoanBalance || row.PendingLoanAmount) > 0).length;
-    const zeroClosingBalanceCount = safeRows.filter((row) => numberOrZero(row.ClosingDays) === 0 && numberOrZero(row.ClosingBHD) === 0).length;
-    const reviewCount = safeRows.filter((row) => String(row.CloseStatus || '').toLowerCase().includes('review')).length;
-    return {
-        employeeCount: safeRows.length,
-        balancesCarried: safeRows.length,
-        totalOpeningBalance: Number(totalOpeningBalance.toFixed(2)),
-        totalClosingDays: Number(totalClosingDays.toFixed(2)),
-        pendingLoanCount,
-        pendingLoanAmount: Number(pendingLoanAmount.toFixed(2)),
-        totalOpeningLoanBalance: Number(totalOpeningLoanBalance.toFixed(2)),
-        loansCarriedForward,
-        zeroClosingBalanceCount,
-        reviewCount
-    };
-}
-
-async function buildYearEndReadiness(db, { companyId, closedYear, closingDate, summary, previewId, previewHash, previewExpiresAt, finalClose = false }) {
-    const normalizedClosingDate = normalizeYearEndClosingDate(closingDate);
-    const today = new Date().toISOString().slice(0, 10);
-    const blockers = [];
-    const warnings = [];
-
-    const existingClose = await db.request()
-        .input('CompanyID', sql.Int, companyId)
-        .input('ClosedYear', sql.Int, closedYear)
-        .query(`SELECT TOP 1 YearEndID, ClosedAt FROM dbo.YearEndHistory
-                WHERE CompanyID = @CompanyID AND ClosedYear = @ClosedYear AND Status = 'closed'
-                ORDER BY YearEndID DESC`);
-    const laterClose = await db.request()
-        .input('CompanyID', sql.Int, companyId)
-        .input('ClosedYear', sql.Int, closedYear)
-        .query(`SELECT TOP 1 ClosedYear FROM dbo.YearEndHistory
-                WHERE CompanyID = @CompanyID AND ClosedYear > @ClosedYear AND Status = 'closed'
-                ORDER BY ClosedYear DESC`);
-    let latestBackup = null;
-    try {
-        const backup = await db.request().query(`SELECT TOP 1 BackupFile, CreatedAt
-                FROM dbo.CompanyBackups
-                WHERE Status = 'completed'
-                ORDER BY CreatedAt DESC, BackupID DESC`);
-        latestBackup = backup.recordset[0] || null;
-    } catch (backupErr) {
-        logger.warn('Year End backup readiness check skipped:', backupErr.message);
-    }
-
-    if (!summary.employeeCount) blockers.push('No eligible employees are available for the selected company and year.');
-    if (existingClose.recordset[0]) blockers.push(`Year ${closedYear} is already closed for this company.`);
-    if (laterClose.recordset[0]) blockers.push(`Year ${closedYear} is out of sequence because ${laterClose.recordset[0].ClosedYear} is already closed.`);
-    if (finalClose && normalizedClosingDate >= today) blockers.push('Final close is available only after the closing date has passed.');
-    if (!previewId || !previewHash) blockers.push('Run preview first so the close has matching evidence.');
-
-    if (!latestBackup) warnings.push('Create a verified database backup before final close.');
-    if (summary.pendingLoanCount > 0) warnings.push(`${summary.pendingLoanCount} pending loan(s) will carry forward as next-year opening loan balance.`);
-    if (summary.zeroClosingBalanceCount > 0) warnings.push(`${summary.zeroClosingBalanceCount} employee(s) have zero closing airfare balance; review before closing.`);
-    if (previewExpiresAt) warnings.push(`Preview evidence expires at ${previewExpiresAt}; close must use a fresh matching preview.`);
-
-    const checks = [
-        {
-            title: 'Company scope',
-            status: companyId ? 'Ready' : 'Blocked',
-            tone: companyId ? 'success' : 'danger',
-            detail: companyId ? `Company ${companyId} is isolated for preview and close.` : 'Select a company before preview.'
-        },
-        {
-            title: 'Calendar close date',
-            status: normalizedClosingDate === `${closedYear}-12-31` ? 'Ready' : 'Blocked',
-            tone: normalizedClosingDate === `${closedYear}-12-31` ? 'success' : 'danger',
-            detail: `Configured close date: ${normalizedClosingDate}.`
-        },
-        {
-            title: 'Preview evidence',
-            status: previewId && previewHash ? 'Ready' : 'Required',
-            tone: previewId && previewHash ? 'success' : 'warning',
-            detail: previewId ? `Preview token ${String(previewId).slice(0, 8)}... has a matching hash.` : 'Run preview to create a locked evidence hash.'
-        },
-        {
-            title: 'Backup readiness',
-            status: latestBackup ? 'Review' : 'Recommended',
-            tone: latestBackup ? 'success' : 'warning',
-            detail: latestBackup ? `Latest verified backup: ${latestBackup.CreatedAt}.` : 'No completed backup record was found.'
-        },
-        {
-            title: 'Loan carry-forward',
-            status: summary.pendingLoanCount > 0 ? 'Review' : 'Clear',
-            tone: summary.pendingLoanCount > 0 ? 'warning' : 'success',
-            detail: `${summary.loansCarriedForward} employee loan balance row(s), ${summary.totalOpeningLoanBalance.toFixed(2)} BHD.`
-        },
-        {
-            title: 'Close sequence',
-            status: laterClose.recordset[0] || existingClose.recordset[0] ? 'Blocked' : 'Ready',
-            tone: laterClose.recordset[0] || existingClose.recordset[0] ? 'danger' : 'success',
-            detail: laterClose.recordset[0] ? `Later year ${laterClose.recordset[0].ClosedYear} is already closed.` : 'No later closed year blocks this close.'
-        }
-    ];
-
-    const steps = [
-        { step: 1, title: 'Create/verify backup', status: latestBackup ? 'done' : 'review', detail: latestBackup ? 'Backup record found.' : 'Recommended before closing.' },
-        { step: 2, title: 'Run preview', status: previewId ? 'done' : 'required', detail: `${summary.employeeCount} employee row(s) calculated.` },
-        { step: 3, title: 'Review exceptions', status: summary.reviewCount > 0 || summary.pendingLoanCount > 0 ? 'review' : 'done', detail: `${summary.reviewCount} employee review flag(s), ${summary.pendingLoanCount} pending loan(s).` },
-        { step: 4, title: 'Final close', status: blockers.length ? 'blocked' : 'ready', detail: blockers.length ? blockers[0] : `Ready to create ${closedYear + 1} opening balances.` },
-        { step: 5, title: 'Verify next-year opening', status: 'after-close', detail: `Open ${closedYear + 1} Opening Balance after close and compare totals.` }
-    ];
-
-    return {
-        canClose: blockers.length === 0,
-        blockers,
-        warnings,
-        checks,
-        steps,
-        previewExpiresAt: previewExpiresAt || null,
-        backup: latestBackup,
-        existingClose: existingClose.recordset[0] || null,
-        laterClosedYear: laterClose.recordset[0]?.ClosedYear || null,
-        policy: {
-            requiresCalendarYearEnd: true,
-            requiresFreshPreview: true,
-            previewMinutes: 30,
-            writesNextYearOpeningBalances: true,
-            writesOpeningLoanBalances: true,
-            locksClosedYearMutations: true
-        }
-    };
-}
-
-async function scopeYearEndPreviewToCompany(db, rows, companyId) {
-    const company = await db.request().input('CompanyID', sql.Int, companyId).query(`
-        SELECT CompanyID, CompanyCode, CompanyName FROM dbo.Companies WHERE CompanyID = @CompanyID AND IsActive = 1;
-    `);
-    if (!company.recordset[0]) {
-        const error = new Error('Select an active company before previewing or closing Year End.');
-        error.statusCode = 400;
-        throw error;
-    }
-    const memberRows = await db.request().input('CompanyID', sql.Int, companyId).query(`
-        SELECT e.EmployeeID
-        FROM dbo.Employees e
-        JOIN dbo.Companies c ON c.CompanyID = @CompanyID
-        WHERE LOWER(LTRIM(RTRIM(COALESCE(e.Company, '')))) IN (LOWER(c.CompanyName), LOWER(c.CompanyCode));
-    `);
-    const employeeIds = new Set(memberRows.recordset.map((row) => Number(row.EmployeeID)));
-    const scoped = rows.filter((row) => employeeIds.has(Number(row.EmployeeID)));
-    if (!scoped.length) {
-        const error = new Error('The selected company has no eligible employees mapped to it for this Year End.');
-        error.statusCode = 400;
-        throw error;
-    }
-    return { company: company.recordset[0], rows: scoped };
-}
-
-function getYearEndPreviewHash(companyId, closedYear, closingDate, rows) {
-    const immutableRows = rows.map((row) => ({
-        EmployeeID: Number(row.EmployeeID), ClosingDays: Number(row.ClosingDays || 0), ClosingBHD: Number(row.ClosingBHD || 0),
-        NextOpeningLoanBalance: Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0)
-    })).sort((a, b) => a.EmployeeID - b.EmployeeID);
-    return crypto.createHash('sha256').update(JSON.stringify({ companyId, closedYear, closingDate: normalizeYearEndClosingDate(closingDate), rows: immutableRows })).digest('hex');
-}
-
-async function getCompanyScopedYearEndTotals(db, companyId, closedYear) {
-    return db.request()
-        .input('CompanyID', sql.Int, companyId)
-        .input('Year', sql.Int, closedYear)
-        .query(`
-            ;WITH CompanyEmployees AS (
-                SELECT e.EmployeeID
-                FROM dbo.Employees e
-                JOIN dbo.Companies c ON c.CompanyID = @CompanyID
-                WHERE LOWER(LTRIM(RTRIM(COALESCE(e.Company, '')))) IN (LOWER(c.CompanyName), LOWER(c.CompanyCode))
-            )
-            SELECT
-                (SELECT COUNT(*) FROM dbo.Allocations a JOIN CompanyEmployees ce ON ce.EmployeeID = a.EmployeeID WHERE a.AllocYear = @Year) AS TotalAllocations,
-                (SELECT COUNT(*) FROM dbo.Loans l JOIN CompanyEmployees ce ON ce.EmployeeID = l.EmployeeID WHERE YEAR(l.CreatedDate) = @Year) AS TotalLoansCreated,
-                (SELECT COUNT(*) FROM dbo.EmergencyTickets et JOIN CompanyEmployees ce ON ce.EmployeeID = et.EmployeeID WHERE YEAR(et.TicketDate) = @Year) AS TotalEmergencyTickets,
-                (SELECT COUNT(*) FROM dbo.Loans l JOIN CompanyEmployees ce ON ce.EmployeeID = l.EmployeeID WHERE ISNULL(l.RemainingBalance, 0) > 0 AND ISNULL(l.Status, 'active') <> 'settled') AS PendingLoans,
-                (SELECT ISNULL(SUM(l.RemainingBalance), 0) FROM dbo.Loans l JOIN CompanyEmployees ce ON ce.EmployeeID = l.EmployeeID WHERE ISNULL(l.RemainingBalance, 0) > 0 AND ISNULL(l.Status, 'active') <> 'settled') AS PendingLoanAmount
-        `);
-}
-
-async function assertYearEndCloseSequence(db, companyId, closedYear) {
-    const laterClose = await db.request()
-        .input('CompanyID', sql.Int, companyId)
-        .input('ClosedYear', sql.Int, closedYear)
-        .query(`SELECT TOP 1 ClosedYear FROM dbo.YearEndHistory
-                WHERE CompanyID = @CompanyID AND ClosedYear > @ClosedYear AND Status = 'closed'
-                ORDER BY ClosedYear DESC`);
-    if (laterClose.recordset[0]) {
-        const error = new Error(`Year ${closedYear} cannot be closed after year ${laterClose.recordset[0].ClosedYear} is already closed for this company.`);
-        error.statusCode = 409;
-        error.code = 'YEAR_END_OUT_OF_SEQUENCE';
-        throw error;
-    }
-}
-
-async function assertLoanLedgerSafeForYearEndClose(db, companyId, closingDate) {
-    const afterClose = await db.request()
-        .input('CompanyID', sql.Int, companyId)
-        .input('ClosingDate', sql.Date, closingDate)
-        .query(`
-            SELECT TOP 1 lh.HistoryID
-            FROM dbo.LoanHistory lh
-            JOIN dbo.Loans l ON l.LoanID = lh.LoanID
-            JOIN dbo.Employees e ON e.EmployeeID = l.EmployeeID
-            JOIN dbo.Companies c ON c.CompanyID = @CompanyID
-            WHERE lh.PaymentDate > @ClosingDate
-              AND LOWER(LTRIM(RTRIM(COALESCE(e.Company, '')))) IN (LOWER(c.CompanyName), LOWER(c.CompanyCode))
-            ORDER BY lh.PaymentDate DESC, lh.HistoryID DESC
-        `);
-    if (afterClose.recordset[0]) {
-        const error = new Error('Loan ledger entries exist after the closing date. Rebuild an as-of loan snapshot before final Year End close.');
-        error.statusCode = 409;
-        error.code = 'YEAR_END_LOAN_ASOF_UNSUPPORTED';
-        throw error;
-    }
-}
-
-// POST /api/year-end/preview/:year creates time-limited preview evidence; it never carries balances forward.
-app.post('/api/year-end/preview/:year', authenticateToken, requireRole('admin'), async (req, res) => {
-    try {
-        const db = await getConnection();
-        await ensureAtlasSqlObjects(db);
-        const closedYear = parseInt(req.params.year);
-        const companyId = parseInt(req.body.companyId, 10);
-        const closingDate = req.body.closingDate || `${closedYear}-12-31`;
-        if (!closedYear || closedYear < 2000 || closedYear > 2100 || !companyId) {
-            return res.status(400).json({ error: 'Valid year is required' });
-        }
-        if (req.body.employeeId) return res.status(400).json({ error: 'Employee-scoped preview is not permitted for a final Year End.' });
-        const normalizedClosingDate = assertCalendarYearEnd(closedYear, closingDate);
-
-        const employees = await withSqlRetry(() => db.request()
-            .input('Year', sql.Int, closedYear)
-            .input('ClosingDate', sql.Date, normalizedClosingDate)
-            .input('EmployeeID', sql.Int, null)
-            .query('EXEC dbo.sp_ATLAS_GetYearEndPreview @ClosedYear = @Year, @ClosingDate = @ClosingDate, @EmployeeID = @EmployeeID'), 'year-end preview');
-        const scoped = await scopeYearEndPreviewToCompany(db, employees.recordset, companyId);
-        employees.recordset = scoped.rows;
-
-        const counts = await getCompanyScopedYearEndTotals(db, companyId, closedYear);
-
-        const summary = summarizeYearEndRows(employees.recordset);
-        const previewHash = getYearEndPreviewHash(companyId, closedYear, normalizedClosingDate, employees.recordset);
-        const previewId = crypto.randomUUID();
-        const previewExpiresAt = new Date(Date.now() + (30 * 60 * 1000)).toISOString();
-        await db.request()
-            .input('PreviewID', sql.UniqueIdentifier, previewId)
-            .input('CompanyID', sql.Int, companyId)
-            .input('ClosedYear', sql.Int, closedYear)
-            .input('ClosingDate', sql.Date, normalizedClosingDate)
-            .input('PreviewHash', sql.Char(64), previewHash)
-            .input('EmployeeCount', sql.Int, employees.recordset.length)
-            .input('SnapshotJson', sql.NVarChar(sql.MAX), JSON.stringify(employees.recordset))
-            .input('CreatedBy', sql.Int, req.user.userId)
-            .input('ExpiresAt', sql.DateTime2, new Date(previewExpiresAt))
-            .query(`INSERT INTO dbo.YearEndPreviewEvidence (PreviewID, CompanyID, ClosedYear, ClosingDate, PreviewHash, EmployeeCount, SnapshotJson, CreatedBy, ExpiresAt)
-                    VALUES (@PreviewID, @CompanyID, @ClosedYear, @ClosingDate, @PreviewHash, @EmployeeCount, @SnapshotJson, @CreatedBy, @ExpiresAt)`);
-        const readiness = await buildYearEndReadiness(db, {
-            companyId,
-            closedYear,
-            closingDate: normalizedClosingDate,
-            summary,
-            previewId,
-            previewHash,
-            previewExpiresAt,
-            finalClose: true
-        });
-        res.json({
-            companyId, companyName: scoped.company.CompanyName, previewId, previewHash,
-            closedYear,
-            nextYear: closedYear + 1,
-            closingDate: normalizedClosingDate,
-            employeeCount: summary.employeeCount,
-            balancesCarried: summary.balancesCarried,
-            totalOpeningBalance: summary.totalOpeningBalance,
-            totalClosingDays: summary.totalClosingDays,
-            pendingLoanCount: summary.pendingLoanCount,
-            pendingLoanAmount: summary.pendingLoanAmount,
-            totalOpeningLoanBalance: summary.totalOpeningLoanBalance,
-            loansCarriedForward: summary.loansCarriedForward,
-            totals: counts.recordset[0],
-            readiness,
-            employees: employees.recordset
-        });
-    } catch (err) {
-        logger.error('Year-end preview error:', err);
-        res.status(err.statusCode || 500).json({ code: err.code, error: err.message || 'Year-end preview failed' });
-    }
-});
-
-// POST /api/year-end/close
-app.post('/api/year-end/close', authenticateToken, requireRole('admin'), async (req, res) => {
-    try {
-        const schema = Joi.object({
-            year: Joi.number().integer().min(2000).max(2100).required(),
-            closingDate: Joi.date().required(),
-            companyId: Joi.number().integer().required(),
-            previewId: Joi.string().guid({ version: ['uuidv4'] }).required(),
-            previewHash: Joi.string().hex().length(64).required(),
-            remarks: Joi.string().max(500).allow('', null),
-            dryRun: Joi.boolean().default(false)
-        });
-        const { error, value } = schema.validate(req.body);
-        if (error) return res.status(400).json({ error: error.details[0].message });
-
-        const db = await getConnection();
-        await ensureAtlasSqlObjects(db);
-        const closedYear = value.year;
-        const nextYear = closedYear + 1;
-        const closingDate = assertCalendarYearEnd(closedYear, value.closingDate);
-        const evidence = await db.request()
-            .input('PreviewID', sql.UniqueIdentifier, value.previewId)
-            .input('CompanyID', sql.Int, value.companyId)
-            .input('ClosedYear', sql.Int, closedYear)
-            .input('ClosingDate', sql.Date, closingDate)
-            .input('PreviewHash', sql.Char(64), value.previewHash)
-            .query(`SELECT TOP 1 * FROM dbo.YearEndPreviewEvidence
-                    WHERE PreviewID = @PreviewID AND CompanyID = @CompanyID AND ClosedYear = @ClosedYear
-                      AND ClosingDate = @ClosingDate AND PreviewHash = @PreviewHash AND ConsumedAt IS NULL AND ExpiresAt >= SYSUTCDATETIME()`);
-        if (!evidence.recordset[0]) return res.status(409).json({ code: 'YEAR_END_PREVIEW_STALE', error: 'A matching, unexpired preview is required before closing.' });
-
-        const preview = await withSqlRetry(() => db.request()
-            .input('Year', sql.Int, closedYear)
-            .input('ClosingDate', sql.Date, closingDate)
-            .input('EmployeeID', sql.Int, null)
-            .query('EXEC dbo.sp_ATLAS_GetYearEndPreview @ClosedYear = @Year, @ClosingDate = @ClosingDate, @EmployeeID = @EmployeeID'), 'year-end close preview');
-        const scoped = await scopeYearEndPreviewToCompany(db, preview.recordset, value.companyId);
-        preview.recordset = scoped.rows;
-        const actualHash = getYearEndPreviewHash(value.companyId, closedYear, closingDate, preview.recordset);
-        if (actualHash !== value.previewHash) return res.status(409).json({ code: 'YEAR_END_DATA_CHANGED', error: 'Year End data changed after preview. Run and review a new preview.' });
-
-        const totals = await getCompanyScopedYearEndTotals(db, value.companyId, closedYear);
-
-        const rowSummary = summarizeYearEndRows(preview.recordset);
-        const readiness = await buildYearEndReadiness(db, {
-            companyId: value.companyId,
-            closedYear,
-            closingDate,
-            summary: rowSummary,
-            previewId: value.previewId,
-            previewHash: value.previewHash,
-            previewExpiresAt: evidence.recordset[0].ExpiresAt ? new Date(evidence.recordset[0].ExpiresAt).toISOString() : null,
-            finalClose: true
-        });
-        const summary = {
-            closedYear,
-            nextYear,
-            closingDate,
-            employeeCount: rowSummary.employeeCount,
-            balancesCarried: rowSummary.balancesCarried,
-            totalOpeningBalance: rowSummary.totalOpeningBalance,
-            totalClosingDays: rowSummary.totalClosingDays,
-            pendingLoanCount: rowSummary.pendingLoanCount,
-            pendingLoanAmount: rowSummary.pendingLoanAmount,
-            totalOpeningLoanBalance: rowSummary.totalOpeningLoanBalance,
-            loansCarriedForward: rowSummary.loansCarriedForward,
-            totals: totals.recordset[0],
-            readiness,
-            dryRun: value.dryRun
-        };
-
-        if (value.dryRun) return res.json({ ...summary, employees: preview.recordset });
-        if (!readiness.canClose) {
-            return res.status(409).json({ code: 'YEAR_END_READINESS_BLOCKED', error: readiness.blockers[0] || 'Year End readiness is blocked.', readiness });
-        }
-
-        assertYearEndCanBeFinalClosed(closingDate);
-        await assertYearEndCloseSequence(db, value.companyId, closedYear);
-        await assertLoanLedgerSafeForYearEndClose(db, value.companyId, closingDate);
-
-        const existingClose = await db.request()
-            .input('ClosedYear', sql.Int, closedYear)
-            .input('CompanyID', sql.Int, value.companyId)
-            .query('SELECT TOP 1 YearEndID FROM YearEndHistory WHERE ClosedYear = @ClosedYear AND CompanyID = @CompanyID');
-        if (existingClose.recordset[0]) {
-            return res.status(409).json({
-                code: 'YEAR_END_ALREADY_CLOSED',
-                error: `Year ${closedYear} has already been closed.`,
-                yearEndId: existingClose.recordset[0].YearEndID
-            });
-        }
-
-        const tx = new sql.Transaction(db);
-        await tx.begin();
-        try {
-            for (const row of preview.recordset) {
-                await new sql.Request(tx)
-                    .input('EmployeeID', sql.Int, row.EmployeeID)
-                    .input('BalanceYear', sql.Int, nextYear)
-                    .input('OpeningDays', sql.Decimal(10, 4), Number(row.ClosingDays || 0))
-                    .input('OpeningBHD', sql.Decimal(10, 2), Number(row.ClosingBHD || 0))
-                    .input('CarriedFromYear', sql.Int, closedYear)
-                    .query(`
-                        MERGE OpeningBalances AS target
-                        USING (SELECT @EmployeeID AS EmployeeID, @BalanceYear AS BalanceYear) AS source
-                        ON target.EmployeeID = source.EmployeeID AND target.BalanceYear = source.BalanceYear
-                        WHEN MATCHED THEN UPDATE SET OpeningDays = @OpeningDays, OpeningBHD = @OpeningBHD, CarriedFromYear = @CarriedFromYear
-                        WHEN NOT MATCHED THEN INSERT (EmployeeID, BalanceYear, OpeningDays, OpeningBHD, CarriedFromYear)
-                            VALUES (@EmployeeID, @BalanceYear, @OpeningDays, @OpeningBHD, @CarriedFromYear);
-                    `);
-            }
-
-            const history = await new sql.Request(tx)
-                .input('ClosedYear', sql.Int, closedYear)
-                .input('CompanyID', sql.Int, value.companyId)
-                .input('NextYear', sql.Int, nextYear)
-                .input('ClosingDate', sql.Date, closingDate)
-                .input('EmployeeCount', sql.Int, summary.employeeCount)
-                .input('BalancesCarried', sql.Int, summary.balancesCarried)
-                .input('TotalAllocations', sql.Int, summary.totals.TotalAllocations || 0)
-                .input('TotalLoansCreated', sql.Int, summary.totals.TotalLoansCreated || 0)
-                .input('TotalEmergencyTickets', sql.Int, summary.totals.TotalEmergencyTickets || 0)
-                .input('TotalOpeningBalance', sql.Decimal(12, 2), summary.totalOpeningBalance)
-                .input('TotalOpeningLoanBalance', sql.Decimal(12, 2), summary.totalOpeningLoanBalance)
-                .input('LoansCarriedForward', sql.Int, summary.loansCarriedForward)
-                .input('PreviewHash', sql.Char(64), actualHash)
-                .input('ReadinessJson', sql.NVarChar(sql.MAX), JSON.stringify(summary.readiness))
-                .input('Remarks', sql.NVarChar(sql.MAX), value.remarks || null)
-                .input('ClosedBy', sql.Int, req.user.userId)
-                .query(`
-                    INSERT INTO YearEndHistory (CompanyID, ClosedYear, NextYear, ClosingDate, EmployeeCount, BalancesCarried,
-                        TotalAllocations, TotalLoansCreated, TotalEmergencyTickets, TotalOpeningBalance, TotalOpeningLoanBalance,
-                        LoansCarriedForward, PreviewHash, ReadinessJson, Remarks, ClosedBy)
-                    OUTPUT INSERTED.*
-                    VALUES (@CompanyID, @ClosedYear, @NextYear, @ClosingDate, @EmployeeCount, @BalancesCarried,
-                        @TotalAllocations, @TotalLoansCreated, @TotalEmergencyTickets, @TotalOpeningBalance, @TotalOpeningLoanBalance,
-                        @LoansCarriedForward, @PreviewHash, @ReadinessJson, @Remarks, @ClosedBy)
-                `);
-            const yearEndId = history.recordset[0].YearEndID;
-
-            for (const row of preview.recordset) {
-                await new sql.Request(tx)
-                    .input('YearEndID', sql.Int, yearEndId)
-                    .input('CompanyID', sql.Int, value.companyId)
-                    .input('ClosedYear', sql.Int, closedYear)
-                    .input('NextYear', sql.Int, nextYear)
-                    .input('EmployeeID', sql.Int, row.EmployeeID)
-                    .input('OpeningDays', sql.Decimal(10, 4), Number(row.OpeningDays || 0))
-                    .input('OpeningBHD', sql.Decimal(12, 2), Number(row.OpeningBHD || 0))
-                    .input('CurrentYearEarnedDays', sql.Decimal(10, 4), Number(row.CurrentYearEarnedDays || 0))
-                    .input('CurrentYearEarnedBHD', sql.Decimal(12, 2), Number(row.CurrentYearEarnedBHD || 0))
-                    .input('PaidDays', sql.Decimal(10, 4), Number(row.PaidDays || 0))
-                    .input('PaidAmount', sql.Decimal(12, 2), Number(row.PaidAmount || 0))
-                    .input('ClosingDays', sql.Decimal(10, 4), Number(row.ClosingDays || 0))
-                    .input('ClosingBHD', sql.Decimal(12, 2), Number(row.ClosingBHD || 0))
-                    .input('OpeningLoanBHD', sql.Decimal(12, 2), Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0))
-                    .input('ClosingLoanBHD', sql.Decimal(12, 2), Number(row.ClosingLoanBalance || row.PendingLoanAmount || 0))
-                    .input('CloseStatus', sql.NVarChar(120), row.CloseStatus || null)
-                    .input('SnapshotHash', sql.Char(64), actualHash)
-                    .query(`INSERT INTO dbo.YearEndEmployeeSnapshots (
-                                YearEndID, CompanyID, ClosedYear, NextYear, EmployeeID, OpeningDays, OpeningBHD,
-                                CurrentYearEarnedDays, CurrentYearEarnedBHD, PaidDays, PaidAmount,
-                                ClosingDays, ClosingBHD, OpeningLoanBHD, ClosingLoanBHD, CloseStatus, SnapshotHash
-                            )
-                            VALUES (
-                                @YearEndID, @CompanyID, @ClosedYear, @NextYear, @EmployeeID, @OpeningDays, @OpeningBHD,
-                                @CurrentYearEarnedDays, @CurrentYearEarnedBHD, @PaidDays, @PaidAmount,
-                                @ClosingDays, @ClosingBHD, @OpeningLoanBHD, @ClosingLoanBHD, @CloseStatus, @SnapshotHash
-                            )`);
-            }
-
-            for (const row of preview.recordset) {
-                const openingLoanAmount = Number(row.NextOpeningLoanBalance || row.PendingLoanAmount || 0);
-                if (openingLoanAmount <= 0) continue;
-                await new sql.Request(tx)
-                    .input('EmployeeID', sql.Int, row.EmployeeID)
-                    .input('BalanceYear', sql.Int, nextYear)
-                    .input('OpeningLoanAmount', sql.Decimal(12, 2), openingLoanAmount)
-                    .input('PendingLoanCount', sql.Int, Number(row.PendingLoanCount || 0))
-                    .input('MonthlyEMI', sql.Decimal(12, 2), Number(row.PendingMonthlyEMI || 0))
-                    .input('CarriedFromYear', sql.Int, closedYear)
-                    .input('SourceYearEndID', sql.Int, yearEndId)
-                    .input('CreatedBy', sql.Int, req.user.userId)
-                    .execute('dbo.sp_ATLAS_UpsertOpeningLoanBalance');
-            }
-
-            await tx.commit();
-            await db.request().input('PreviewID', sql.UniqueIdentifier, value.previewId).query('UPDATE dbo.YearEndPreviewEvidence SET ConsumedAt = SYSUTCDATETIME() WHERE PreviewID = @PreviewID');
-            await logAudit(req.user.userId, req.user.username, 'YEAR_END_CLOSE', 'YearEnd', yearEndId, null,
-                { ...summary, history: history.recordset[0] }, `Closed year ${closedYear}`, req);
-            res.json({ ...summary, yearEndId });
-        } catch (innerErr) {
-            await tx.rollback();
-            throw innerErr;
-        }
-    } catch (err) {
-        logger.error('Year-end close error:', err);
-        res.status(err.statusCode || 500).json({ code: err.code, error: err.message || 'Year-end close failed' });
-    }
-});
-
-// GET /api/year-end/history lists closed years and audit totals for the selected company.
-app.get('/api/year-end/history', authenticateToken, async (req, res) => {
-    try {
-        const db = await getConnection();
-        await ensureAtlasSqlObjects(db);
-        const companyId = parseInt(req.query.companyId, 10);
-        if (!companyId) return res.status(400).json({ error: 'companyId is required' });
-        const result = await db.request()
-            .input('CompanyID', sql.Int, companyId)
-            .query(`SELECT TOP 25
-                        y.YearEndID, y.CompanyID, c.CompanyName, y.ClosedYear, y.NextYear, y.ClosingDate,
-                        y.EmployeeCount, y.BalancesCarried, y.TotalOpeningBalance,
-                        y.TotalOpeningLoanBalance, y.LoansCarriedForward, y.Status, y.ClosedAt,
-                        y.Remarks, y.PreviewHash
-                    FROM dbo.YearEndHistory y
-                    LEFT JOIN dbo.Companies c ON c.CompanyID = y.CompanyID
-                    WHERE y.CompanyID = @CompanyID
-                    ORDER BY y.ClosedYear DESC, y.YearEndID DESC`);
-        res.json(result.recordset);
-    } catch (err) {
-        logger.error('Year-end history error:', err);
-        res.status(err.statusCode || 500).json({ error: err.message || 'Year-end history failed' });
-    }
-});
+// Legacy annual close implementation removed. Continuous entitlement is served by
+// /api/entitlement/compute, /api/entitlement/accruals, /api/entitlement/usage,
+// /api/entitlement/accrual-forecast, and /api/airfare/entitlement/reconciliation.
 
 // =====================================================
 // HEALTH CHECK
@@ -8205,7 +7498,7 @@ app.get('/api/health', async (req, res) => {
             databaseSchemaVersion: identity.databaseSchemaVersion,
             payableReportSource: 'mssql-procedure-payable-bhd',
             selfServiceWorkflowSource: 'phase2-same-port-allocation-link',
-            yearEndSafetySource: 'company-scoped-close-workbench-v2',
+            entitlementReadinessSource: 'continuous-entitlement-ledger-v1',
             features,
             timestamp: new Date().toISOString()
         });

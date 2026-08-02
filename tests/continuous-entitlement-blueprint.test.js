@@ -18,7 +18,8 @@ for (const table of [
 
 for (const procedure of [
   'sp_ATLAS_GetAirfareEntitlementBalance',
-  'sp_ATLAS_ApplyAirfareTransaction'
+  'sp_ATLAS_ApplyAirfareTransaction',
+  'sp_ATLAS_ForecastAirfareAccruals'
 ]) {
   assert.match(sqlText, new RegExp(`CREATE OR ALTER PROCEDURE dbo\\.${procedure}`, 'i'), `${procedure} must be defined`);
 }
@@ -35,9 +36,10 @@ for (const phrase of [
   'Continuous entitlement model',
   '`EmployeeAirfareTransactions` is the immutable ledger',
   'Opening balances are legacy seed data only',
-  '`/api/year-end/*` must return `410 YEAR_END_PROCESS_REMOVED`'
+  'No annual close API route is registered'
 ]) {
   assert.match(docText, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `document missing: ${phrase}`);
 }
 
 console.log('continuous entitlement blueprint checks passed');
+

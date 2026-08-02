@@ -317,6 +317,7 @@ SELECT
     OBJECT_ID(N'dbo.EmployeeAirfareBalances', N'U') AS HasBalances,
     OBJECT_ID(N'dbo.PayrollPeriodLocks', N'U') AS HasPayrollLocks,
     OBJECT_ID(N'dbo.sp_ATLAS_GetAirfareEntitlementBalance', N'P') AS HasBalanceProc,
+    OBJECT_ID(N'dbo.sp_ATLAS_ForecastAirfareAccruals', N'P') AS HasAccrualForecastProc,
     OBJECT_ID(N'dbo.sp_ATLAS_ApplyAirfareTransaction', N'P') AS HasApplyTransactionProc;
 
 SELECT
