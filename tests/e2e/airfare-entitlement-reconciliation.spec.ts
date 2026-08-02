@@ -11,21 +11,28 @@ test("admin can open continuous airfare entitlement reconciliation when flags ar
   });
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.getByPlaceholder(/username/i).fill(username);
-  await page.getByPlaceholder(/password/i).fill(password);
-  await page.getByRole("button", { name: /login|sign in/i }).click();
-  await expect(page.getByText(/Airfare Command Center|Signed in/i)).toBeVisible({ timeout: 30000 });
+  const signedInBanner = page.getByText(/Signed in/i);
+  if (!(await signedInBanner.isVisible().catch(() => false))) {
+    const loginForm = page.locator("form.auth-form");
+    await expect(loginForm).toBeVisible({ timeout: 30000 });
+    await loginForm.locator('input:not([type="checkbox"])').first().fill(username);
+    await loginForm.locator('input[type="password"]').fill(password);
+    await loginForm.getByRole("button", { name: /login|sign in/i }).click();
+  }
+  await expect(page.getByRole("heading", { name: /Airfare Command Center/i })).toBeVisible({ timeout: 30000 });
 
   await page.getByText(/AI Insights/i).click();
   const panel = page.getByTestId("airfare-entitlement-reconciliation");
   await expect(panel).toBeVisible({ timeout: 30000 });
-  await expect(panel.getByText(/Migration Debug \/ Reconciliation - not used for payroll/i)).toBeVisible();
+  await expect(panel.getByText(/Airfare Entitlement - Migration Debug/i)).toBeVisible();
+  await expect(panel.getByText(/Continuous Entitlement Reconciliation - not used for payroll/i)).toBeVisible();
   await expect(panel.getByText(/Legacy Airfare Balance/i)).toBeVisible();
   await expect(panel.getByText(/Continuous Airfare Balance/i)).toBeVisible();
-  await expect(panel.getByText(/Difference/i)).toBeVisible();
+  await panel.getByLabel(/Company scope/i).selectOption("");
 
   await panel.getByRole("button", { name: /Run reconciliation/i }).click();
-  await expect(panel.getByText(/Checked|OK|Investigate|Missing seed/i)).toBeVisible({ timeout: 30000 });
+  await expect(panel.getByText(/Checked|OK|Investigate|Missing seed/i).first()).toBeVisible({ timeout: 30000 });
+  await expect(panel.getByText(/Difference/i).first()).toBeVisible();
 
   expect(consoleErrors.filter((entry) => /airfare|entitlement|reconciliation/i.test(entry))).toEqual([]);
 });
