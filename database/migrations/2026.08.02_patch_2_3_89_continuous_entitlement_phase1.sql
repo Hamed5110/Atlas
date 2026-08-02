@@ -110,41 +110,45 @@ IF OBJECT_ID(N'dbo.Employees', N'U') IS NOT NULL
 BEGIN
     IF COL_LENGTH(N'dbo.Employees', N'CompanyID') IS NOT NULL
     BEGIN
-        INSERT INTO dbo.EmployeeAirfarePlanEnrollments (
-            PlanID,
-            EmployeeID,
-            CompanyID,
-            EnrollmentStart,
-            Status,
-            EligibilityDate,
-            ContractStartDate,
-            CreatedBy
-        )
-        SELECT
-            p.PlanID,
-            e.EmployeeID,
-            p.CompanyID,
-            COALESCE(e.JoinDate, @CutoverDate),
-            N'active',
-            e.JoinDate,
-            e.JoinDate,
-            @CreatedBy
-        FROM dbo.Employees e
-        JOIN dbo.EmployeeAirfareEntitlementPlans p
-          ON p.IsActive = 1
-         AND p.EffectiveFrom <= @CutoverDate
-         AND (
-              p.CompanyID IS NULL
-              OR p.CompanyID = TRY_CONVERT(INT, NULLIF(CONVERT(NVARCHAR(30), e.CompanyID), N''))
-         )
-        WHERE ISNULL(e.Status, N'active') = N'active'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM dbo.EmployeeAirfarePlanEnrollments existing
-              WHERE existing.PlanID = p.PlanID
-                AND existing.EmployeeID = e.EmployeeID
-                AND existing.Status = N'active'
-          );
+        EXEC sp_executesql N'
+            INSERT INTO dbo.EmployeeAirfarePlanEnrollments (
+                PlanID,
+                EmployeeID,
+                CompanyID,
+                EnrollmentStart,
+                Status,
+                EligibilityDate,
+                ContractStartDate,
+                CreatedBy
+            )
+            SELECT
+                p.PlanID,
+                e.EmployeeID,
+                p.CompanyID,
+                COALESCE(e.JoinDate, @CutoverDate),
+                N''active'',
+                e.JoinDate,
+                e.JoinDate,
+                @CreatedBy
+            FROM dbo.Employees e
+            JOIN dbo.EmployeeAirfareEntitlementPlans p
+              ON p.IsActive = 1
+             AND p.EffectiveFrom <= @CutoverDate
+             AND (
+                  p.CompanyID IS NULL
+                  OR p.CompanyID = TRY_CONVERT(INT, NULLIF(CONVERT(NVARCHAR(30), e.CompanyID), N''''))
+             )
+            WHERE ISNULL(e.Status, N''active'') = N''active''
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM dbo.EmployeeAirfarePlanEnrollments existing
+                  WHERE existing.PlanID = p.PlanID
+                    AND existing.EmployeeID = e.EmployeeID
+                    AND existing.Status = N''active''
+              );',
+            N'@CutoverDate DATE, @CreatedBy INT',
+            @CutoverDate = @CutoverDate,
+            @CreatedBy = @CreatedBy;
     END
     ELSE
     BEGIN
@@ -225,7 +229,7 @@ BEGIN
         COALESCE(ob.OpeningBHD, 0),
         ob.OpeningDays,
         N'OpeningBalances',
-        ob.OpeningBalanceID,
+        ob.BalanceID,
         CONCAT(N'{"source":"OpeningBalances","patch":"2.3.89","cutoverDate":"', CONVERT(NVARCHAR(10), @CutoverDate, 126), N'"}'),
         N'Patch 2.3.89 legacy opening balance comparison seed',
         @CreatedBy
@@ -238,7 +242,7 @@ BEGIN
           SELECT 1
           FROM dbo.EmployeeAirfareTransactions existing
           WHERE existing.SourceModule = N'OpeningBalances'
-            AND existing.SourceID = ob.OpeningBalanceID
+            AND existing.SourceID = ob.BalanceID
             AND existing.TransactionType = N'carryover'
             AND existing.IsReversal = 0
       );
