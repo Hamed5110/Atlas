@@ -49,7 +49,8 @@ fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
 function readJsonFileIfExists(filePath) {
     try {
         if (!fs.existsSync(filePath)) return null;
-        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+        return JSON.parse(text);
     } catch (err) {
         console.warn(`Could not read JSON file ${filePath}: ${err.message}`);
         return null;
