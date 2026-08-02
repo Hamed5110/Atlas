@@ -45,7 +45,10 @@ assert.match(serverText, /publicApiPaths[\s\S]*\/api\/version/s, '/api/version m
 assert.match(serverText, /RELEASE_DIR[\s\S]*RELEASE_VERSION_PATH[\s\S]*version\.json/s, 'runtime should read release/version.json');
 assert.match(serverText, /manifestHash[\s\S]*sha256FileIfExists/s, 'runtime version endpoint should expose a manifest hash');
 
-assert.match(buildScript, /Build-ATLAS-MSI\.ps1[\s\S]*deploy\.ps1[\s\S]*-Mode Build[\s\S]*-UpdateOnly/s, 'release build should produce MSI and EXE from one script');
+assert.match(buildScript, /Build-ATLAS-MSI\.ps1[\s\S]*deploy\.ps1/s, 'release build should produce MSI and EXE from one script');
+assert.match(buildScript, /UpdateOnlyExe[\s\S]*bootstrapperArgs\.UpdateOnly/s, 'release build should support explicit update-only EXE mode');
+assert.doesNotMatch(buildScript, /deploy\.ps1"\)\s+-Mode\s+Build\s+-UpdateOnly\s+-AppMsi/s, 'default setup EXE must not be update-only; clean machines need a full installer');
+assert.match(buildScript, /EXE mode:[\s\S]*Full setup \/ install \/ repair \/ update/s, 'release build report should identify default EXE as full setup mode');
 assert.match(buildScript, /frontendBuildHash[\s\S]*Get-DirectoryHash[\s\S]*atlas-hcm-next\\out/s, 'release build should hash frontend output');
 assert.match(buildScript, /backendBuildHash[\s\S]*Get-BackendHash/s, 'release build should hash backend payload');
 assert.match(buildScript, /Manifest version[\s\S]*does not match requested version/s, 'release build should block manifest/version mismatch');
