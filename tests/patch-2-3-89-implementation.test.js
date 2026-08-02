@@ -27,15 +27,18 @@ includesAll(server, [
 ], "backend flags");
 
 includesAll(server, [
+  "app.get('/api/entitlement/compute'",
+  "app.get('/api/entitlement/accruals'",
+  "app.get('/api/entitlement/usage'",
   "app.get('/api/airfare/entitlement/balance'",
-  "app.get('/api/airfare/entitlement/preview-reset'",
   "app.get('/api/airfare/entitlement/reconciliation'",
   "app.post('/api/airfare/entitlement/transaction'",
   "dbo.sp_ATLAS_GetAirfareEntitlementBalance",
-  "dbo.sp_ATLAS_PreviewAirfareEntitlementReset",
   "FEATURE_DISABLED",
   "continuous-readonly",
-  "continuous-reset-preview-readonly",
+  "continuous-entitlement-compute",
+  "continuous-entitlement-accrual-ledger",
+  "continuous-entitlement-usage-ledger",
   "migration-reconciliation",
   "NOT_IMPLEMENTED_IN_PATCH_2_3_89"
 ], "backend routes");
@@ -60,10 +63,12 @@ includesAll(page, [
   "handleRunEntitlementReconciliation",
   "exportEntitlementReconciliationCsv",
   "Airfare Entitlement - Migration Debug",
-  "Migration Debug / Reconciliation - not used for payroll",
+  "Continuous Entitlement Reconciliation - not used for payroll",
   "Legacy Airfare Balance",
   "Continuous Airfare Balance",
   "Difference",
+  "Continuous entitlement bridge",
+  "Open reconciliation",
   "data-testid=\"airfare-entitlement-reconciliation\""
 ], "frontend reconciliation UI");
 
@@ -78,11 +83,17 @@ includesAll(envExample, [
 assert.doesNotMatch(migration, /\bDROP\s+TABLE\b/i, "migration must remain additive");
 assert.doesNotMatch(migration, /\bTRUNCATE\s+TABLE\b/i, "migration must not truncate");
 
-// Regression tripwire: the legacy Year End route declarations must still be present.
+// Regression tripwire: the executable annual close API must be tombstoned before any legacy compatibility code can run.
 includesAll(server, [
-  "app.post('/api/year-end/preview/:year'",
-  "app.post('/api/year-end/close'",
-  "app.get('/api/year-end/history'"
-], "legacy Year End routes");
+  "app.use('/api/year-end'",
+  "YEAR_END_PROCESS_REMOVED",
+  "/api/entitlement/compute",
+  "/api/entitlement/accruals",
+  "/api/entitlement/usage"
+], "removed annual close API");
+
+assert.ok(server.indexOf("app.use('/api/year-end'") < server.indexOf("app.post('/api/year-end/preview/:year'"), "annual close tombstone must be registered before legacy compatibility handlers");
+assert.doesNotMatch(page, /\{\s*label:\s*"Year End"/, "normal navigation must not expose annual close");
+assert.doesNotMatch(page, /Open Year End blueprint|opening-year-end-bridge/, "Opening Balance must not link to annual close");
 
 console.log("Patch 2.3.89 implementation source checks passed");

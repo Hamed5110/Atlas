@@ -7360,6 +7360,157 @@ app.post('/api/airfare/entitlement/transaction', authenticateToken, requireRole(
     });
 });
 
+app.get('/api/entitlement/compute', authenticateToken, async (req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
+    const started = Date.now();
+    const features = getContinuousAirfareFeatureState();
+    try {
+        const employeeId = parseOptionalPositiveInt(req.query.employeeId, 'employeeId');
+        const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
+        const asOfDate = parseRequiredSqlDate(req.query.asOfDate, 'asOfDate');
+        const db = await getConnection();
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('CompanyID', sql.Int, companyId)
+            .input('AsOfDate', sql.Date, asOfDate)
+            .execute('dbo.sp_ATLAS_GetAirfareEntitlementBalance');
+        logger.info('continuous entitlement compute read', {
+            userId: req.user?.id || req.user?.userId || null,
+            employeeId,
+            companyId,
+            asOfDate,
+            rowCount: result.recordset.length,
+            elapsedMs: Date.now() - started
+        });
+        res.json({
+            mode: 'continuous-entitlement-compute',
+            asOfDate,
+            features,
+            rows: result.recordset
+        });
+    } catch (err) {
+        logger.error('continuous entitlement compute failed:', err);
+        res.status(err.statusCode || 500).json({
+            code: err.code || 'CONTINUOUS_ENTITLEMENT_COMPUTE_FAILED',
+            field: err.field,
+            error: err.message || 'Failed to compute continuous entitlement.'
+        });
+    }
+});
+
+app.get('/api/entitlement/accruals', authenticateToken, async (req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
+    try {
+        const employeeId = parseOptionalPositiveInt(req.query.employeeId, 'employeeId');
+        const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
+        const asOfDate = parseRequiredSqlDate(req.query.asOfDate, 'asOfDate');
+        const db = await getConnection();
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('CompanyID', sql.Int, companyId)
+            .input('AsOfDate', sql.Date, asOfDate)
+            .query(`
+                SELECT TOP 500
+                    TransactionID,
+                    PlanID,
+                    EnrollmentID,
+                    EmployeeID,
+                    CompanyID,
+                    TransactionDate,
+                    PeriodCode,
+                    TransactionType,
+                    Amount,
+                    Days,
+                    SourceModule,
+                    SourceID,
+                    Description,
+                    CreatedAt
+                FROM dbo.EmployeeAirfareTransactions
+                WHERE TransactionDate <= @AsOfDate
+                  AND TransactionType IN (N'accrual', N'carryover', N'adjustment')
+                  AND IsReversal = 0
+                  AND (@EmployeeID IS NULL OR EmployeeID = @EmployeeID)
+                  AND (@CompanyID IS NULL OR CompanyID = @CompanyID)
+                ORDER BY TransactionDate DESC, TransactionID DESC
+            `);
+        res.json({
+            mode: 'continuous-entitlement-accrual-ledger',
+            asOfDate,
+            rows: result.recordset
+        });
+    } catch (err) {
+        logger.error('continuous entitlement accrual ledger failed:', err);
+        res.status(err.statusCode || 500).json({
+            code: err.code || 'CONTINUOUS_ENTITLEMENT_ACCRUALS_FAILED',
+            field: err.field,
+            error: err.message || 'Failed to read continuous entitlement accruals.'
+        });
+    }
+});
+
+app.get('/api/entitlement/usage', authenticateToken, async (req, res) => {
+    if (!requireFeatureFlag('ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT', res)) return;
+    try {
+        const employeeId = parseOptionalPositiveInt(req.query.employeeId, 'employeeId');
+        const companyId = parseOptionalPositiveInt(req.query.companyId, 'companyId');
+        const asOfDate = parseRequiredSqlDate(req.query.asOfDate, 'asOfDate');
+        const db = await getConnection();
+        const result = await db.request()
+            .input('EmployeeID', sql.Int, employeeId)
+            .input('CompanyID', sql.Int, companyId)
+            .input('AsOfDate', sql.Date, asOfDate)
+            .query(`
+                SELECT TOP 500
+                    TransactionID,
+                    PlanID,
+                    EnrollmentID,
+                    EmployeeID,
+                    CompanyID,
+                    TransactionDate,
+                    PeriodCode,
+                    TransactionType,
+                    Amount,
+                    Days,
+                    SourceModule,
+                    SourceID,
+                    Description,
+                    CreatedAt
+                FROM dbo.EmployeeAirfareTransactions
+                WHERE TransactionDate <= @AsOfDate
+                  AND TransactionType IN (N'usage', N'payout', N'forfeiture')
+                  AND IsReversal = 0
+                  AND (@EmployeeID IS NULL OR EmployeeID = @EmployeeID)
+                  AND (@CompanyID IS NULL OR CompanyID = @CompanyID)
+                ORDER BY TransactionDate DESC, TransactionID DESC
+            `);
+        res.json({
+            mode: 'continuous-entitlement-usage-ledger',
+            asOfDate,
+            rows: result.recordset
+        });
+    } catch (err) {
+        logger.error('continuous entitlement usage ledger failed:', err);
+        res.status(err.statusCode || 500).json({
+            code: err.code || 'CONTINUOUS_ENTITLEMENT_USAGE_FAILED',
+            field: err.field,
+            error: err.message || 'Failed to read continuous entitlement usage.'
+        });
+    }
+});
+
+app.use('/api/year-end', authenticateToken, (_req, res) => {
+    res.status(410).json({
+        code: 'YEAR_END_PROCESS_REMOVED',
+        error: 'The annual Year End process is removed in Patch 2.3.89. Use continuous entitlement compute, accrual, usage, and reconciliation APIs instead.',
+        replacementApis: [
+            '/api/entitlement/compute',
+            '/api/entitlement/accruals',
+            '/api/entitlement/usage',
+            '/api/airfare/entitlement/reconciliation'
+        ]
+    });
+});
+
 // GET /api/reports/employee-master
 app.get('/api/reports/employee-master', authenticateToken, async (req, res) => {
     try {

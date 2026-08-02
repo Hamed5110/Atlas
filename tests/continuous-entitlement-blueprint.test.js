@@ -4,7 +4,7 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const sqlText = fs.readFileSync(path.join(root, 'database', 'ContinuousAirfareEntitlement_Blueprint.sql'), 'utf8');
-const docText = fs.readFileSync(path.join(root, 'docs', 'YEAR_END_REMOVAL_CONTINUOUS_ENTITLEMENT_BLUEPRINT.md'), 'utf8');
+const docText = fs.readFileSync(path.join(root, 'docs', 'PATCH_2_3_89_CONTINUOUS_ENTITLEMENT_PHASE_0_1_SPEC.md'), 'utf8');
 
 for (const table of [
   'EmployeeAirfareEntitlementPlans',
@@ -18,7 +18,6 @@ for (const table of [
 
 for (const procedure of [
   'sp_ATLAS_GetAirfareEntitlementBalance',
-  'sp_ATLAS_PreviewAirfareEntitlementReset',
   'sp_ATLAS_ApplyAirfareTransaction'
 ]) {
   assert.match(sqlText, new RegExp(`CREATE OR ALTER PROCEDURE dbo\\.${procedure}`, 'i'), `${procedure} must be defined`);
@@ -32,11 +31,11 @@ assert.match(sqlText, /IF OBJECT_ID\(N'dbo\.EmployeeAirfareEntitlementPlans'/i, 
 assert.doesNotMatch(sqlText, /DROP TABLE|TRUNCATE TABLE/i, 'blueprint migration must not destructively remove legacy data');
 
 for (const phrase of [
-  'no mandatory hard Year End close job',
-  'fiscal year becomes a reporting dimension',
-  'Legacy Year End History',
-  'Phase 1: parallel continuous model',
-  'Do not build another annual close under a new name'
+  'Patch 2.3.89 removes the executable annual close path',
+  'Continuous entitlement model',
+  '`EmployeeAirfareTransactions` is the immutable ledger',
+  'Opening balances are legacy seed data only',
+  '`/api/year-end/*` must return `410 YEAR_END_PROCESS_REMOVED`'
 ]) {
   assert.match(docText, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `document missing: ${phrase}`);
 }

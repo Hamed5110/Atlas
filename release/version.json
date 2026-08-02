@@ -1,12 +1,12 @@
 {
     "product":  "ATLAS Airfare Allowance",
     "productCode":  "ATLAS_AIRFARE_ALLOWANCE",
-    "version":  "2.3.90",
+    "version":  "2.3.89",
     "channel":  "stable",
-    "gitCommit":  "2dc6c83",
-    "buildTimestampUtc":  "2026-08-02T11:33:53Z",
-    "frontendBuildHash":  "sha256:E58005B4A3045E9A725261F9B53F1A1B5E2A3C52C2F2390AD065C9FEB6C5796C",
-    "backendBuildHash":  "sha256:92A8C2631DF97D63EF1DA10F677FF1827CA4C717F22B4D529302BFD4CB4A718F",
+    "gitCommit":  "pending-build",
+    "buildTimestampUtc":  "2026-08-02T12:31:56Z",
+    "frontendBuildHash":  "sha256:computed-after-build",
+    "backendBuildHash":  "sha256:computed-after-build",
     "databaseSchemaVersion":  "2026.08.02.001",
     "installedBy":  "pending-installer"
 }

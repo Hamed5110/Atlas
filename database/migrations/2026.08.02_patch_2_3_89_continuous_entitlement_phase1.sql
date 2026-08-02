@@ -13,12 +13,12 @@ GO
 
     Purpose:
       1. Apply additive continuous airfare entitlement objects.
-      2. Seed plans, enrollments, carryover, and usage into new continuous tables only.
+      2. Seed plans, enrollments, legacy opening seed transactions, and usage into new continuous tables only.
       3. Verify object and seed counts.
 
     Safety:
-      - Existing Year End, Opening Balance, Loan, Allocation, and History tables are read only here.
-      - This patch does not modify legacy Year End stored procedures.
+      - Existing opening balance, loan, allocation, and history tables are read only here.
+      - This patch does not create or run a hard fiscal-close recalculation batch.
       - This script is designed to be rerun safely.
 
     Example:
@@ -77,12 +77,12 @@ BEGIN
         CONCAT(N'Phase 1 Airfare Policy ', COALESCE(CONVERT(NVARCHAR(20), pr.CompanyID), N'Global')),
         pr.CompanyID,
         @CutoverDate,
-        N'lump_sum',
+        N'monthly',
         MAX(COALESCE(pr.MaxPayoutAmount, 0)),
-        N'annual',
-        N'calendar_year',
-        1,
-        1,
+        N'monthly',
+        N'none',
+        NULL,
+        NULL,
         N'none',
         0,
         N'manual_approval',
@@ -313,7 +313,6 @@ SELECT
     OBJECT_ID(N'dbo.EmployeeAirfareBalances', N'U') AS HasBalances,
     OBJECT_ID(N'dbo.PayrollPeriodLocks', N'U') AS HasPayrollLocks,
     OBJECT_ID(N'dbo.sp_ATLAS_GetAirfareEntitlementBalance', N'P') AS HasBalanceProc,
-    OBJECT_ID(N'dbo.sp_ATLAS_PreviewAirfareEntitlementReset', N'P') AS HasResetPreviewProc,
     OBJECT_ID(N'dbo.sp_ATLAS_ApplyAirfareTransaction', N'P') AS HasApplyTransactionProc;
 
 SELECT

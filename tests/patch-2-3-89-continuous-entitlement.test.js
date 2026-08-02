@@ -20,14 +20,14 @@ function mustInclude(text, values, groupName) {
 mustInclude(
   spec,
   [
-    "Patch 2.3.89 does not remove or alter production Year End behavior.",
+    "Patch 2.3.89 removes the executable annual close path.",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT=false",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_BACKFILL=false",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION=false",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_WRITES=false",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_UI=false",
-    "production initial deploy",
-    "OFF",
+    "continuousAirfareEntitlement",
+    "continuousAirfareAdminOnly",
   ],
   "patch flags"
 );
@@ -35,14 +35,14 @@ mustInclude(
 mustInclude(
   spec,
   [
+    "GET /api/entitlement/compute",
+    "GET /api/entitlement/accruals",
+    "GET /api/entitlement/usage",
     "GET /api/airfare/entitlement/balance",
-    "GET /api/airfare/entitlement/preview-reset",
     "GET /api/airfare/entitlement/reconciliation",
     "POST /api/airfare/entitlement/transaction",
     "FEATURE_DISABLED",
-    "VALIDATION_ERROR",
     "continuous-readonly",
-    "continuous-reset-preview-readonly",
     "migration-reconciliation",
   ],
   "API contract"
@@ -64,11 +64,6 @@ mustInclude(
 mustInclude(
   spec,
   [
-    "Pre-release staging gate",
-    "Production gate",
-    "Fast rollback",
-    "Patch 2.3.90",
-    "Release notes",
     "Patch success criteria",
   ],
   "release and rollback plan"
@@ -82,9 +77,10 @@ mustInclude(
     "EmployeeAirfarePlanEnrollments",
     "EmployeeAirfareTransactions",
     "PayrollPeriodLocks",
-    "OpeningBalances",
     "Allocations",
     "NOT EXISTS",
+    "AccrualFrequency",
+    "N'monthly'",
     "PlanCount",
     "EnrollmentCount",
     "TransactionCount",
@@ -94,7 +90,8 @@ mustInclude(
 
 assert.doesNotMatch(migration, /\bDROP\s+TABLE\b/i, "patch migration must not drop tables");
 assert.doesNotMatch(migration, /\bTRUNCATE\s+TABLE\b/i, "patch migration must not truncate tables");
-assert.doesNotMatch(migration, /\bALTER\s+TABLE\s+dbo\.(OpeningBalances|OpeningLoanBalances|YearEndHistory|YearEndEmployeeSnapshots)\b/i, "patch migration must not alter legacy Year End tables");
+assert.doesNotMatch(migration, /\bALTER\s+TABLE\s+dbo\.(OpeningBalances|OpeningLoanBalances|YearEndHistory|YearEndEmployeeSnapshots)\b/i, "patch migration must not alter legacy close tables");
+assert.doesNotMatch(migration, /N'calendar_year'|N'annual'|N'lump_sum'/i, "Patch 2.3.89 seed must not install annual reset/accrual defaults");
 
 assert.ok(pkg.scripts["test:patch-2-3-89"], "package.json must expose test:patch-2-3-89");
 

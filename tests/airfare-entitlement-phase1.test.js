@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const specPath = path.join(root, "docs", "YEAR_END_PHASE_0_1_EXECUTABLE_SPEC.md");
+const specPath = path.join(root, "docs", "PATCH_2_3_89_CONTINUOUS_ENTITLEMENT_PHASE_0_1_SPEC.md");
 const blueprintPath = path.join(root, "database", "ContinuousAirfareEntitlement_Blueprint.sql");
 const removalPlanPath = path.join(root, "docs", "YEAR_END_CLOSE_REMOVAL_MIGRATION_PLAN.md");
 
@@ -20,7 +20,7 @@ function mustInclude(text, values, groupName) {
 mustInclude(
   spec,
   [
-    "This phase must not remove, disable, rename, or change production Year End behavior.",
+    "Patch 2.3.89 removes the executable annual close path.",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT=false",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_BACKFILL=false",
     "ATLAS_ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION=false",
@@ -33,13 +33,14 @@ mustInclude(
 mustInclude(
   spec,
   [
+    "GET /api/entitlement/compute",
+    "GET /api/entitlement/accruals",
+    "GET /api/entitlement/usage",
     "GET /api/airfare/entitlement/balance",
     "GET /api/airfare/entitlement/reconciliation",
-    "GET /api/airfare/entitlement/preview-reset",
     "POST /api/airfare/entitlement/transaction",
-    "FEATURE_DISABLED",
-    "VALIDATION_ERROR",
-    "Migration Debug / Reconciliation",
+    "YEAR_END_PROCESS_REMOVED",
+    "Continuous Entitlement Reconciliation",
   ],
   "phase 0-1 API/UI contract"
 );
@@ -53,7 +54,6 @@ mustInclude(
     "EmployeeAirfareBalances",
     "PayrollPeriodLocks",
     "sp_ATLAS_GetAirfareEntitlementBalance",
-    "sp_ATLAS_PreviewAirfareEntitlementReset",
     "sp_ATLAS_ApplyAirfareTransaction",
   ],
   "phase 0-1 database objects"
@@ -62,25 +62,19 @@ mustInclude(
 mustInclude(
   spec,
   [
-    "OpeningBalances",
-    "OpeningLoanBalances",
-    "YearEndHistory",
-    "YearEndEmployeeSnapshots",
-    "/api/year-end/preview/:year",
-    "/api/year-end/close",
-    "/api/year-end/history",
+    "Opening balances are legacy seed data only",
+    "`/api/year-end/*` must return `410 YEAR_END_PROCESS_REMOVED`",
+    "No normal navigation item for annual close",
   ],
-  "legacy behavior preservation"
+  "legacy close removal"
 );
 
 mustInclude(
   spec,
   [
-    "runs cleanly twice",
-    "row counts do not increase on second run",
-    "no write happens to legacy Year End tables during backfill",
-    "Production rollback should not drop tables",
-    "Do not build preview-reset until balance and reconciliation are trusted.",
+    "use `NOT EXISTS` guards",
+    "avoid destructive SQL",
+    "No migration entry may be named like `year-end-*`",
   ],
   "idempotency and rollback safety"
 );

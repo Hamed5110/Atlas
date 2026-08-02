@@ -2,12 +2,12 @@
     "manifestSchemaVersion":  1,
     "product":  "ATLAS Airfare Allowance",
     "productCode":  "ATLAS_AIRFARE_ALLOWANCE",
-    "version":  "2.3.90",
+    "version":  "2.3.89",
     "channel":  "stable",
-    "gitCommit":  "2dc6c83",
-    "buildTimestampUtc":  "2026-08-02T11:33:53Z",
-    "frontendBuildHash":  "sha256:E58005B4A3045E9A725261F9B53F1A1B5E2A3C52C2F2390AD065C9FEB6C5796C",
-    "backendBuildHash":  "sha256:92A8C2631DF97D63EF1DA10F677FF1827CA4C717F22B4D529302BFD4CB4A718F",
+    "gitCommit":  "3a191ac",
+    "buildTimestampUtc":  "2026-08-02T12:31:56Z",
+    "frontendBuildHash":  "sha256:0D7D0A30C683F5A1E57265993383DC75F646D47DA8376A02CC3F728AF3CF182B",
+    "backendBuildHash":  "sha256:5B32F6B044135B933E413D30C5DB2C17827D3B3A2D5ED2B5280539E84CB12C4A",
     "databaseSchemaVersion":  "2026.08.02.001",
     "service":  {
                     "name":  "ATLASAirfareAllowance",
@@ -16,11 +16,11 @@
                 },
     "artifacts":  {
                       "msi":  {
-                                  "file":  "ATLAS-Airfare-Allowance-2.3.90-x64.msi",
+                                  "file":  "ATLAS-Airfare-Allowance-2.3.89-x64.msi",
                                   "sha256":  "sha256:computed-after-package"
                               },
                       "exe":  {
-                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.90-x64.exe",
+                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.89-x64.exe",
                                   "sha256":  "sha256:computed-after-package"
                               }
                   },
@@ -126,34 +126,7 @@
                                                              "ATLAS_ENABLE_CONTINUOUS_AIRFARE_UI",
                                                              "ATLAS_ENABLE_CONTINUOUS_AIRFARE_WRITES"
                                                          ],
-                                               "reason":  "Patch is additive; leave new SQL objects unused and keep legacy Year End workflow active."
-                                           }
-                          },
-                          {
-                              "id":  "20260802-visible-installer-preflight-logs",
-                              "from":  "\u003c2.3.90",
-                              "to":  "\u003e=2.3.90",
-                              "type":  "fileAndHttp",
-                              "description":  "Install visible setup preflight logging, custom MSSQL host preservation, and clean runtime version identity.",
-                              "files":  [
-                                            "server.js",
-                                            "installer/bootstrapper/runner/AtlasBootstrapperRunner.exe",
-                                            "release/version.json"
-                                        ],
-                              "verify":  {
-                                             "kind":  "httpJsonEqualsManifest",
-                                             "url":  "http://127.0.0.1:3355/api/version",
-                                             "fields":  [
-                                                            "version",
-                                                            "gitCommit",
-                                                            "frontendBuildHash",
-                                                            "backendBuildHash",
-                                                            "databaseSchemaVersion",
-                                                            "artifact.manifestVersion"
-                                                        ]
-                                         },
-                              "rollback":  {
-                                               "kind":  "restorePreviousFiles"
+                                               "reason":  "Patch is additive; leave new SQL objects installed but disable continuous entitlement feature flags."
                                            }
                           }
                       ]

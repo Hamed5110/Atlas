@@ -23,8 +23,8 @@ BEGIN
         EffectiveTo DATE NULL,
         AccrualRule NVARCHAR(40) NOT NULL,
         AccrualAmount DECIMAL(12,2) NOT NULL CONSTRAINT DF_EmployeeAirfareEntitlementPlans_AccrualAmount DEFAULT (0),
-        AccrualFrequency NVARCHAR(40) NOT NULL CONSTRAINT DF_EmployeeAirfareEntitlementPlans_AccrualFrequency DEFAULT (N'annual'),
-        ResetRule NVARCHAR(40) NOT NULL CONSTRAINT DF_EmployeeAirfareEntitlementPlans_ResetRule DEFAULT (N'calendar_year'),
+        AccrualFrequency NVARCHAR(40) NOT NULL CONSTRAINT DF_EmployeeAirfareEntitlementPlans_AccrualFrequency DEFAULT (N'monthly'),
+        ResetRule NVARCHAR(40) NOT NULL CONSTRAINT DF_EmployeeAirfareEntitlementPlans_ResetRule DEFAULT (N'none'),
         ResetMonth TINYINT NULL,
         ResetDay TINYINT NULL,
         CycleMonths INT NULL,
@@ -357,7 +357,7 @@ END;
 GO
 
 -- Seed one default plan from current ATLAS policy conventions if no plan exists.
-IF NOT EXISTS (SELECT 1 FROM dbo.EmployeeAirfareEntitlementPlans WHERE PlanCode = N'ANNUAL_AIRFARE_CALENDAR')
+IF NOT EXISTS (SELECT 1 FROM dbo.EmployeeAirfareEntitlementPlans WHERE PlanCode = N'CONTINUOUS_AIRFARE_MONTHLY')
 BEGIN
     INSERT INTO dbo.EmployeeAirfareEntitlementPlans (
         PlanCode, PlanName, EffectiveFrom, AccrualRule, AccrualAmount, AccrualFrequency,
@@ -365,19 +365,19 @@ BEGIN
         PolicyJSON
     )
     VALUES (
-        N'ANNUAL_AIRFARE_CALENDAR',
-        N'Annual Airfare - Calendar Year',
+        N'CONTINUOUS_AIRFARE_MONTHLY',
+        N'Continuous Airfare - Monthly Accrual',
         '2026-01-01',
-        N'lump_sum',
+        N'monthly',
         150.00,
-        N'annual',
-        N'calendar_year',
-        1,
-        1,
+        N'monthly',
+        N'none',
+        NULL,
+        NULL,
         N'none',
         0,
         N'manual_approval',
-        N'{"source":"ATLAS continuous entitlement blueprint","defaultCurrency":"BHD"}'
+        N'{"source":"ATLAS continuous entitlement blueprint","defaultCurrency":"BHD","model":"on-demand continuous accrual"}'
     );
 END;
 GO

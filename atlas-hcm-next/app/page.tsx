@@ -570,7 +570,6 @@ const nav: { label: string; view: ViewKey; icon: React.ElementType }[] = [
   { label: "Airfare Allocation", view: "Airfare", icon: Plane },
   { label: "Employee Self-Service", view: "Employee Self-Service", icon: ClipboardCheck },
   { label: "Loans", view: "Loans", icon: WalletCards },
-  { label: "Year End", view: "Year End", icon: CalendarClock },
   { label: "Reports & Analytics", view: "Reports", icon: FileDown },
   { label: "Multi-Company Management", view: "Companies", icon: Building2 },
   { label: "Preferences", view: "Preferences", icon: Settings },
@@ -1649,7 +1648,7 @@ export default function DashboardPage() {
     {
       phase: "01",
       title: "Select company + fiscal year",
-      detail: "Company and fiscal year are taken from the global left-side context. No second hidden year switch is allowed inside Year End.",
+      detail: "Company and fiscal year are taken from the global left-side context. No second hidden year switch is allowed inside the legacy close archive.",
       status: selectedCompanyId ? "Context locked" : "Select company",
       tone: selectedCompanyId ? "success" : "warning"
     },
@@ -1670,17 +1669,17 @@ export default function DashboardPage() {
     {
       phase: "04",
       title: "Final close with evidence",
-      detail: "Final close writes auditable Year End history and next-year opening ledgers. It is not a UI-only action.",
+      detail: "Final close is disabled. Continuous entitlement now writes auditable accrual and usage ledgers instead of new-year opening batches.",
       status: yearEndPreview?.yearEndId ? "Closed snapshot" : "Admin controlled",
       tone: yearEndPreview?.yearEndId ? "success" : "info"
     }
   ];
   const yearEndBlueprintGuards = [
-    "No production close without a fresh previewId and previewHash.",
-    "No cross-company close: every preview and close is scoped to the selected company.",
-    "No future final close before the configured calendar close date has passed.",
+    "No annual close job: entitlement is computed on demand from rules and ledger history.",
+    "No cross-company leakage: every entitlement query is scoped to selected company or employee.",
+    "No destructive reset: historical opening balances remain only as legacy seed data.",
     "No formula edits here: airfare policy remains locked to SQL/preference snapshots.",
-    "No silent data movement: loans and opening balances must appear as reviewable evidence."
+    "No silent data movement: accrual, usage, adjustment, and payout transactions stay reviewable."
   ];
   const continuousAirfareFeatures = versionInfo?.features || {};
   const canShowEntitlementReconciliation = Boolean(
@@ -4782,33 +4781,13 @@ export default function DashboardPage() {
   }
 
   async function handleYearEndPreview() {
-    if (!session) return setMessage("Please sign in as admin before year-end preview.");
-    if (session.user.role !== "admin") return setMessage("Year-end closing is available for administrators only.");
-    const year = Number(yearEndForm.year);
-    if (!year) return setMessage("Enter a valid year to close.");
-    setBusy(true);
-    setMessage("");
-    try {
-      if (!selectedCompanyId) throw new Error("Select a company before previewing Year End.");
-      const preview = await atlasMutation<YearEndPreview>(`/year-end/preview/${year}`, session.token, session.sessionId, "POST", {
-        closingDate: yearEndForm.closingDate,
-        companyId: Number(selectedCompanyId)
-      });
-      setYearEndPreview(preview);
-      const firstBlocker = preview.readiness?.blockers?.[0];
-      setMessage(firstBlocker
-        ? `Year-end preview calculated for ${preview.closedYear}, but final close is blocked: ${firstBlocker}`
-        : `Year-end preview ready for ${preview.closedYear}. ${preview.balancesCarried} opening balance record(s) will move to ${preview.nextYear}.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Year-end preview failed");
-    } finally {
-      setBusy(false);
-    }
+    setActiveView("AI Insights");
+    setMessage("Annual close preview is removed. Use continuous entitlement reconciliation instead.");
   }
 
   function handleYearEndYearChange(value: string | number, announce = false) {
     const year = normalizeOpeningYear(value);
-    void handleFiscalYearSwitch(year, { announce, targetView: "Year End" });
+    void handleFiscalYearSwitch(year, { announce, targetView: "AI Insights" });
   }
 
   async function openOpeningBalanceForYear(yearValue: string | number) {
@@ -6384,23 +6363,21 @@ export default function DashboardPage() {
                   <span><small>Amount</small><strong>{money.format(openingBalanceTotalAmount)}</strong></span>
                 </div>
               </div>
-              <div className="opening-year-end-bridge">
+              <div className="opening-continuous-entitlement-bridge">
                 <div>
-                  <small>Year End carry-forward blueprint</small>
-                  <strong>Opening balances for {activeOpeningYearNumber} should come from the {activeOpeningYearNumber - 1} Year End close evidence.</strong>
-                  <span>Preview the close, verify employee rows, pending loans, and closing BHD, then final close writes the new-year opening ledger. Manual opening edits remain available only for controlled corrections/imports.</span>
+                  <small>Continuous entitlement bridge</small>
+                  <strong>Opening balances are legacy seed data; live entitlement is computed from policy rules, accrual ledger, usage, and history.</strong>
+                  <span>No annual close is required. Use manual opening entries only for controlled corrections/imports, then verify the continuous ledger through reconciliation.</span>
                 </div>
-                <div className="opening-year-end-bridge-actions">
+                <div className="opening-continuous-entitlement-bridge-actions">
                   <span className={activeOpeningYearNumber > currentCalendarYear ? "pill warning" : "pill success"}>
-                    {activeOpeningYearNumber > currentCalendarYear ? "Future opening year" : "Current / historical opening"}
+                    {activeOpeningYearNumber > currentCalendarYear ? "Future seed year" : "Legacy seed register"}
                   </span>
                   <button className="soft-button" type="button" onClick={() => {
-                    const closeYear = Math.max(2000, activeOpeningYearNumber - 1);
-                    setYearEndForm((current) => ({ ...current, year: String(closeYear), closingDate: `${closeYear}-12-31` }));
-                    setActiveView("Year End");
-                    setMessage(`Opened Year End blueprint for ${closeYear} -> ${activeOpeningYearNumber} carry-forward.`);
+                    setActiveView("AI Insights");
+                    setMessage("Opened continuous entitlement reconciliation. Use it to compare legacy seed rows with live entitlement.");
                   }}>
-                    <CalendarClock size={16} /> Open Year End blueprint
+                    <Activity size={16} /> Open reconciliation
                   </button>
                 </div>
               </div>
@@ -8478,7 +8455,7 @@ export default function DashboardPage() {
                 <div className="diagnostics-header">
                   <div>
                     <div className="card-title"><Database size={18} /> Airfare Entitlement - Migration Debug</div>
-                    <p className="muted">Migration Debug / Reconciliation - not used for payroll. Read-only comparison; this does not change Year End, Opening Balances, loans, allocations, reports, or payroll results.</p>
+                    <p className="muted">Continuous Entitlement Reconciliation - not used for payroll. Read-only comparison; this does not change opening seed rows, loans, allocations, reports, or payroll results.</p>
                   </div>
                   <div className="row-actions">
                     <button className="mini-soft" type="button" disabled={!entitlementRecon?.rows.length} onClick={exportEntitlementReconciliationCsv}>
