@@ -57,8 +57,19 @@ namespace AtlasBootstrapperRunner
             var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
             var installRoot = GetPathOption(options, "InstallRoot", @"C:\Program Files\ATLAS Airfare Allowance");
             Directory.CreateDirectory(dataRoot);
+            var logFolder = Path.Combine(dataRoot, "logs");
+            Directory.CreateDirectory(logFolder);
+            var preflightLog = Path.Combine(logFolder, "bootstrapper-preflight-" + DateTime.Now.ToString("yyyyMMddHHmmss") + ".log");
+            File.AppendAllText(preflightLog,
+                "ATLAS setup preflight\r\n" +
+                "Started: " + DateTime.Now.ToString("o") + "\r\n" +
+                "Mode: Preflight\r\n" +
+                "InstallRoot: " + installRoot + "\r\n" +
+                "DataRoot: " + dataRoot + "\r\n" +
+                "DefaultPort: " + defaultPort + "\r\n\r\n",
+                Encoding.UTF8);
 
-            using (var form = new PreflightForm(defaultPort, dataRoot, installRoot))
+            using (var form = new PreflightForm(defaultPort, dataRoot, installRoot, preflightLog))
             {
                 return form.ShowDialog() == DialogResult.OK ? 0 : 1602;
             }
@@ -444,15 +455,17 @@ namespace AtlasBootstrapperRunner
         private readonly Label statusLabel = new Label();
         private readonly string dataRoot;
         private readonly string installRoot;
+        private readonly string preflightLog;
         private readonly string existingDbServer;
         private readonly bool existingInstallFootprint;
         private readonly bool existingSqlPortWasConfigured;
         private readonly List<string> instances;
 
-        public PreflightForm(int defaultPort, string dataRoot, string installRoot)
+        public PreflightForm(int defaultPort, string dataRoot, string installRoot, string preflightLog)
         {
             this.dataRoot = dataRoot;
             this.installRoot = installRoot;
+            this.preflightLog = preflightLog;
             instances = GetInstalledSqlInstances();
             var existing = ReadExistingConfig(installRoot);
             existingInstallFootprint = HasAtlasInstallFootprint(installRoot) || existing.ContainsKey("PORT") || existing.ContainsKey("DB_PORT");
@@ -568,6 +581,7 @@ namespace AtlasBootstrapperRunner
             statusLabel.Text = existingInstallFootprint
                 ? "Existing ATLAS installation detected. Update is selected automatically and will keep data while refreshing files, SQL objects, service, and runtime configuration."
                 : "Install/New creates a fresh setup. Update keeps data and refreshes files. Repair fixes services, database configuration, and app admin lockout. Troubleshoot writes a diagnostic report.";
+            AppendPreflightLog("Wizard opened. ExistingInstall=" + existingInstallFootprint + "; ExistingDbServer=" + existingDbServer + "; SqlInstances=" + string.Join(",", instances.ToArray()));
 
             var ok = new Button { Text = "Verify and Continue", Left = 362, Top = 540, Width = 140, Height = 28 };
             ok.Click += VerifyAndContinue;
@@ -604,6 +618,7 @@ namespace AtlasBootstrapperRunner
 
         private void VerifyAndContinue(object sender, EventArgs e)
         {
+            AppendPreflightLog("Verify clicked.");
             int port;
             if (!int.TryParse(portBox.Text.Trim(), out port) || port < 1 || port > 65535)
             {
@@ -687,6 +702,7 @@ namespace AtlasBootstrapperRunner
                 string error;
                 if (!TestSqlLogin(dbServer, instance, sqlPort, password, out error))
                 {
+                    AppendPreflightLog("SQL validation failed for " + dbServer + ":" + sqlPort + " instance=" + instance + ". Error=" + error);
                     Fail("MSSQL sa login failed: " + error);
                     return;
                 }
@@ -710,6 +726,7 @@ namespace AtlasBootstrapperRunner
             }
 
             WriteConfig(port, sqlPort, dbServer, instance, password, companyCode, companyName, adminUser, adminPassword, setupAction, freshInstallReplace, backupDatabaseBeforeFresh);
+            AppendPreflightLog("Preflight success. Action=" + setupAction + "; AppPort=" + port + "; DbServer=" + dbServer + "; SqlPort=" + sqlPort + "; Config=" + Path.Combine(dataRoot, "bootstrapper-config.json"));
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -718,7 +735,19 @@ namespace AtlasBootstrapperRunner
         {
             statusLabel.ForeColor = Color.DarkRed;
             statusLabel.Text = message;
+            AppendPreflightLog("Preflight warning/failure: " + message);
             MessageBox.Show(this, message, "ATLAS setup", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private void AppendPreflightLog(string message)
+        {
+            try
+            {
+                File.AppendAllText(preflightLog, "[" + DateTime.Now.ToString("o") + "] " + message + "\r\n", Encoding.UTF8);
+            }
+            catch
+            {
+            }
         }
 
         private string SelectedSetupAction()
@@ -750,6 +779,7 @@ namespace AtlasBootstrapperRunner
                 "  \"CreatedAt\": \"" + DateTime.UtcNow.ToString("o") + "\"\r\n" +
                 "}\r\n";
             File.WriteAllText(path, json, Encoding.UTF8);
+            AppendPreflightLog("Wrote protected setup config: " + path);
             try
             {
                 var security = new FileSecurity();
