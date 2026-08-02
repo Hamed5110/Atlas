@@ -148,7 +148,7 @@ function Get-BackendHash {
         if (-not (Test-Path -LiteralPath $target)) { continue }
         if ((Get-Item -LiteralPath $target).PSIsContainer) {
             Get-ChildItem -LiteralPath $target -Recurse -File -Force |
-                Where-Object { $_.FullName -notmatch '\\stage\\|\\logs\\|\\node_modules\\' } |
+                Where-Object { $_.FullName -notmatch '\\stage\\|\\logs\\|\\node_modules\\' -and $_.Name -ne 'AtlasBootstrapperRunner.exe' } |
                 Sort-Object FullName |
                 ForEach-Object {
                     $relative = Get-RelativePathCompat -BasePath $Root -TargetPath $_.FullName
