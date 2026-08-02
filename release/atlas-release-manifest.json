@@ -1,133 +1,160 @@
 {
-  "manifestSchemaVersion": 1,
-  "product": "ATLAS Airfare Allowance",
-  "productCode": "ATLAS_AIRFARE_ALLOWANCE",
-  "version": "2.3.89",
-  "channel": "stable",
-  "gitCommit": "pending-build",
-  "buildTimestampUtc": "2026-08-02T10:00:00Z",
-  "frontendBuildHash": "sha256:pending-build",
-  "backendBuildHash": "sha256:pending-build",
-  "databaseSchemaVersion": "2026.08.02.001",
-  "service": {
-    "name": "ATLASAirfareAllowance",
-    "port": 3355,
-    "healthUrl": "http://127.0.0.1:3355/api/version"
-  },
-  "artifacts": {
-    "msi": {
-      "file": "ATLAS-Airfare-Allowance-2.3.89-x64.msi",
-      "sha256": "sha256:computed-after-package"
-    },
-    "exe": {
-      "file": "ATLAS-Airfare-Allowance-Setup-2.3.89-x64.exe",
-      "sha256": "sha256:computed-after-package"
-    }
-  },
-  "minimumUpgradeableVersion": "2.3.70",
-  "migrationPlan": [
-    {
-      "id": "20260730-employee-portal-claim-upsert",
-      "from": "<2.3.85",
-      "to": ">=2.3.85",
-      "type": "sql",
-      "description": "Apply employee portal claim UPSERT procedure.",
-      "script": "extensions/employee-portal/sql/ATLAS_Employee_Portal_Extension.sql",
-      "verify": {
-        "kind": "sqlObjectExists",
-        "object": "dbo.ext_sp_UpsertEmployeeAuthClaim",
-        "objectType": "P"
-      },
-      "rollback": {
-        "kind": "none",
-        "reason": "Forward-compatible stored procedure replacement."
-      }
-    },
-    {
-      "id": "20260730-support-diagnostics-rate-limit",
-      "from": "<2.3.84",
-      "to": ">=2.3.84",
-      "type": "config",
-      "description": "Ensure support diagnostics limiter config exists.",
-      "writeEnv": {
-        "SUPPORT_RATE_LIMIT_MAX": "2000",
-        "SUPPORT_RATE_LIMIT_LOCAL_MAX": "60000"
-      },
-      "verify": {
-        "kind": "httpHeader",
-        "url": "http://127.0.0.1:3355/api/health",
-        "header": "RateLimit-Limit",
-        "expected": "60000"
-      },
-      "rollback": {
-        "kind": "restorePreviousEnv"
-      }
-    },
-    {
-      "id": "20260801-version-endpoint-contract",
-      "from": "<2.3.87",
-      "to": ">=2.3.87",
-      "type": "fileAndHttp",
-      "description": "Install runtime version.json and verify /api/version manifest identity.",
-      "files": [
-        "release/version.json"
-      ],
-      "verify": {
-        "kind": "httpJsonEqualsManifest",
-        "url": "http://127.0.0.1:3355/api/version",
-        "fields": [
-          "productCode",
-          "version",
-          "gitCommit",
-          "frontendBuildHash",
-          "backendBuildHash",
-          "databaseSchemaVersion",
-          "artifact.manifestVersion"
-        ]
-      },
-      "rollback": {
-        "kind": "restorePreviousFiles"
-      }
-    },
-    {
-      "id": "20260801-preferences-schema-v2",
-      "from": "<2.3.88",
-      "to": ">=2.3.88",
-      "type": "sql",
-      "description": "Add schema-v2 PreferencesJSON storage for the route-based Preferences module.",
-      "script": "database/UserPreferences_LayoutState.sql",
-      "verify": {
-        "kind": "sqlColumnExists",
-        "table": "dbo.UserPreferences",
-        "column": "PreferencesJSON"
-      },
-      "rollback": {
-        "kind": "none",
-        "reason": "Nullable forward-compatible JSON column; old clients keep using split theme/layout/navigation columns."
-      }
-    },
-    {
-      "id": "20260802-continuous-airfare-entitlement-phase1",
-      "from": "<2.3.89",
-      "to": ">=2.3.89",
-      "type": "sql",
-      "description": "Install additive continuous airfare entitlement Phase 0-1 objects and idempotent comparison seed data.",
-      "script": "database/migrations/2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql",
-      "verify": {
-        "kind": "sqlObjectExists",
-        "object": "dbo.sp_ATLAS_GetAirfareEntitlementBalance",
-        "objectType": "P"
-      },
-      "rollback": {
-        "kind": "featureFlagOff",
-        "flags": [
-          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT",
-          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION",
-          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_UI",
-          "ATLAS_ENABLE_CONTINUOUS_AIRFARE_WRITES"
-        ],
-        "reason": "Patch is additive; leave new SQL objects unused and keep legacy Year End workflow active."
-      }
-    }
-  ]
+    "manifestSchemaVersion":  1,
+    "product":  "ATLAS Airfare Allowance",
+    "productCode":  "ATLAS_AIRFARE_ALLOWANCE",
+    "version":  "2.3.90",
+    "channel":  "stable",
+    "gitCommit":  "2dc6c83",
+    "buildTimestampUtc":  "2026-08-02T11:33:53Z",
+    "frontendBuildHash":  "sha256:E58005B4A3045E9A725261F9B53F1A1B5E2A3C52C2F2390AD065C9FEB6C5796C",
+    "backendBuildHash":  "sha256:92A8C2631DF97D63EF1DA10F677FF1827CA4C717F22B4D529302BFD4CB4A718F",
+    "databaseSchemaVersion":  "2026.08.02.001",
+    "service":  {
+                    "name":  "ATLASAirfareAllowance",
+                    "port":  3355,
+                    "healthUrl":  "http://127.0.0.1:3355/api/version"
+                },
+    "artifacts":  {
+                      "msi":  {
+                                  "file":  "ATLAS-Airfare-Allowance-2.3.90-x64.msi",
+                                  "sha256":  "sha256:computed-after-package"
+                              },
+                      "exe":  {
+                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.90-x64.exe",
+                                  "sha256":  "sha256:computed-after-package"
+                              }
+                  },
+    "minimumUpgradeableVersion":  "2.3.70",
+    "migrationPlan":  [
+                          {
+                              "id":  "20260730-employee-portal-claim-upsert",
+                              "from":  "\u003c2.3.85",
+                              "to":  "\u003e=2.3.85",
+                              "type":  "sql",
+                              "description":  "Apply employee portal claim UPSERT procedure.",
+                              "script":  "extensions/employee-portal/sql/ATLAS_Employee_Portal_Extension.sql",
+                              "verify":  {
+                                             "kind":  "sqlObjectExists",
+                                             "object":  "dbo.ext_sp_UpsertEmployeeAuthClaim",
+                                             "objectType":  "P"
+                                         },
+                              "rollback":  {
+                                               "kind":  "none",
+                                               "reason":  "Forward-compatible stored procedure replacement."
+                                           }
+                          },
+                          {
+                              "id":  "20260730-support-diagnostics-rate-limit",
+                              "from":  "\u003c2.3.84",
+                              "to":  "\u003e=2.3.84",
+                              "type":  "config",
+                              "description":  "Ensure support diagnostics limiter config exists.",
+                              "writeEnv":  {
+                                               "SUPPORT_RATE_LIMIT_MAX":  "2000",
+                                               "SUPPORT_RATE_LIMIT_LOCAL_MAX":  "60000"
+                                           },
+                              "verify":  {
+                                             "kind":  "httpHeader",
+                                             "url":  "http://127.0.0.1:3355/api/health",
+                                             "header":  "RateLimit-Limit",
+                                             "expected":  "60000"
+                                         },
+                              "rollback":  {
+                                               "kind":  "restorePreviousEnv"
+                                           }
+                          },
+                          {
+                              "id":  "20260801-version-endpoint-contract",
+                              "from":  "\u003c2.3.87",
+                              "to":  "\u003e=2.3.87",
+                              "type":  "fileAndHttp",
+                              "description":  "Install runtime version.json and verify /api/version manifest identity.",
+                              "files":  [
+                                            "release/version.json"
+                                        ],
+                              "verify":  {
+                                             "kind":  "httpJsonEqualsManifest",
+                                             "url":  "http://127.0.0.1:3355/api/version",
+                                             "fields":  [
+                                                            "productCode",
+                                                            "version",
+                                                            "gitCommit",
+                                                            "frontendBuildHash",
+                                                            "backendBuildHash",
+                                                            "databaseSchemaVersion",
+                                                            "artifact.manifestVersion"
+                                                        ]
+                                         },
+                              "rollback":  {
+                                               "kind":  "restorePreviousFiles"
+                                           }
+                          },
+                          {
+                              "id":  "20260801-preferences-schema-v2",
+                              "from":  "\u003c2.3.88",
+                              "to":  "\u003e=2.3.88",
+                              "type":  "sql",
+                              "description":  "Add schema-v2 PreferencesJSON storage for the route-based Preferences module.",
+                              "script":  "database/UserPreferences_LayoutState.sql",
+                              "verify":  {
+                                             "kind":  "sqlColumnExists",
+                                             "table":  "dbo.UserPreferences",
+                                             "column":  "PreferencesJSON"
+                                         },
+                              "rollback":  {
+                                               "kind":  "none",
+                                               "reason":  "Nullable forward-compatible JSON column; old clients keep using split theme/layout/navigation columns."
+                                           }
+                          },
+                          {
+                              "id":  "20260802-continuous-airfare-entitlement-phase1",
+                              "from":  "\u003c2.3.89",
+                              "to":  "\u003e=2.3.89",
+                              "type":  "sql",
+                              "description":  "Install additive continuous airfare entitlement Phase 0-1 objects and idempotent comparison seed data.",
+                              "script":  "database/migrations/2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql",
+                              "verify":  {
+                                             "kind":  "sqlObjectExists",
+                                             "object":  "dbo.sp_ATLAS_GetAirfareEntitlementBalance",
+                                             "objectType":  "P"
+                                         },
+                              "rollback":  {
+                                               "kind":  "featureFlagOff",
+                                               "flags":  [
+                                                             "ATLAS_ENABLE_CONTINUOUS_AIRFARE_ENTITLEMENT",
+                                                             "ATLAS_ENABLE_CONTINUOUS_AIRFARE_RECONCILIATION",
+                                                             "ATLAS_ENABLE_CONTINUOUS_AIRFARE_UI",
+                                                             "ATLAS_ENABLE_CONTINUOUS_AIRFARE_WRITES"
+                                                         ],
+                                               "reason":  "Patch is additive; leave new SQL objects unused and keep legacy Year End workflow active."
+                                           }
+                          },
+                          {
+                              "id":  "20260802-visible-installer-preflight-logs",
+                              "from":  "\u003c2.3.90",
+                              "to":  "\u003e=2.3.90",
+                              "type":  "fileAndHttp",
+                              "description":  "Install visible setup preflight logging, custom MSSQL host preservation, and clean runtime version identity.",
+                              "files":  [
+                                            "server.js",
+                                            "installer/bootstrapper/runner/AtlasBootstrapperRunner.exe",
+                                            "release/version.json"
+                                        ],
+                              "verify":  {
+                                             "kind":  "httpJsonEqualsManifest",
+                                             "url":  "http://127.0.0.1:3355/api/version",
+                                             "fields":  [
+                                                            "version",
+                                                            "gitCommit",
+                                                            "frontendBuildHash",
+                                                            "backendBuildHash",
+                                                            "databaseSchemaVersion",
+                                                            "artifact.manifestVersion"
+                                                        ]
+                                         },
+                              "rollback":  {
+                                               "kind":  "restorePreviousFiles"
+                                           }
+                          }
+                      ]
 }
