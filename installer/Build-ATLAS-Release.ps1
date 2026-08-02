@@ -6,7 +6,8 @@ param(
     [string]$OutputRoot = "",
     [switch]$SkipVerify,
     [switch]$SkipExe,
-    [switch]$SkipToolingCheck
+    [switch]$SkipToolingCheck,
+    [switch]$UpdateOnlyExe
 )
 
 $ErrorActionPreference = "Stop"
@@ -285,7 +286,16 @@ if (-not (Test-Path -LiteralPath $MsiPath)) { throw "MSI was not created: $MsiPa
 if (-not (Test-Path -LiteralPath $MsiStagePayloadDir)) { throw "MSI stage payload was not created: $MsiStagePayloadDir" }
 
 if (-not $SkipExe) {
-    & (Join-Path $PSScriptRoot "bootstrapper\deploy.ps1") -Mode Build -UpdateOnly -AppMsi $MsiPath -Output $ExePath -ProductVersion $Version
+    $bootstrapperArgs = @(
+        "-Mode", "Build",
+        "-AppMsi", $MsiPath,
+        "-Output", $ExePath,
+        "-ProductVersion", $Version
+    )
+    if ($UpdateOnlyExe) {
+        $bootstrapperArgs += "-UpdateOnly"
+    }
+    & (Join-Path $PSScriptRoot "bootstrapper\deploy.ps1") @bootstrapperArgs
     if ($LASTEXITCODE -ne 0) { throw "EXE bootstrapper build failed." }
     if (-not (Test-Path -LiteralPath $ExePath)) { throw "EXE was not created: $ExePath" }
 }
@@ -354,6 +364,7 @@ $buildReportLines = @(
     "- MSI: $MsiPath",
     "- MSI SHA256: $($manifest.artifacts.msi.sha256)",
     "- EXE: $ExePath",
+    "- EXE mode: $(if ($UpdateOnlyExe) { "Update-only patch" } else { "Full setup / install / repair / update" })",
     "- EXE SHA256: $($manifest.artifacts.exe.sha256)",
     "- Payload: $PayloadDir",
     "- Artifact index: $(Join-Path $PatchDir "release-artifacts.json")",
