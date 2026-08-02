@@ -151,6 +151,7 @@ namespace AtlasBootstrapperRunner
         {
             var result = new List<string>();
             AddOption(result, options, "Port", false);
+            AddOption(result, options, "DbServer", false);
             AddOption(result, options, "SqlPort", false);
             AddOption(result, options, "SqlInstance", false);
             AddOption(result, options, "SqlSaPassword", false);
@@ -428,6 +429,7 @@ namespace AtlasBootstrapperRunner
     internal sealed class PreflightForm : Form
     {
         private readonly TextBox portBox = new TextBox();
+        private readonly TextBox dbServerBox = new TextBox();
         private readonly TextBox sqlPortBox = new TextBox();
         private readonly ComboBox instanceBox = new ComboBox();
         private readonly TextBox passwordBox = new TextBox();
@@ -494,16 +496,22 @@ namespace AtlasBootstrapperRunner
             portBox.Width = 360;
             portBox.Text = existing.ContainsKey("PORT") ? existing["PORT"] : defaultPort.ToString();
 
-            AddLabel("MSSQL TCP port", 20, 160);
+            AddLabel("MSSQL server / host", 20, 160);
+            dbServerBox.Left = 190;
+            dbServerBox.Top = 156;
+            dbServerBox.Width = 360;
+            dbServerBox.Text = existing.ContainsKey("DB_SERVER") ? existing["DB_SERVER"] : (string.IsNullOrWhiteSpace(existingDbServer) ? "127.0.0.1" : existingDbServer);
+
+            AddLabel("MSSQL TCP port", 20, 194);
             sqlPortBox.Left = 190;
-            sqlPortBox.Top = 156;
+            sqlPortBox.Top = 190;
             sqlPortBox.Width = 360;
             var preferredInstance = existing.ContainsKey("DB_INSTANCE") ? existing["DB_INSTANCE"] : (instances.Count > 0 ? PreferInstance(instances) : "ATLAS");
             sqlPortBox.Text = existing.ContainsKey("DB_PORT") ? existing["DB_PORT"] : DetectSqlTcpPort(preferredInstance).ToString();
 
-            AddLabel("MSSQL instance", 20, 194);
+            AddLabel("MSSQL instance", 20, 228);
             instanceBox.Left = 190;
-            instanceBox.Top = 190;
+            instanceBox.Top = 224;
             instanceBox.Width = 360;
             instanceBox.DropDownStyle = ComboBoxStyle.DropDown;
             foreach (var instance in instances) instanceBox.Items.Add(instance);
@@ -516,44 +524,44 @@ namespace AtlasBootstrapperRunner
                 }
             };
 
-            AddLabel("MSSQL sa password", 20, 228);
+            AddLabel("MSSQL sa password", 20, 262);
             passwordBox.Left = 190;
-            passwordBox.Top = 224;
+            passwordBox.Top = 258;
             passwordBox.Width = 360;
             passwordBox.PasswordChar = '*';
             if (existing.ContainsKey("DB_PASSWORD")) passwordBox.Text = existing["DB_PASSWORD"];
 
-            AddLabel("Company code", 20, 262);
+            AddLabel("Company code", 20, 296);
             companyCodeBox.Left = 190;
-            companyCodeBox.Top = 258;
+            companyCodeBox.Top = 292;
             companyCodeBox.Width = 360;
             companyCodeBox.Text = "ATLAS";
 
-            AddLabel("Company name", 20, 296);
+            AddLabel("Company name", 20, 330);
             companyNameBox.Left = 190;
-            companyNameBox.Top = 292;
+            companyNameBox.Top = 326;
             companyNameBox.Width = 360;
             companyNameBox.Text = "ATLAS Airfare HCM";
 
-            AddLabel("App admin login", 20, 330);
+            AddLabel("App admin login", 20, 364);
             adminUserBox.Left = 190;
-            adminUserBox.Top = 326;
+            adminUserBox.Top = 360;
             adminUserBox.Width = 360;
             adminUserBox.Text = "admin";
 
-            AddLabel("App admin password", 20, 364);
+            AddLabel("App admin password", 20, 398);
             adminPasswordBox.Left = 190;
-            adminPasswordBox.Top = 360;
+            adminPasswordBox.Top = 394;
             adminPasswordBox.Width = 360;
             adminPasswordBox.PasswordChar = '*';
 
             var sqlInfo = instances.Count > 0
                 ? "Existing SQL Server detected. SQL Express will be skipped."
                 : "No local SQL Server detected. SQL Express will be downloaded from Microsoft if needed.";
-            var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 400, Width = 560, Height = 22 };
+            var infoLabel = new Label { Text = sqlInfo, Left = 20, Top = 434, Width = 560, Height = 22 };
 
             statusLabel.Left = 20;
-            statusLabel.Top = 430;
+            statusLabel.Top = 464;
             statusLabel.Width = 560;
             statusLabel.Height = 55;
             statusLabel.ForeColor = Color.DimGray;
@@ -573,6 +581,7 @@ namespace AtlasBootstrapperRunner
             Controls.Add(repairRadio);
             Controls.Add(troubleshootRadio);
             Controls.Add(portBox);
+            Controls.Add(dbServerBox);
             Controls.Add(sqlPortBox);
             Controls.Add(instanceBox);
             Controls.Add(passwordBox);
@@ -640,6 +649,8 @@ namespace AtlasBootstrapperRunner
 
             var instance = (instanceBox.Text ?? "").Trim();
             if (string.IsNullOrWhiteSpace(instance)) instance = "ATLAS";
+            var dbServer = (dbServerBox.Text ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(dbServer)) dbServer = "127.0.0.1";
             var password = passwordBox.Text ?? "";
             if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(password))
             {
@@ -674,13 +685,13 @@ namespace AtlasBootstrapperRunner
             if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase) && instances.Count > 0)
             {
                 string error;
-                if (!TestSqlLogin(existingDbServer, instance, sqlPort, password, out error))
+                if (!TestSqlLogin(dbServer, instance, sqlPort, password, out error))
                 {
                     Fail("MSSQL sa login failed: " + error);
                     return;
                 }
                 statusLabel.ForeColor = Color.Green;
-                statusLabel.Text = setupAction + " confirmed. MSSQL sa login is valid on TCP port " + sqlPort + ".";
+                statusLabel.Text = setupAction + " confirmed. MSSQL sa login is valid on " + dbServer + ":" + sqlPort + ".";
             }
             else if (!setupAction.Equals("Troubleshoot", StringComparison.OrdinalIgnoreCase))
             {
@@ -698,7 +709,7 @@ namespace AtlasBootstrapperRunner
                 statusLabel.Text = "Troubleshooter confirmed. A diagnostic report will be generated.";
             }
 
-            WriteConfig(port, sqlPort, instance, password, companyCode, companyName, adminUser, adminPassword, setupAction, freshInstallReplace, backupDatabaseBeforeFresh);
+            WriteConfig(port, sqlPort, dbServer, instance, password, companyCode, companyName, adminUser, adminPassword, setupAction, freshInstallReplace, backupDatabaseBeforeFresh);
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -718,13 +729,15 @@ namespace AtlasBootstrapperRunner
             return "Install";
         }
 
-        private void WriteConfig(int port, int sqlPort, string instance, string password, string companyCode, string companyName, string adminUser, string adminPassword, string setupAction, bool freshInstallReplace, bool backupDatabaseBeforeFresh)
+        private void WriteConfig(int port, int sqlPort, string dbServer, string instance, string password, string companyCode, string companyName, string adminUser, string adminPassword, string setupAction, bool freshInstallReplace, bool backupDatabaseBeforeFresh)
         {
             Directory.CreateDirectory(dataRoot);
             var path = Path.Combine(dataRoot, "bootstrapper-config.json");
             var json = "{\r\n" +
                 "  \"Port\": " + port + ",\r\n" +
                 "  \"SqlPort\": " + sqlPort + ",\r\n" +
+                "  \"DbServer\": \"" + EscapeJson(dbServer) + "\",\r\n" +
+                "  \"DB_SERVER\": \"" + EscapeJson(dbServer) + "\",\r\n" +
                 "  \"SqlInstance\": \"" + EscapeJson(instance) + "\",\r\n" +
                 "  \"SqlSaPassword\": \"" + EscapeJson(password) + "\",\r\n" +
                 "  \"CompanyCode\": \"" + EscapeJson(companyCode) + "\",\r\n" +

@@ -4,6 +4,7 @@ param(
 
     [int]$Port = 3355,
     [int]$SqlPort = 1433,
+    [string]$DbServer = "127.0.0.1",
     [string]$SqlInstance = "ATLAS",
     [string]$SqlSaPassword = "",
     [string]$CompanyCode = "ATLAS",
@@ -416,6 +417,7 @@ function Write-BootstrapConfig {
         [string]$DataPath,
         [int]$PortNumber,
         [int]$SqlPortNumber,
+        [string]$DbServerName,
         [string]$InstanceName,
         [string]$Password,
         [string]$CompanyCodeValue,
@@ -429,6 +431,7 @@ function Write-BootstrapConfig {
     [pscustomobject]@{
         Port = $PortNumber
         SqlPort = $SqlPortNumber
+        DbServer = $DbServerName
         SqlInstance = $InstanceName
         SqlSaPassword = $Password
         CompanyCode = $CompanyCodeValue
@@ -827,10 +830,12 @@ function Test-TcpPort {
 
 function Test-SqlLoginTcp {
     param(
+        [string]$Server = "127.0.0.1",
         [int]$PortNumber,
         [string]$Password
     )
-    $connectionString = "Server=tcp:127.0.0.1,$PortNumber;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=10;"
+    $hostName = Get-AtlasSqlTcpHost -Server $Server
+    $connectionString = "Server=tcp:$hostName,$PortNumber;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=10;"
     $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
     try {
         $connection.Open()
@@ -839,7 +844,7 @@ function Test-SqlLoginTcp {
         [void]$command.ExecuteScalar()
         return $true
     } catch {
-        Write-Step "SQL TCP login failed on 127.0.0.1:$PortNumber as sa: $($_.Exception.Message)"
+        Write-Step "SQL TCP login failed on ${hostName}:$PortNumber as sa: $($_.Exception.Message)"
         return $false
     } finally {
         $connection.Dispose()
@@ -1078,6 +1083,10 @@ function Prompt-AtlasInstallSettings {
     }
 
     $selectedSqlPort = 1433
+    $selectedDbServer = if ([string]::IsNullOrWhiteSpace($DbServer)) { "127.0.0.1" } else { $DbServer }
+    $rawDbServer = Read-Host "MSSQL server / host [$selectedDbServer]"
+    if (-not [string]::IsNullOrWhiteSpace($rawDbServer)) { $selectedDbServer = $rawDbServer.Trim() }
+
     while ($true) {
         $rawSqlPort = Read-Host "MSSQL TCP port [$selectedSqlPort, enter 0 for SQL Server default/current port]"
         if (-not [string]::IsNullOrWhiteSpace($rawSqlPort)) {
@@ -1104,7 +1113,11 @@ function Prompt-AtlasInstallSettings {
     if ($instances.Count -gt 0) {
         $rawInstance = Read-Host "MSSQL instance to use [$selectedInstance]"
         if (-not [string]::IsNullOrWhiteSpace($rawInstance)) { $selectedInstance = $rawInstance.Trim() }
-        Ensure-SqlService -InstanceName $selectedInstance
+        if (Test-AtlasLocalSqlHost -Server $selectedDbServer) {
+            Ensure-SqlService -InstanceName $selectedInstance
+        } else {
+            Write-Step "Remote MSSQL server selected; skipping local SQL service control for '$selectedDbServer'."
+        }
     }
 
     while ($true) {
@@ -1163,6 +1176,7 @@ function Prompt-AtlasInstallSettings {
         -DataPath $DataRoot `
         -PortNumber $selectedPort `
         -SqlPortNumber $selectedSqlPort `
+        -DbServerName $selectedDbServer `
         -InstanceName $selectedInstance `
         -Password $plainPassword `
         -CompanyCodeValue $selectedCompanyCode `
@@ -1421,6 +1435,7 @@ function Ensure-AtlasDatabase {
     param(
         [string]$InstanceName,
         [int]$SqlPortNumber,
+        [string]$DbServerName = "127.0.0.1",
         [string]$Password,
         [string]$InstallPath,
         [string]$CompanyCodeValue,
@@ -1428,7 +1443,8 @@ function Ensure-AtlasDatabase {
         [string]$AdminUsernameValue,
         [string]$AdminPasswordValue
     )
-    $server = if ($SqlPortNumber -gt 0) { "tcp:127.0.0.1,$SqlPortNumber" } else { Get-SqlServerName -InstanceName $InstanceName }
+    $dbHost = Get-AtlasSqlTcpHost -Server $DbServerName
+    $server = if ($SqlPortNumber -gt 0) { "tcp:$dbHost,$SqlPortNumber" } else { Get-SqlServerName -InstanceName $InstanceName }
     $master = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
     $appDb = "Atlasairfare010"
 
@@ -1486,6 +1502,7 @@ function Write-AtlasConfig {
         [string]$InstallPath,
         [int]$PortNumber,
         [int]$SqlPortNumber,
+        [string]$DbServerName,
         [string]$InstanceName,
         [string]$Password
     )
@@ -1496,7 +1513,7 @@ function Write-AtlasConfig {
     $content = @"
 PORT=$PortNumber
 HOST=0.0.0.0
-DB_SERVER=127.0.0.1
+DB_SERVER=$DbServerName
 DB_PORT=$SqlPortNumber
 DB_NAME=Atlasairfare010
 DB_USER=sa
@@ -2119,6 +2136,7 @@ function Assert-AtlasPreInstallGate {
     $saved = Read-RequiredBootstrapConfig -DataPath $DataRoot -Context "ATLAS pre-installation check"
     $selectedPort = if ($saved.Port) { [int]$saved.Port } else { $Port }
     $selectedSqlPort = if ($saved.SqlPort) { [int]$saved.SqlPort } else { [int]$script:SqlPort }
+    $selectedDbServer = if ($saved.DbServer) { [string]$saved.DbServer } elseif ($saved.DB_SERVER) { [string]$saved.DB_SERVER } else { $DbServer }
     $selectedInstance = if ($saved.SqlInstance) { [string]$saved.SqlInstance } else { $SqlInstance }
     $selectedPassword = if ($saved.SqlSaPassword) { [string]$saved.SqlSaPassword } else { $SqlSaPassword }
     $selectedAction = if ($saved.SetupAction) { [string]$saved.SetupAction } else { $SetupAction }
@@ -2140,13 +2158,14 @@ function Assert-AtlasPreInstallGate {
         $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $selectedInstance
         Ensure-SqlService -InstanceName $effectiveSqlInstance
         $effectiveSqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort $selectedSqlPort
-        if (-not (Test-TcpPort -Server "127.0.0.1" -PortNumber $effectiveSqlPort)) {
-            throw "Pre-installation check failed: MSSQL TCP port 127.0.0.1:$effectiveSqlPort is not reachable. Confirm SQL TCP/IP and the custom SQL port before installing ATLAS."
+        $selectedSqlHost = Get-AtlasSqlTcpHost -Server $selectedDbServer
+        if (-not (Test-TcpPort -Server $selectedSqlHost -PortNumber $effectiveSqlPort)) {
+            throw "Pre-installation check failed: MSSQL TCP port ${selectedSqlHost}:$effectiveSqlPort is not reachable. Confirm SQL TCP/IP and the custom SQL server/port before installing ATLAS."
         }
-        if (-not (Test-SqlLoginTcp -PortNumber $effectiveSqlPort -Password $selectedPassword)) {
-            throw "Pre-installation check failed: MSSQL sa login over TCP failed on 127.0.0.1:$effectiveSqlPort. Correct the SQL password or custom SQL port before installing ATLAS."
+        if (-not (Test-SqlLoginTcp -Server $selectedDbServer -PortNumber $effectiveSqlPort -Password $selectedPassword)) {
+            throw "Pre-installation check failed: MSSQL sa login over TCP failed on ${selectedSqlHost}:$effectiveSqlPort. Correct the SQL server, SQL password, or custom SQL port before installing ATLAS."
         }
-        Write-Step "Pre-installation MSSQL TCP check passed on 127.0.0.1:$effectiveSqlPort."
+        Write-Step "Pre-installation MSSQL TCP check passed on ${selectedSqlHost}:$effectiveSqlPort."
         if ($selectedAction -eq "Install" -and (Get-BootstrapConfigBool -Config $saved -Name "BackupDatabaseBeforeFresh")) {
             $null = Backup-AtlasDatabaseIfPresent -SqlPortNumber $effectiveSqlPort -Password $selectedPassword -DataPath $DataRoot
         }
@@ -2157,7 +2176,7 @@ function Assert-AtlasPreInstallGate {
     if ($selectedAction -eq "Install" -and (Test-AtlasInstallFootprint -InstallPath $InstallRoot)) {
         Remove-AtlasInstallFootprint -InstallPath $InstallRoot
     }
-    Write-Step "Pre-installation gate passed for action '$selectedAction', ATLAS port $selectedPort, SQL instance '$selectedInstance', SQL port $selectedSqlPort."
+    Write-Step "Pre-installation gate passed for action '$selectedAction', ATLAS port $selectedPort, SQL server '$selectedDbServer', SQL instance '$selectedInstance', SQL port $selectedSqlPort."
 }
 
 function Invoke-InstallOrRepair {
@@ -2180,6 +2199,8 @@ function Invoke-InstallOrRepair {
     if ($saved) {
         if ($saved.Port) { $Port = [int]$saved.Port }
         if ($saved.SqlPort) { $SqlPort = [int]$saved.SqlPort }
+        if ($saved.DbServer) { $DbServer = [string]$saved.DbServer }
+        if ($saved.DB_SERVER) { $DbServer = [string]$saved.DB_SERVER }
         if ($saved.SqlInstance) { $SqlInstance = [string]$saved.SqlInstance }
         if ($saved.SqlSaPassword) { $SqlSaPassword = [string]$saved.SqlSaPassword }
         if ($saved.CompanyCode) { $CompanyCode = [string]$saved.CompanyCode }
@@ -2214,22 +2235,28 @@ function Invoke-InstallOrRepair {
 
     Install-SqlExpressIfMissing -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
     $effectiveSqlInstance = Resolve-SqlInstance -RequestedInstance $effectiveSqlInstance
-    Ensure-SqlService -InstanceName $effectiveSqlInstance
+    if (Test-AtlasLocalSqlHost -Server $DbServer) {
+        Ensure-SqlService -InstanceName $effectiveSqlInstance
+    } else {
+        Write-Step "Remote MSSQL server selected; skipping local SQL service control for '$DbServer'."
+    }
     $SqlPort = Resolve-SqlTcpPort -InstanceName $effectiveSqlInstance -RequestedPort $SqlPort
-    if (-not (Test-TcpPort -Server "127.0.0.1" -PortNumber $SqlPort)) {
-        throw "MSSQL TCP port 127.0.0.1:$SqlPort is not reachable after configuration. Enable SQL Server TCP/IP or choose the correct MSSQL port."
+    $dbHost = Get-AtlasSqlTcpHost -Server $DbServer
+    if (-not (Test-TcpPort -Server $dbHost -PortNumber $SqlPort)) {
+        throw "MSSQL TCP port ${dbHost}:$SqlPort is not reachable after configuration. Enable SQL Server TCP/IP or choose the correct MSSQL server/port."
     }
-    if (-not (Test-SqlLoginTcp -PortNumber $SqlPort -Password $SqlSaPassword)) {
-        throw "MSSQL sa login over TCP failed on 127.0.0.1:$SqlPort. Re-run setup and enter the correct SQL port/password."
+    if (-not (Test-SqlLoginTcp -Server $DbServer -PortNumber $SqlPort -Password $SqlSaPassword)) {
+        throw "MSSQL sa login over TCP failed on ${dbHost}:$SqlPort. Re-run setup and enter the correct SQL server/port/password."
     }
-    Write-Step "MSSQL TCP login confirmed on 127.0.0.1:$SqlPort."
+    Write-Step "MSSQL TCP login confirmed on ${dbHost}:$SqlPort."
     if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
         Write-Step "Warning: MSSQL instance-name login check failed after TCP verification; continuing with verified TCP endpoint 127.0.0.1:$SqlPort."
     }
-    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
+    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -DbServerName $DbServer -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
     Ensure-AtlasDatabase `
         -InstanceName $effectiveSqlInstance `
         -SqlPortNumber $SqlPort `
+        -DbServerName $DbServer `
         -Password $SqlSaPassword `
         -InstallPath $InstallRoot `
         -CompanyCodeValue $CompanyCode `
