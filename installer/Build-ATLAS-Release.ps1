@@ -5,7 +5,8 @@ param(
     [string]$ManifestPath = "",
     [string]$OutputRoot = "",
     [switch]$SkipVerify,
-    [switch]$SkipExe
+    [switch]$SkipExe,
+    [switch]$SkipToolingCheck
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +23,7 @@ $MsiFile = "ATLAS-Airfare-Allowance-$Version-x64.msi"
 $ExeFile = "ATLAS-Airfare-Allowance-Setup-$Version-x64.exe"
 $MsiPath = Join-Path $PatchDir $MsiFile
 $ExePath = Join-Path $PatchDir $ExeFile
+$MsiStagePayloadDir = Join-Path $Root "installer\stage\payload"
 
 function Invoke-Checked {
     param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory = $Root)
@@ -34,6 +36,51 @@ function Invoke-Checked {
     } finally {
         Pop-Location
     }
+}
+
+function Assert-ReleaseTooling {
+    if ($SkipToolingCheck) { return }
+    $wixCommand = Get-Command wix.exe -ErrorAction SilentlyContinue
+    if (-not $wixCommand) {
+        throw "WiX Toolset CLI was not found. Install WiX v7 with 'dotnet tool install --global wix --version 7.*', then run 'wix extension add WixToolset.UI.wixext WixToolset.BootstrapperApplications.wixext WixToolset.Util.wixext', or push tag v$Version and use .github/workflows/build-release.yml."
+    }
+    $wixVersionText = (& $wixCommand.Source --version 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wixVersionText)) {
+        throw "WiX Toolset CLI is installed but did not return a version. Repair WiX or use the GitHub Actions release workflow."
+    }
+    if ($wixVersionText -notmatch "^7\.") {
+        throw "WiX Toolset v7 is required for this release builder. Current wix.exe reports '$wixVersionText'. Use WiX v7 or build with the GitHub Actions workflow."
+    }
+
+    $requiredExtensions = @(
+        "WixToolset.UI.wixext",
+        "WixToolset.BootstrapperApplications.wixext",
+        "WixToolset.Util.wixext"
+    )
+    $extensionList = (& $wixCommand.Source extension list 2>$null) -join "`n"
+    foreach ($extension in $requiredExtensions) {
+        if ($extensionList -notmatch [regex]::Escape($extension)) {
+            throw "Missing WiX extension '$extension'. Run: wix extension add WixToolset.UI.wixext WixToolset.BootstrapperApplications.wixext WixToolset.Util.wixext"
+        }
+    }
+}
+
+function Copy-DirectoryMirror {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    if (-not (Test-Path -LiteralPath $Source)) { throw "Copy source does not exist: $Source" }
+    if (Test-Path -LiteralPath $Destination) {
+        Remove-Item -LiteralPath $Destination -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    $args = @($Source, $Destination, "/MIR", "/NFL", "/NDL", "/NJH", "/NJS", "/NP")
+    & robocopy @args | Out-Null
+    if ($LASTEXITCODE -gt 7) {
+        throw "Copy failed from $Source to $Destination with robocopy exit code $LASTEXITCODE."
+    }
+    $global:LASTEXITCODE = 0
 }
 
 function Get-GitCommit {
@@ -140,14 +187,44 @@ function Assert-ReleaseManifestCore {
 function Write-Json {
     param([object]$Value, [string]$Path, [int]$Depth = 20)
     New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    $Value | ConvertTo-Json -Depth $Depth | Set-Content -LiteralPath $Path -Encoding UTF8
+    $json = $Value | ConvertTo-Json -Depth $Depth
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, $utf8NoBom)
+}
+
+function Write-Utf8NoBomText {
+    param([string[]]$Lines, [string]$Path)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($Path, (($Lines -join [Environment]::NewLine) + [Environment]::NewLine), $utf8NoBom)
 }
 
 if (-not (Test-Path -LiteralPath $ManifestPath)) {
     throw "Release manifest not found: $ManifestPath"
 }
 
-$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$SourceManifestOriginal = [System.IO.File]::ReadAllText($ManifestPath)
+$RuntimeVersionOriginalExists = Test-Path -LiteralPath $RuntimeVersionPath
+$RuntimeVersionOriginal = if ($RuntimeVersionOriginalExists) { [System.IO.File]::ReadAllText($RuntimeVersionPath) } else { $null }
+
+function Restore-SourceReleaseFiles {
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    if ($null -ne $SourceManifestOriginal) {
+        [System.IO.File]::WriteAllText($ManifestPath, $SourceManifestOriginal, $utf8NoBom)
+    }
+    if ($RuntimeVersionOriginalExists) {
+        [System.IO.File]::WriteAllText($RuntimeVersionPath, $RuntimeVersionOriginal, $utf8NoBom)
+    } elseif (Test-Path -LiteralPath $RuntimeVersionPath) {
+        Remove-Item -LiteralPath $RuntimeVersionPath -Force
+    }
+}
+
+trap {
+    Restore-SourceReleaseFiles
+    throw $_
+}
+
+$manifest = $SourceManifestOriginal | ConvertFrom-Json
 Assert-ReleaseManifestCore -Manifest $manifest
 
 if ([string]$manifest.version -ne $Version) {
@@ -158,6 +235,8 @@ $expectedMsi = "ATLAS-Airfare-Allowance-$Version-x64.msi"
 $expectedExe = "ATLAS-Airfare-Allowance-Setup-$Version-x64.exe"
 if ([string]$manifest.artifacts.msi.file -ne $expectedMsi) { throw "Manifest MSI filename must be $expectedMsi." }
 if ([string]$manifest.artifacts.exe.file -ne $expectedExe) { throw "Manifest EXE filename must be $expectedExe." }
+
+Assert-ReleaseTooling
 
 if (Test-Path -LiteralPath $PatchDir) {
     Remove-Item -LiteralPath $PatchDir -Recurse -Force
@@ -203,6 +282,7 @@ Write-Json -Value $runtimeIdentity -Path $RuntimeVersionPath
 if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 
 if (-not (Test-Path -LiteralPath $MsiPath)) { throw "MSI was not created: $MsiPath" }
+if (-not (Test-Path -LiteralPath $MsiStagePayloadDir)) { throw "MSI stage payload was not created: $MsiStagePayloadDir" }
 
 if (-not $SkipExe) {
     & (Join-Path $PSScriptRoot "bootstrapper\deploy.ps1") -Mode Build -UpdateOnly -AppMsi $MsiPath -Output $ExePath -ProductVersion $Version
@@ -224,11 +304,47 @@ if ($manifest.gitCommit -ne (Get-GitCommit)) { throw "Git commit changed during 
 if ($manifest.frontendBuildHash -ne (Get-DirectoryHash -Path (Join-Path $Root "atlas-hcm-next\out"))) { throw "Frontend hash mismatch after build." }
 if ($manifest.backendBuildHash -ne (Get-BackendHash)) { throw "Backend hash mismatch after build." }
 
+Copy-DirectoryMirror -Source $MsiStagePayloadDir -Destination $PayloadDir
 Copy-Item -LiteralPath $FinalManifestPath -Destination (Join-Path $PayloadDir "atlas-release-manifest.json") -Force
 New-Item -ItemType Directory -Path (Join-Path $PayloadDir "release") -Force | Out-Null
 Copy-Item -LiteralPath $RuntimeVersionPath -Destination (Join-Path $PayloadDir "release\version.json") -Force
 
-@(
+$artifactRows = @(
+    [pscustomobject]@{
+        type = "msi"
+        file = $MsiFile
+        path = $MsiPath
+        sha256 = $manifest.artifacts.msi.sha256
+        exists = Test-Path -LiteralPath $MsiPath
+    },
+    [pscustomobject]@{
+        type = "exe"
+        file = $ExeFile
+        path = $ExePath
+        sha256 = $manifest.artifacts.exe.sha256
+        exists = Test-Path -LiteralPath $ExePath
+    },
+    [pscustomobject]@{
+        type = "manifest"
+        file = "atlas-release-manifest.json"
+        path = $FinalManifestPath
+        sha256 = "sha256:" + (Get-FileHash -Algorithm SHA256 -LiteralPath $FinalManifestPath).Hash
+        exists = Test-Path -LiteralPath $FinalManifestPath
+    }
+)
+
+$releaseArtifactsJson = $artifactRows |
+    Select-Object type, file, sha256, path, exists |
+    ConvertTo-Json -Depth 4
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText((Join-Path $PatchDir "release-artifacts.json"), ($releaseArtifactsJson + [Environment]::NewLine), $utf8NoBom)
+
+$shaLines = $artifactRows |
+    ForEach-Object { "$($_.sha256)  $($_.file)" } |
+    ForEach-Object { $_ }
+Write-Utf8NoBomText -Lines $shaLines -Path (Join-Path $PatchDir "SHA256SUMS.txt")
+
+$buildReportLines = @(
     "# ATLAS Release Build Report",
     "",
     "- Version: $Version",
@@ -239,13 +355,21 @@ Copy-Item -LiteralPath $RuntimeVersionPath -Destination (Join-Path $PayloadDir "
     "- MSI SHA256: $($manifest.artifacts.msi.sha256)",
     "- EXE: $ExePath",
     "- EXE SHA256: $($manifest.artifacts.exe.sha256)",
+    "- Payload: $PayloadDir",
+    "- Artifact index: $(Join-Path $PatchDir "release-artifacts.json")",
+    "- Checksums: $(Join-Path $PatchDir "SHA256SUMS.txt")",
     "- Manifest: $FinalManifestPath",
     "- Built: $($manifest.buildTimestampUtc)",
     "",
     "Build validation requires MSI and EXE to share this manifest identity. Artifact hashes are final outer-package hashes and are stored in the adjacent release manifest."
-) | Set-Content -LiteralPath (Join-Path $ReportsDir "build-report.md") -Encoding UTF8
+)
+Write-Utf8NoBomText -Lines $buildReportLines -Path (Join-Path $ReportsDir "build-report.md")
 
 Write-Host "ATLAS release created: $PatchDir" -ForegroundColor Green
 Write-Host "Manifest: $FinalManifestPath"
 Write-Host "MSI: $MsiPath"
 if (Test-Path -LiteralPath $ExePath) { Write-Host "EXE: $ExePath" }
+Write-Host "Payload: $PayloadDir"
+Write-Host "Artifact index: $(Join-Path $PatchDir "release-artifacts.json")"
+
+Restore-SourceReleaseFiles

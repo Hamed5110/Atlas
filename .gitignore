@@ -16,6 +16,7 @@ out/
 artifacts/
 installer/stage/
 redist/
+.wix/
 
 # Runtime and generated files
 logs/

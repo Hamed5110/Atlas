@@ -1,0 +1,128 @@
+name: Build ATLAS Release Artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 2.3.89"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build EXE/MSI from manifest
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Invalid release version '$version'. Expected format like 2.3.89."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            atlas-hcm-next/package-lock.json
+
+      - name: Install backend dependencies
+        shell: pwsh
+        run: npm ci
+
+      - name: Install frontend dependencies
+        shell: pwsh
+        working-directory: atlas-hcm-next
+        run: npm ci
+
+      - name: Setup WiX Toolset v7
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 7.*
+          wix extension add WixToolset.UI.wixext
+          wix extension add WixToolset.BootstrapperApplications.wixext
+          wix extension add WixToolset.Util.wixext
+          wix --version
+          wix extension list
+
+      - name: Validate release contract
+        shell: pwsh
+        run: |
+          npm run check
+          npm run test:patch-2-3-89
+          npm run test:year-end-safety
+          npm run test:release-manifest
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          .\installer\Build-ATLAS-Release.ps1 -Version "${{ steps.version.outputs.version }}" -SkipVerify
+
+      - name: Verify artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $patchDir = "artifacts\patch-$version"
+          $expected = @(
+            "$patchDir\ATLAS-Airfare-Allowance-$version-x64.msi",
+            "$patchDir\ATLAS-Airfare-Allowance-Setup-$version-x64.exe",
+            "$patchDir\atlas-release-manifest.json",
+            "$patchDir\release-artifacts.json",
+            "$patchDir\SHA256SUMS.txt"
+          )
+          foreach ($path in $expected) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Missing release artifact: $path"
+            }
+          }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-patch-${{ steps.version.outputs.version }}
+          path: artifacts/patch-${{ steps.version.outputs.version }}/
+          if-no-files-found: error
+
+      - name: Attach artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Patch ${{ steps.version.outputs.version }} - ATLAS Airfare Allowance
+          body: |
+            Patch ${{ steps.version.outputs.version }} release artifacts built from the manifest-driven release pipeline.
+
+            Included assets:
+            - ATLAS-Airfare-Allowance-${{ steps.version.outputs.version }}-x64.msi
+            - ATLAS-Airfare-Allowance-Setup-${{ steps.version.outputs.version }}-x64.exe
+            - atlas-release-manifest.json
+            - release-artifacts.json
+            - SHA256SUMS.txt
+          files: |
+            artifacts/patch-${{ steps.version.outputs.version }}/ATLAS-Airfare-Allowance-${{ steps.version.outputs.version }}-x64.msi
+            artifacts/patch-${{ steps.version.outputs.version }}/ATLAS-Airfare-Allowance-Setup-${{ steps.version.outputs.version }}-x64.exe
+            artifacts/patch-${{ steps.version.outputs.version }}/atlas-release-manifest.json
+            artifacts/patch-${{ steps.version.outputs.version }}/release-artifacts.json
+            artifacts/patch-${{ steps.version.outputs.version }}/SHA256SUMS.txt
