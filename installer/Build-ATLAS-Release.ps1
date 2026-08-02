@@ -286,14 +286,14 @@ if (-not (Test-Path -LiteralPath $MsiPath)) { throw "MSI was not created: $MsiPa
 if (-not (Test-Path -LiteralPath $MsiStagePayloadDir)) { throw "MSI stage payload was not created: $MsiStagePayloadDir" }
 
 if (-not $SkipExe) {
-    $bootstrapperArgs = @(
-        "-Mode", "Build",
-        "-AppMsi", $MsiPath,
-        "-Output", $ExePath,
-        "-ProductVersion", $Version
-    )
+    $bootstrapperArgs = @{
+        Mode = "Build"
+        AppMsi = $MsiPath
+        Output = $ExePath
+        ProductVersion = $Version
+    }
     if ($UpdateOnlyExe) {
-        $bootstrapperArgs += "-UpdateOnly"
+        $bootstrapperArgs.UpdateOnly = $true
     }
     & (Join-Path $PSScriptRoot "bootstrapper\deploy.ps1") @bootstrapperArgs
     if ($LASTEXITCODE -ne 0) { throw "EXE bootstrapper build failed." }
