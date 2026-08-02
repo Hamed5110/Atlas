@@ -2069,6 +2069,58 @@ h3 { font-size: 17px; letter-spacing: 0; }
   font-size: 15px;
   overflow-wrap: anywhere;
 }
+.opening-year-end-bridge {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin: 14px 0;
+  padding: 16px;
+  border: 1px solid rgba(37, 99, 235, .22);
+  border-left: 4px solid var(--brand);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, .12), transparent 30%),
+    linear-gradient(135deg, rgba(239, 246, 255, .96), rgba(255, 255, 255, .98));
+  box-shadow: var(--shadow-soft);
+}
+.opening-year-end-bridge div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.opening-year-end-bridge small {
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.opening-year-end-bridge strong {
+  color: var(--ink);
+  font-size: clamp(16px, 1.5vw, 21px);
+  line-height: 1.18;
+}
+.opening-year-end-bridge span:not(.pill) {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.opening-year-end-bridge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 220px;
+}
+@media (max-width: 860px) {
+  .opening-year-end-bridge {
+    grid-template-columns: 1fr;
+  }
+  .opening-year-end-bridge-actions {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+}
 .year-end-global-note {
   margin: 2px 0 14px;
 }

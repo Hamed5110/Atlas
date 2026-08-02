@@ -6384,6 +6384,26 @@ export default function DashboardPage() {
                   <span><small>Amount</small><strong>{money.format(openingBalanceTotalAmount)}</strong></span>
                 </div>
               </div>
+              <div className="opening-year-end-bridge">
+                <div>
+                  <small>Year End carry-forward blueprint</small>
+                  <strong>Opening balances for {activeOpeningYearNumber} should come from the {activeOpeningYearNumber - 1} Year End close evidence.</strong>
+                  <span>Preview the close, verify employee rows, pending loans, and closing BHD, then final close writes the new-year opening ledger. Manual opening edits remain available only for controlled corrections/imports.</span>
+                </div>
+                <div className="opening-year-end-bridge-actions">
+                  <span className={activeOpeningYearNumber > currentCalendarYear ? "pill warning" : "pill success"}>
+                    {activeOpeningYearNumber > currentCalendarYear ? "Future opening year" : "Current / historical opening"}
+                  </span>
+                  <button className="soft-button" type="button" onClick={() => {
+                    const closeYear = Math.max(2000, activeOpeningYearNumber - 1);
+                    setYearEndForm((current) => ({ ...current, year: String(closeYear), closingDate: `${closeYear}-12-31` }));
+                    setActiveView("Year End");
+                    setMessage(`Opened Year End blueprint for ${closeYear} -> ${activeOpeningYearNumber} carry-forward.`);
+                  }}>
+                    <CalendarClock size={16} /> Open Year End blueprint
+                  </button>
+                </div>
+              </div>
               <div className="button-row compact">
                 <button className="soft-button" disabled={busy || !session} onClick={() => openingImportRef.current?.click()}><Upload size={16} /> Import Excel</button>
                 <button className="soft-button" disabled={busy} onClick={handleExportOpeningBalances}><Download size={16} /> Export Opening Balances</button>

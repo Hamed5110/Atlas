@@ -13,6 +13,8 @@ for (const text of [
   'Preview only',
   'Readiness gate',
   'Final close with evidence',
+  'Year End carry-forward blueprint',
+  'Open Year End blueprint',
   'No production close without a fresh previewId and previewHash',
   'No cross-company close'
 ]) {
@@ -21,6 +23,8 @@ for (const text of [
 
 assert.match(page, /yearEndBlueprintPhases[\s\S]*yearEndBlueprintGuards/, 'Year End blueprint must be data-driven in the component');
 assert.match(page, /year-end-blueprint-panel[\s\S]*year-end-blueprint-grid[\s\S]*year-end-guardrail-strip/, 'Year End blueprint markup missing');
+assert.match(page, /opening-year-end-bridge[\s\S]*setActiveView\("Year End"\)/, 'Opening Balance must link carry-forward evidence back to the Year End blueprint');
 assert.match(css, /\.year-end-blueprint-panel[\s\S]*\.year-end-blueprint-grid[\s\S]*@media \(max-width: 720px\)/, 'Year End blueprint responsive CSS missing');
+assert.match(css, /\.opening-year-end-bridge[\s\S]*@media \(max-width: 860px\)/, 'Opening Balance Year End bridge responsive CSS missing');
 
 console.log('Year End blueprint UI checks passed');
