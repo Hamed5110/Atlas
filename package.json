@@ -19,6 +19,7 @@
                     "test:post-patch-smoke":  "node tests/post-patch-smoke.test.js",
                     "test:continuous-entitlement":  "node tests/continuous-entitlement-blueprint.test.js",
                     "test:year-end-removal-plan":  "node tests/year-end-removal-migration-plan.test.js",
+                    "test:airfare-entitlement-phase1":  "node tests/airfare-entitlement-phase1.test.js",
                     "test:full":  "node tests/full-system-test.js",
                     "test:phase1":  "node tests/phase1-smoke-test.js",
                     "test:employee-status":  "node tests/employee-status-eligibility.test.js",
