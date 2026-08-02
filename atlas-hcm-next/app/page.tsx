@@ -1645,6 +1645,43 @@ export default function DashboardPage() {
       detail: "Year-end screens do not change formulas; airfare values stay tied to policy snapshots and preference lookup."
     }
   ];
+  const yearEndBlueprintPhases = [
+    {
+      phase: "01",
+      title: "Select company + fiscal year",
+      detail: "Company and fiscal year are taken from the global left-side context. No second hidden year switch is allowed inside Year End.",
+      status: selectedCompanyId ? "Context locked" : "Select company",
+      tone: selectedCompanyId ? "success" : "warning"
+    },
+    {
+      phase: "02",
+      title: "Preview only",
+      detail: "SQL calculates closing days, closing BHD, pending loans, and next-year opening balances without final writes.",
+      status: yearEndPreview ? "Preview evidence ready" : "Preview required",
+      tone: yearEndPreview ? "success" : "warning"
+    },
+    {
+      phase: "03",
+      title: "Readiness gate",
+      detail: "The close button stays blocked until preview hash, company scope, closing date, negative balances, and loan carry-forward checks are valid.",
+      status: yearEndBlockers.length ? `${yearEndBlockers.length} blocker(s)` : yearEndPreview ? "Gate clear" : "Waiting for preview",
+      tone: yearEndBlockers.length ? "danger" : yearEndPreview ? "success" : "info"
+    },
+    {
+      phase: "04",
+      title: "Final close with evidence",
+      detail: "Final close writes auditable Year End history and next-year opening ledgers. It is not a UI-only action.",
+      status: yearEndPreview?.yearEndId ? "Closed snapshot" : "Admin controlled",
+      tone: yearEndPreview?.yearEndId ? "success" : "info"
+    }
+  ];
+  const yearEndBlueprintGuards = [
+    "No production close without a fresh previewId and previewHash.",
+    "No cross-company close: every preview and close is scoped to the selected company.",
+    "No future final close before the configured calendar close date has passed.",
+    "No formula edits here: airfare policy remains locked to SQL/preference snapshots.",
+    "No silent data movement: loans and opening balances must appear as reviewable evidence."
+  ];
   const continuousAirfareFeatures = versionInfo?.features || {};
   const canShowEntitlementReconciliation = Boolean(
     session?.user.role === "admin" &&
@@ -7455,6 +7492,35 @@ export default function DashboardPage() {
                   <span>The left sidebar controls fiscal year for all modules. Year End now follows that global selection, so you do not need a second year switch here.</span>
                 </div>
                 <span className={`pill ${yearEndIsHistorical ? "warning" : "success"}`}>{yearEndModeLabel}</span>
+              </div>
+              <div className="year-end-blueprint-panel">
+                <div className="year-end-blueprint-head">
+                  <div>
+                    <small>Operational blueprint</small>
+                    <strong>Year End close is a controlled SQL evidence workflow — not a simple screen button.</strong>
+                    <span>Follow the four gates below. If any gate is not ready, do not close the year.</span>
+                  </div>
+                  <span className={yearEndCanClose ? "pill success" : "pill warning"}>
+                    {yearEndCanClose ? "Close-ready after preview" : "Preview / gate required"}
+                  </span>
+                </div>
+                <div className="year-end-blueprint-grid">
+                  {yearEndBlueprintPhases.map((item) => (
+                    <div className={`year-end-blueprint-card ${item.tone}`} key={item.phase}>
+                      <span className="year-end-blueprint-phase">{item.phase}</span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <p>{item.detail}</p>
+                        <em>{item.status}</em>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="year-end-guardrail-strip">
+                  {yearEndBlueprintGuards.map((guard) => (
+                    <span key={guard}><ShieldCheck size={14} /> {guard}</span>
+                  ))}
+                </div>
               </div>
               <div className="metric-strip">
                 <span><small>Close year</small><strong>{yearEndForm.year}</strong></span>

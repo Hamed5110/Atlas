@@ -2072,6 +2072,127 @@ h3 { font-size: 17px; letter-spacing: 0; }
 .year-end-global-note {
   margin: 2px 0 14px;
 }
+.year-end-blueprint-panel {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0 16px;
+  padding: 16px;
+  border: 1px solid rgba(37, 99, 235, .18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, .12), transparent 34%),
+    linear-gradient(135deg, rgba(248, 250, 252, .98), rgba(239, 246, 255, .96));
+  box-shadow: var(--shadow-soft);
+}
+.year-end-blueprint-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.year-end-blueprint-head div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.year-end-blueprint-head small,
+.year-end-blueprint-card em {
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.year-end-blueprint-head strong {
+  color: var(--ink);
+  font-size: clamp(18px, 2vw, 26px);
+  line-height: 1.12;
+}
+.year-end-blueprint-head span:not(.pill) {
+  color: var(--muted);
+}
+.year-end-blueprint-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.year-end-blueprint-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  min-height: 156px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, .1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .86);
+}
+.year-end-blueprint-card.success {
+  border-color: rgba(16, 185, 129, .28);
+  background: linear-gradient(135deg, rgba(236, 253, 245, .92), rgba(255, 255, 255, .94));
+}
+.year-end-blueprint-card.warning {
+  border-color: rgba(245, 158, 11, .32);
+  background: linear-gradient(135deg, rgba(255, 251, 235, .96), rgba(255, 255, 255, .94));
+}
+.year-end-blueprint-card.danger {
+  border-color: rgba(225, 29, 72, .32);
+  background: linear-gradient(135deg, rgba(255, 241, 242, .96), rgba(255, 255, 255, .94));
+}
+.year-end-blueprint-phase {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 950;
+}
+.year-end-blueprint-card strong,
+.year-end-blueprint-card p,
+.year-end-blueprint-card em {
+  display: block;
+}
+.year-end-blueprint-card strong {
+  color: var(--ink);
+  line-height: 1.15;
+}
+.year-end-blueprint-card p {
+  margin: 8px 0 10px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.year-end-guardrail-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.year-end-guardrail-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(20, 184, 166, .2);
+  border-radius: 999px;
+  background: rgba(240, 253, 250, .9);
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+}
+@media (max-width: 1280px) {
+  .year-end-blueprint-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .year-end-blueprint-head {
+    display: grid;
+  }
+  .year-end-blueprint-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .year-command-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
