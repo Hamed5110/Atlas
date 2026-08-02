@@ -21,6 +21,7 @@
                     "test:year-end-removal-plan":  "node tests/year-end-removal-migration-plan.test.js",
                     "test:airfare-entitlement-phase1":  "node tests/airfare-entitlement-phase1.test.js",
                     "test:year-end-execution-runbook":  "node tests/year-end-execution-runbook.test.js",
+                    "test:patch-2-3-89":  "node tests/continuous-entitlement-blueprint.test.js && node tests/year-end-removal-migration-plan.test.js && node tests/airfare-entitlement-phase1.test.js && node tests/year-end-execution-runbook.test.js && node tests/patch-2-3-89-continuous-entitlement.test.js",
                     "test:full":  "node tests/full-system-test.js",
                     "test:phase1":  "node tests/phase1-smoke-test.js",
                     "test:employee-status":  "node tests/employee-status-eligibility.test.js",
