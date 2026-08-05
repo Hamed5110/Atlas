@@ -61,7 +61,7 @@ assert.match(source, /displayedFullSelfPaidOptionAmount\s*=\s*allocationForm\.pa
 assert.match(source, /entitlementAppliedAmount\s*=\s*allocationForm\.paymentMode === "employee_full"\s*\?\s*0\s*:\s*entitlementCovered/, "full self-pay should not consume airfare entitlement amount or days");
 assert.match(source, /loanExcessAmount\s*=\s*allocationForm\.paymentMode === "loan"\s*\?\s*excessBalance\s*:\s*0/, "loan option should carry only the excess balance when selected");
 assert.doesNotMatch(source, /entitlementFullyCoversTicket[\s\S]{0,180}setAllocationForm\(\(current\)\s*=>\s*\(\{\s*\.\.\.current,\s*paymentMode:\s*"entitlement"/, "entitlement coverage should not force settlement selection back to entitlement");
-assert.match(source, /Opening balance is controlled separately/, "employee master should guide users to separate opening balance process");
+assert.match(source, /Entitlement seed balance is controlled separately/, "employee master should guide users to separate entitlement seed process");
 assert.match(source, /Data Mapping Validation Engine/, "employee import should expose data mapping validation before commit");
 assert.match(source, /buildImportMappingDiagnostics/, "employee import should calculate mapping diagnostics");
 assert.match(source, /buildImportTypeDiagnostics/, "employee import should calculate duplicate and type diagnostics");
@@ -122,7 +122,7 @@ assert.match(source, /Fiscal year/, "sidebar should show the global fiscal year 
 assert.match(source, /aria-label="Global fiscal year"/, "global fiscal year should use a proper select control");
 assert.match(source, /Previous fiscal year/, "global fiscal selector should provide previous-year navigation");
 assert.match(source, /Next fiscal year/, "global fiscal selector should provide next-year navigation");
-assert.match(source, /Update next year/, "opening balance rows should offer next-year update preparation");
+assert.doesNotMatch(source, /Update next year|prepareNextYearOpeningUpdate/, "annual next-year seed copy action must stay removed");
 assert.match(source, /handleDeleteOpeningBalance/, "opening balance rows should offer delete with confirmation");
 assert.match(source, /handleBulkDeleteOpeningBalances/, "opening balance rows should support selected-row bulk delete");
 assert.match(source, /opening-edit-modal/, "opening balance edit should use a focused popup layout");
@@ -144,7 +144,7 @@ assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "glob
 assert.match(source, /Open reconciliation/, "opening balance should link users to continuous entitlement reconciliation");
 assert.match(source, /policy rules, accrual ledger, usage, and history/, "opening balance should describe entitlement calculation inputs");
 assert.match(source, /entitlementReconForm/, "entitlement reconciliation should keep scoped form state");
-assert.match(source, /Opening year/, "opening balance should expose a compact opening-year filter");
+assert.match(source, /Seed year/, "entitlement seed register should expose a compact seed-year filter");
 assert.match(css, /\.opening-year-control\s*{[\s\S]*grid-template-columns/, "opening balance year filter should use a compact responsive grid");
 assert.match(css, /\.opening-continuous-entitlement-bridge\s*{[\s\S]*display:\s*grid/, "continuous entitlement bridge should use an aligned responsive grid");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.opening-register-facts[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "opening balance compact facts should collapse cleanly on mobile");

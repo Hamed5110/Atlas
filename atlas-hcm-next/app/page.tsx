@@ -510,7 +510,7 @@ type LoanEmiReturnPreview = {
 const nav: { label: string; view: ViewKey; icon: React.ElementType }[] = [
   { label: "Overview", view: "Overview", icon: LayoutDashboard },
   { label: "Employees", view: "Employees", icon: Users },
-  { label: "Opening Balance", view: "Opening Balance", icon: ListPlus },
+  { label: "Entitlement Seeds", view: "Opening Balance", icon: ListPlus },
   { label: "Airfare Allocation", view: "Airfare", icon: Plane },
   { label: "Employee Self-Service", view: "Employee Self-Service", icon: ClipboardCheck },
   { label: "Loans", view: "Loans", icon: WalletCards },
@@ -522,6 +522,14 @@ const nav: { label: string; view: ViewKey; icon: React.ElementType }[] = [
   { label: "User Management", view: "Security", icon: ShieldCheck },
   { label: "Support", view: "Support", icon: HelpCircle }
 ];
+
+const viewDisplayTitles: Partial<Record<ViewKey, string>> = {
+  "Opening Balance": "Entitlement Seeds"
+};
+
+function getViewDisplayTitle(view: ViewKey) {
+  return viewDisplayTitles[view] || view;
+}
 
 const money = new Intl.NumberFormat("en-BH", { style: "currency", currency: "BHD", maximumFractionDigits: 2 });
 const today = new Date().toISOString().slice(0, 10);
@@ -2471,7 +2479,7 @@ export default function DashboardPage() {
       maximumPayout: String(employee.MaximumPayout ?? 150),
       totalWorkingDays: String(employee.TotalWorkingDays ?? 0)
     });
-    setMessage(`Editing ${employee.EmployeeCode} - master details loaded. Opening balances are maintained in the Opening Balance screen.`);
+    setMessage(`Editing ${employee.EmployeeCode} - master details loaded. Entitlement seed balances are maintained in the Entitlement Seeds screen.`);
   }
 
   async function handleSaveAirfarePolicyRate() {
@@ -3593,9 +3601,9 @@ export default function DashboardPage() {
       setOpeningForm({ ...openingForm, employeeId: "", year: String(openingYear), openingDays: "", openingBhd: "", maximumPayout: "150" });
       setEditingOpeningBalanceKey(null);
       setOpeningEditModalOpen(false);
-      setMessage(`Opening balance ${editingOpeningBalanceKey ? "updated" : "saved"} for ${openingYear} and employee airfare balance updated.`);
+      setMessage(`Entitlement seed ${editingOpeningBalanceKey ? "updated" : "saved"} for ${openingYear}; live airfare entitlement remains computed by the continuous ledger.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Opening balance save failed");
+      setMessage(error instanceof Error ? error.message : "Entitlement seed save failed");
     } finally {
       setBusy(false);
     }
@@ -3646,14 +3654,14 @@ export default function DashboardPage() {
       maximumPayout: String(row.MaximumPayout || employee?.MaximumPayout || 150)
     });
     setOpeningEditModalOpen(true);
-    setMessage(`Editing ${row.EmployeeCode} opening balance for ${year}. Review values, then Update opening balance.`);
+    setMessage(`Editing ${row.EmployeeCode} entitlement seed for ${year}. Review values, then update the seed.`);
   }
 
   async function handleDeleteOpeningBalance(row: OpeningBalanceRegisterRow) {
-    if (!session) return setMessage("Please sign in before deleting opening balances.");
-    if (!["admin", "manager", "hr"].includes(session.user.role)) return setMessage("Only admin, manager, or HR can delete opening balances.");
+    if (!session) return setMessage("Please sign in before deleting entitlement seeds.");
+    if (!["admin", "manager", "hr"].includes(session.user.role)) return setMessage("Only admin, manager, or HR can delete entitlement seeds.");
     const year = normalizeOpeningYear(row.BalanceYear || activeOpeningYearNumber);
-    const ok = window.confirm(`Delete opening balance for ${row.EmployeeCode} in ${year}? This removes only this employee/year opening balance.`);
+    const ok = window.confirm(`Delete entitlement seed for ${row.EmployeeCode} in ${year}? This removes only this employee/year seed row.`);
     if (!ok) return;
     setBusy(true);
     setMessage("");
@@ -3662,9 +3670,9 @@ export default function DashboardPage() {
       if (editingOpeningBalanceKey === `${row.EmployeeID}-${year}`) resetOpeningBalanceForm(year);
       await loadLiveData(session, year);
       await reloadOpeningBalances(session, year);
-      setMessage(`Deleted ${row.EmployeeCode} opening balance for ${year}.`);
+      setMessage(`Deleted ${row.EmployeeCode} entitlement seed for ${year}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Opening balance delete failed");
+      setMessage(error instanceof Error ? error.message : "Entitlement seed delete failed");
     } finally {
       setBusy(false);
     }
@@ -3685,12 +3693,12 @@ export default function DashboardPage() {
   }
 
   async function handleBulkDeleteOpeningBalances() {
-    if (!session) return setMessage("Please sign in before deleting opening balances.");
-    if (!["admin", "manager", "hr"].includes(session.user.role)) return setMessage("Only admin, manager, or HR can delete opening balances.");
+    if (!session) return setMessage("Please sign in before deleting entitlement seeds.");
+    if (!["admin", "manager", "hr"].includes(session.user.role)) return setMessage("Only admin, manager, or HR can delete entitlement seeds.");
     const selectedRows = filteredOpeningBalanceRows.filter((row) => selectedOpeningBalanceKeys.has(openingBalanceKey(row)));
-    if (!selectedRows.length) return setMessage("Select opening balance rows before deleting.");
+    if (!selectedRows.length) return setMessage("Select entitlement seed rows before deleting.");
     const year = activeOpeningYearNumber;
-    const ok = window.confirm(`Delete ${selectedRows.length} selected opening balance row(s) for ${year}?`);
+    const ok = window.confirm(`Delete ${selectedRows.length} selected entitlement seed row(s) for ${year}?`);
     if (!ok) return;
     setBusy(true);
     setMessage("");
@@ -3703,9 +3711,9 @@ export default function DashboardPage() {
       if (selectedRows.some((row) => editingOpeningBalanceKey === openingBalanceKey(row))) resetOpeningBalanceForm(year);
       await loadLiveData(session, year);
       await reloadOpeningBalances(session, year);
-      setMessage(`Deleted ${result.deleted} selected opening balance row(s) for ${result.year}.`);
+      setMessage(`Deleted ${result.deleted} selected entitlement seed row(s) for ${result.year}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Selected opening balance delete failed");
+      setMessage(error instanceof Error ? error.message : "Selected entitlement seed delete failed");
     } finally {
       setBusy(false);
     }
@@ -4451,7 +4459,7 @@ export default function DashboardPage() {
   }
 
   function printCurrentScreen() {
-    let title = `${activeView} Snapshot`;
+    let title = `${getViewDisplayTitle(activeView)} Snapshot`;
     let columns = ["Metric", "Value"];
     let rows: Array<Record<string, unknown>> = [
       { Metric: "Screen", Value: activeView },
@@ -4480,7 +4488,7 @@ export default function DashboardPage() {
         "Airfare Amount": calculateExcelTotal(employee).toFixed(2)
       }));
     } else if (activeView === "Opening Balance") {
-      title = "Opening Balance Register";
+      title = "Entitlement Seed Register";
       columns = ["Code", "Name", "Opening Days", "Opening Amount", "Max Payout"];
       rows = filteredEmployees.map((employee) => ({
         Code: employee.EmployeeCode,
@@ -4574,7 +4582,7 @@ export default function DashboardPage() {
       rows = [
         { Area: "Company", Instruction: "Create company, upload logo, and select it from the sidebar." },
         { Area: "Employees", Instruction: "Add or import employee master, then verify mapping preview." },
-        { Area: "Opening Balance", Instruction: "Enter opening days and amount before allocations." },
+        { Area: "Entitlement Seeds", Instruction: "Maintain legacy seed days and amount only for corrections/imports; live entitlement is computed continuously." },
         { Area: "Airfare Allocation", Instruction: "Select employee, ticket cost, payment option, attachment, save and print." },
         { Area: "Loans", Instruction: "Create manual loans or convert airfare excess into EMI." },
         { Area: "Testing", Instruction: "Formula, import, loan, attachment, company, backup, reports, and layout tests are available." }
@@ -4587,20 +4595,7 @@ export default function DashboardPage() {
   async function openOpeningBalanceForYear(yearValue: string | number) {
     const year = normalizeOpeningYear(yearValue);
     await handleFiscalYearSwitch(year, { announce: false, targetView: "Opening Balance" });
-    setMessage(`Opening Balance opened for ${year}. This shows the selected year register and export context.`);
-  }
-
-  async function prepareNextYearOpeningUpdate(row: OpeningBalanceRegisterRow) {
-    const nextYear = normalizeOpeningYear((row.BalanceYear || activeFiscalYearNumber) + 1);
-    await handleFiscalYearSwitch(nextYear, { announce: false, targetView: "Opening Balance" });
-    setOpeningForm({
-      employeeId: String(row.EmployeeID),
-      year: String(nextYear),
-      openingDays: String(Number(row.OpeningDays || 0)),
-      openingBhd: String(Number(row.OpeningBHD || 0)),
-      maximumPayout: String(row.MaximumPayout || 150)
-    });
-    setMessage(`Prepared ${row.EmployeeCode} opening balance for ${nextYear}. Review values, then Save opening balance to update the next year.`);
+    setMessage(`Entitlement seed register opened for ${year}. Use it only for controlled corrections/imports; live entitlement comes from the continuous ledger.`);
   }
 
   async function handleSaveCompany() {
@@ -5748,7 +5743,7 @@ export default function DashboardPage() {
                 </button>
               </div>
             )}
-            <h1>{activeView === "Overview" ? "Airfare Command Center" : activeView}</h1>
+            <h1>{activeView === "Overview" ? "Airfare Command Center" : getViewDisplayTitle(activeView)}</h1>
             </div>
           </div>
           <div className="top-actions">
@@ -6086,10 +6081,10 @@ export default function DashboardPage() {
               </div>
               <div className="standard-note">
                 <div>
-                  <strong>Opening balance is controlled separately.</strong>
-                  <span>Use the Opening Balance screen for opening days, opening amount, and Excel import.</span>
+                  <strong>Entitlement seed balance is controlled separately.</strong>
+                  <span>Use Entitlement Seeds only for legacy opening days, opening amount, and Excel import corrections.</span>
                 </div>
-                <button className="mini-soft" onClick={() => setActiveView("Opening Balance")}>Open balance screen</button>
+                <button className="mini-soft" onClick={() => setActiveView("Opening Balance")}>Open seed register</button>
               </div>
               <div className="button-row">
                 <button className="shine-button" disabled={busy} onClick={handleCreateEmployee}>{editingEmployeeId ? "Update employee" : "Save employee"}</button>
@@ -6105,18 +6100,18 @@ export default function DashboardPage() {
         {activeView === "Opening Balance" && (
           <section className="preferences-page">
             <div className="glass-panel table-card">
-              <div className="card-title"><ListPlus size={18} /> Opening balance register</div>
+              <div className="card-title"><ListPlus size={18} /> Entitlement seed register</div>
               <input ref={openingImportRef} type="file" accept=".xlsx,.xls" hidden onChange={handleImportOpeningBalances} />
               <div className="opening-register-toolbar">
-                <div className="opening-year-control" aria-label="Opening balance year filter">
-                  <button className="icon-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber <= 2000} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber - 1)} title="Previous opening year" aria-label="Previous opening year"><ChevronLeft size={16} /></button>
+                <div className="opening-year-control" aria-label="Entitlement seed year filter">
+                  <button className="icon-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber <= 2000} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber - 1)} title="Previous seed year" aria-label="Previous seed year"><ChevronLeft size={16} /></button>
                   <label>
-                    <span>Opening year</span>
+                    <span>Seed year</span>
                     <select value={activeOpeningYear} disabled={busy || openingBalanceLoading} onChange={(event) => void handleOpeningYearChange(event.target.value)}>
                       {openingYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
                     </select>
                   </label>
-                  <button className="icon-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber >= 2100} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber + 1)} title="Next opening year" aria-label="Next opening year"><ChevronRight size={16} /></button>
+                  <button className="icon-button" disabled={busy || openingBalanceLoading || activeOpeningYearNumber >= 2100} onClick={() => void handleOpeningYearChange(activeOpeningYearNumber + 1)} title="Next seed year" aria-label="Next seed year"><ChevronRight size={16} /></button>
                 </div>
                 <div className="opening-register-facts">
                   <span className={`pill ${activeOpeningYearNumber < currentCalendarYear ? "warning" : "success"}`}>{activeOpeningYearMode}</span>
@@ -6145,7 +6140,7 @@ export default function DashboardPage() {
               </div>
               <div className="button-row compact">
                 <button className="soft-button" disabled={busy || !session} onClick={() => openingImportRef.current?.click()}><Upload size={16} /> Import Excel</button>
-                <button className="soft-button" disabled={busy} onClick={handleExportOpeningBalances}><Download size={16} /> Export Opening Balances</button>
+                <button className="soft-button" disabled={busy} onClick={handleExportOpeningBalances}><Download size={16} /> Export seed balances</button>
                 <button className="danger-button" disabled={busy || selectedOpeningBalanceRows.length === 0} onClick={() => void handleBulkDeleteOpeningBalances}><Trash2 size={16} /> Delete selected {selectedOpeningBalanceRows.length ? `(${selectedOpeningBalanceRows.length})` : ""}</button>
               </div>
               {openingPreview && (
@@ -6193,28 +6188,27 @@ export default function DashboardPage() {
               )}
               <div className="premium-table">
                 <div className="table-row employee-head opening-balance-row table-head">
-                  <span><input type="checkbox" aria-label="Select all opening balance rows" checked={allOpeningBalanceRowsSelected} disabled={!filteredOpeningBalanceRows.length} onChange={(event) => toggleAllOpeningBalanceRows(event.target.checked)} /></span>
-                  <span>Employee</span><span>Opening Days</span><span>Opening Amount</span><span>Status</span><span>Action</span>
+                  <span><input type="checkbox" aria-label="Select all entitlement seed rows" checked={allOpeningBalanceRowsSelected} disabled={!filteredOpeningBalanceRows.length} onChange={(event) => toggleAllOpeningBalanceRows(event.target.checked)} /></span>
+                  <span>Employee</span><span>Seed Days</span><span>Seed Amount</span><span>Status</span><span>Action</span>
                 </div>
                 {filteredOpeningBalanceRows.length === 0 && (
                   <div className="notice">
                     <span />
                     <div>
-                      <strong>No opening balance rows for {activeOpeningYearNumber}</strong>
-                      <p>Switch year, import Excel, or add a balance for the selected year.</p>
+                      <strong>No entitlement seed rows for {activeOpeningYearNumber}</strong>
+                      <p>Switch seed year, import Excel, or add a controlled seed balance for reconciliation.</p>
                     </div>
                   </div>
                 )}
                 {filteredOpeningBalanceRows.map((row) => (
                   <div className="table-row employee-head opening-balance-row" key={`${row.EmployeeID}-${row.BalanceYear}`}>
-                    <span><input type="checkbox" aria-label={`Select ${row.EmployeeCode} opening balance`} checked={selectedOpeningBalanceKeys.has(openingBalanceKey(row))} onChange={(event) => toggleOpeningBalanceSelection(row, event.target.checked)} /></span>
+                    <span><input type="checkbox" aria-label={`Select ${row.EmployeeCode} entitlement seed`} checked={selectedOpeningBalanceKeys.has(openingBalanceKey(row))} onChange={(event) => toggleOpeningBalanceSelection(row, event.target.checked)} /></span>
                     <span><strong>{row.FullName}</strong><small>{row.EmployeeCode} / {row.Department || "-"}</small></span>
                     <span>{Number(row.OpeningDays || 0).toFixed(2)}</span>
                     <span>{money.format(Number(row.OpeningBHD || 0))}</span>
                     <span className="pill">{row.IsActive === false ? "Inactive" : "Active"}</span>
                     <span className="row-actions">
                       <button className="mini-soft" onClick={() => prepareOpeningBalanceEdit(row)}>Edit</button>
-                      <button className="mini-soft" onClick={() => void prepareNextYearOpeningUpdate(row)}>Update next year</button>
                       <button className="mini-danger" disabled={busy} onClick={() => void handleDeleteOpeningBalance(row)}><Trash2 size={14} /> Delete</button>
                     </span>
                   </div>
@@ -6222,13 +6216,13 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="glass-panel form-card preferences-policy-card">
-              <div className="card-title">{openingFormIsUpdate ? <Pencil size={18} /> : <Plus size={18} />} {openingFormIsUpdate ? "Update opening balance" : "Add opening balance"}</div>
+              <div className="card-title">{openingFormIsUpdate ? <Pencil size={18} /> : <Plus size={18} />} {openingFormIsUpdate ? "Update entitlement seed" : "Add entitlement seed"}</div>
               {openingFormIsUpdate && (
                 <div className="notice compact update-mode-notice">
                   <span />
                   <div>
                     <strong>Editing selected row</strong>
-                    <p>Change days or amount, then press Update opening balance. Use Cancel to return to add mode.</p>
+                    <p>Change seed days or amount, then press Update entitlement seed. Use Cancel to return to add mode.</p>
                   </div>
                 </div>
               )}
@@ -6248,16 +6242,16 @@ export default function DashboardPage() {
                     {(employeeMasterAll.length ? employeeMasterAll : employees).map((employee) => <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}{isAirfareEligibleEmployeeStatus(employee.Status) ? "" : " (inactive)"}</option>)}
                   </select>
                 </Field>
-                <Field label="Opening year"><input type="number" min="2000" max="2100" value={openingForm.year} disabled={openingFormIsUpdate} onChange={(event) => {
+                <Field label="Seed year"><input type="number" min="2000" max="2100" value={openingForm.year} disabled={openingFormIsUpdate} onChange={(event) => {
                   const value = event.target.value;
                   setOpeningForm({ ...openingForm, year: value });
                   setActiveOpeningYear(value);
                 }} onBlur={(event) => void handleOpeningYearChange(event.target.value)} /></Field>
-                <Field label="Opening days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => {
+                <Field label="Seed days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => {
                   const days = event.target.value;
                   void refreshOpeningFormAmount({ openingDays: days });
                 }} /></Field>
-                <Field label="Opening amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} readOnly /></Field>
+                <Field label="Seed amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} readOnly /></Field>
                 <Field label="Maximum payout"><input type="number" step="0.01" min="0" max="150" value={openingForm.maximumPayout} onChange={(event) => {
                   const maximumPayout = event.target.value;
                   void refreshOpeningFormAmount({ maximumPayout });
@@ -6269,10 +6263,10 @@ export default function DashboardPage() {
                 <span><small>Rate source</small><strong>MSSQL</strong></span>
               </div>
               <div className="button-row">
-                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>{openingFormIsUpdate ? "Update opening balance" : "Save opening balance"}</button>
+                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>{openingFormIsUpdate ? "Update entitlement seed" : "Save entitlement seed"}</button>
                 {openingFormIsUpdate && <button className="soft-button" disabled={busy} onClick={() => resetOpeningBalanceForm(openingForm.year)}>Cancel edit</button>}
               </div>
-              <p className="muted">Opening balance is legacy seed evidence; live entitlement is computed from rules and transaction history.</p>
+              <p className="muted">Seed balance is legacy evidence only; live entitlement is computed from rules, accrual ledger, usage, and transaction history.</p>
             </div>
           </section>
         )}
@@ -6376,10 +6370,10 @@ export default function DashboardPage() {
             <section className="glass-panel opening-edit-modal" role="dialog" aria-modal="true" aria-labelledby="opening-edit-title">
               <div className="modal-head">
                 <div>
-                  <strong id="opening-edit-title">Edit opening balance</strong>
+                  <strong id="opening-edit-title">Edit entitlement seed</strong>
                   <span>MSSQL calculates the amount through dbo.fn_ATLAS_AirfareAmount.</span>
                 </div>
-                <button className="icon-button" type="button" aria-label="Close edit opening balance" onClick={() => resetOpeningBalanceForm(openingForm.year)}><X size={18} /></button>
+                <button className="icon-button" type="button" aria-label="Close edit entitlement seed" onClick={() => resetOpeningBalanceForm(openingForm.year)}><X size={18} /></button>
               </div>
               <div className="form-grid two">
                 <Field label="Employee">
@@ -6388,10 +6382,10 @@ export default function DashboardPage() {
                     {(employeeMasterAll.length ? employeeMasterAll : employees).map((employee) => <option key={employee.EmployeeID} value={employee.EmployeeID}>{employee.EmployeeCode} - {employee.FullName}</option>)}
                   </select>
                 </Field>
-                <Field label="Opening year"><input type="number" value={openingForm.year} disabled /></Field>
-                <Field label="Opening days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => void refreshOpeningFormAmount({ openingDays: event.target.value })} /></Field>
+                <Field label="Seed year"><input type="number" value={openingForm.year} disabled /></Field>
+                <Field label="Seed days"><input type="number" step="0.01" value={openingForm.openingDays} onChange={(event) => void refreshOpeningFormAmount({ openingDays: event.target.value })} /></Field>
                 <Field label="Maximum payout"><input type="number" step="0.01" min="0" max="150" value={openingForm.maximumPayout} onChange={(event) => void refreshOpeningFormAmount({ maximumPayout: event.target.value })} /></Field>
-                <Field label="Opening amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} readOnly /></Field>
+                <Field label="Seed amount BHD"><input type="number" step="0.01" value={openingForm.openingBhd} readOnly /></Field>
               </div>
               <div className="calc-result">
                 <span><small>Formula source</small><strong>dbo.fn_ATLAS_AirfareAmount</strong></span>
@@ -6399,7 +6393,7 @@ export default function DashboardPage() {
                 <span><small>Rate source</small><strong>MSSQL</strong></span>
               </div>
               <div className="button-row">
-                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>Update opening balance</button>
+                <button className="shine-button" disabled={busy} onClick={handleSaveOpeningBalance}>Update entitlement seed</button>
                 <button className="soft-button" disabled={busy} onClick={() => resetOpeningBalanceForm(openingForm.year)}>Cancel edit</button>
               </div>
             </section>
