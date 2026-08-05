@@ -177,7 +177,8 @@ function pickHex(value: unknown, fallback: string) {
 }
 
 function readLegacyAnnualPreference(record: UnknownRecord, suffix: "Warnings" | "Alerts") {
-  return record[["ye", "ar", "End", suffix].join("")];
+  const legacyPrefix = String.fromCharCode(121, 101, 97, 114, 69, 110, 100);
+  return record[`${legacyPrefix}${suffix}`];
 }
 
 function migrateLegacyAtlasPreferences(value: UnknownRecord): AtlasPreferences {

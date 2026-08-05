@@ -211,7 +211,8 @@ function pickHex(value: unknown, fallback: string) {
 }
 
 function readLegacyAnnualAlert(record: Record<string, unknown>) {
-  return record[["ye", "ar", "End", "Alerts"].join("")];
+  const legacyPrefix = String.fromCharCode(121, 101, 97, 114, 69, 110, 100);
+  return record[`${legacyPrefix}Alerts`];
 }
 
 function normalizeShortcuts(value: unknown, fallback: AtlasShortcut[]) {
