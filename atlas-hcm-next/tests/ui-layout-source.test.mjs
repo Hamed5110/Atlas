@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -91,7 +91,8 @@ assert.match(source, /Average salary/, "employee master should expose Excel aver
 assert.match(source, /Serial no/, "employee master should expose Excel serial number field");
 assert.match(source, /Last working date/, "employee master should expose Excel last working date field");
 assert.match(source, /String\(employee\.BHStatus \|\| ""\)\.toUpperCase\(\) === "BH"/, "employee edit should load Bahraini National from BHStatus, not CPR presence");
-assert.match(source, /Year End/, "year end process should be visible in navigation");
+assert.doesNotMatch(source, /Year End|year-end|YearEnd|Open Year End blueprint|opening-year-end-bridge/, "annual close process should not be visible in navigation");
+assert.match(source, /Continuous entitlement bridge/, "continuous entitlement process should be visible where opening balances are legacy seed data");
 assert.match(source, /Preferences/, "preferences and custom values screen should be visible in navigation");
 assert.match(source, /Preferences and custom values/, "preferences screen should provide a dedicated settings workspace");
 assert.match(source, /handleSaveAirfarePolicyRate/, "preferences screen should save date-effective airfare policy values");
@@ -111,10 +112,10 @@ assert.match(source, /policyEmployeeSearch[\s\S]*policy-employee-list/, "prefere
 
 assert.match(source, /selectedEffectivePolicyRate/, "airfare preview should apply scoped policy rates before saving");
 assert.match(source, /employee exception, pay group matrix, department matrix, company default, then global default/, "preferences should explain policy priority clearly");
-assert.match(source, /handleYearEndPreview/, "year end screen should support preview before closing");
-assert.match(source, /handleYearEndClose/, "year end screen should support controlled final close");
-assert.match(source, /Year End readiness gate/, "year end screen should show readiness checks before closing");
-assert.match(source, /Use one fiscal year switch only\./, "year end should direct users to the single global fiscal year control");
+assert.match(source, /handleRunEntitlementReconciliation/, "entitlement process should support admin reconciliation checks");
+assert.match(source, /exportEntitlementReconciliationCsv/, "entitlement process should export reconciliation evidence");
+assert.match(source, /Airfare Entitlement - Migration Debug[\s\S]*Continuous Entitlement Reconciliation - not used for payroll/, "entitlement panel should clearly separate migration debug evidence from payroll writes");
+assert.match(source, /No annual close is required/, "opening balance guidance should explain that the continuous ledger replaces annual close");
 assert.match(source, /activeFiscalYear/, "application should expose a global fiscal year context");
 assert.match(source, /handleFiscalYearSwitch/, "application should reload year-sensitive data from one fiscal switch");
 assert.match(source, /Fiscal year/, "sidebar should show the global fiscal year switch");
@@ -140,26 +141,21 @@ assert.match(css, /\.modal-backdrop\s*{[\s\S]*align-items:\s*start/, "opening ba
 assert.match(css, /\.opening-edit-modal \.button-row\s*{[\s\S]*position:\s*sticky/, "opening balance modal actions should remain visible");
 assert.match(css, /\.opening-register-toolbar\s*{[\s\S]*grid-template-columns:\s*minmax\(260px,\s*340px\)\s*minmax\(0,\s*1fr\)/, "opening balance compact toolbar should align year control and facts");
 assert.match(css, /grid-template-columns:\s*38px minmax\(0,\s*1fr\) 38px/, "global fiscal selector should not overflow the sidebar");
-assert.match(source, /handleYearEndYearChange/, "year end should clear stale previews when switching years");
-assert.match(source, /Open \{yearEndNextYear\} opening balance/, "year end should link users to the next-year opening balance register");
-assert.match(source, /A preview expires after 30 minutes and must match unchanged data before close\./, "year end should explain its evidence-gated close rule");
-assert.match(source, /Company-wise and year-wise shifting matrix/, "year end should show company/year matrix boundaries");
-assert.match(source, /yearEndMatrixRows/, "year end should generate company-year isolation matrix rows");
+assert.match(source, /Open reconciliation/, "opening balance should link users to continuous entitlement reconciliation");
+assert.match(source, /policy rules, accrual ledger, usage, and history/, "opening balance should describe entitlement calculation inputs");
+assert.match(source, /entitlementReconForm/, "entitlement reconciliation should keep scoped form state");
 assert.match(source, /Opening year/, "opening balance should expose a compact opening-year filter");
 assert.match(css, /\.opening-year-control\s*{[\s\S]*grid-template-columns/, "opening balance year filter should use a compact responsive grid");
-assert.match(css, /\.year-end-global-note\s*{[\s\S]*margin:\s*2px 0 14px/, "year end should style the single global fiscal year guidance note");
+assert.match(css, /\.opening-continuous-entitlement-bridge\s*{[\s\S]*display:\s*grid/, "continuous entitlement bridge should use an aligned responsive grid");
 assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.opening-register-facts[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "opening balance compact facts should collapse cleanly on mobile");
-assert.match(source, /yearEndReadinessChecks/, "year end readiness checks should be generated from live preview state");
-assert.match(source, /Pending loans/, "year end preview should show pending loans before final close");
+assert.match(source, /entitlementRecon\?\.summary/, "entitlement reconciliation metrics should come from live API result state");
+assert.match(source, /Missing seed/, "entitlement reconciliation should flag missing continuous seed rows");
 assert.match(source, /Opening Loan Balance/, "loan dashboard should show the selected-year opening loan balance");
-assert.match(source, /Opening loan balance/, "year end summary should show next-year opening loan balance");
+assert.match(source, /Opening loan balance/, "loan dashboard should show selected-year opening loan balance");
 assert.match(source, /opening-loan-balances\?year=\$\{openingYear\}/, "global fiscal switch should reload opening loan balances");
-assert.match(source, /NextOpeningLoanBalance/, "year end employee preview should show the next opening loan value");
-assert.match(source, /Closing days/, "year end preview should show closing days as of selected closing date");
-assert.match(source, /Closing amount/, "year end preview should show closing amount as of selected closing date");
-assert.match(source, /CurrentYearEarnedDays/, "year end employee preview should include earned days up to closing date");
-assert.match(source, /PendingLoanAmount/, "year end employee preview should include pending loan amount separately");
-assert.match(css, /\.preview-row\.year-end-head\s*{[\s\S]*grid-template-columns/, "year end preview should use dedicated readable columns");
+assert.match(source, /Continuous Airfare Balance/, "entitlement reconciliation should compare live continuous balances");
+assert.match(source, /Legacy Airfare Balance/, "entitlement reconciliation should compare legacy seed balances");
+assert.match(source, /Difference/, "entitlement reconciliation should show balance differences");
 assert.match(css, /--page-gap:\s*8px/, "standard application density should remove excess page spacing");
 assert.match(css, /--topbar-h:\s*52px/, "topbar should use a compact operations-console height");
 assert.match(css, /\.modal-backdrop\s*{[\s\S]*backdrop-filter:\s*blur\(4px\)/, "modal overlay should not over-blur the whole workspace");
@@ -288,8 +284,8 @@ assert.match(source, /type="color"[\s\S]*updateCustomAccent/, "preferences shoul
 assert.match(source, /value=\{viewMode\}[\s\S]*updateViewMode/, "preferences should expose layout view modes");
 assert.match(css, /\.settings-system-matrix[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/, "advanced preferences matrix should align in a responsive grid");
 assert.match(source, /shell atlas-app-shell[\s\S]*data-view=\{viewMode\}/, "app should render through the rebuilt visual shell with view-mode state");
-assert.match(source, /className="atlas-nav"[\s\S]*<kbd className="nav-hint">⌘\{index \+ 1\}<\/kbd>/, "sidebar navigation should expose keyboard hint affordances");
-assert.match(source, /placeholder="Search employees, loans, companies — ⌘K"/, "command search should expose command-palette keyboard hint");
+assert.match(source, /className="atlas-nav"[\s\S]*<kbd className="nav-hint">Ctrl \{index \+ 1\}<\/kbd>/, "sidebar navigation should expose keyboard hint affordances");
+assert.match(source, /placeholder="Search employees, loans, companies - Ctrl K"/, "command search should expose command-palette keyboard hint");
 assert.match(source, /atlas-sidebar-header[\s\S]*atlas-sidebar-context[\s\S]*atlas-sidebar-nav-zone[\s\S]*atlas-sidebar-footer/, "sidebar should be separated into fixed header, fixed context, scrollable nav, and fixed footer zones");
 assert.match(css, /\.atlas-app-shell\s*{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*248px\)\s+minmax\(0,\s*1fr\)/, "rebuilt shell should use strict sidebar-centric grid architecture");
 assert.match(css, /\.atlas-sidebar-header\s*{[\s\S]*flex:\s*0 0 auto/, "sidebar header zone should never shrink into controls");
@@ -350,7 +346,7 @@ assert.match(server, /\/api\/diagnostics\/external-apis/, "backend should expose
 assert.match(server, /\/api\/diagnostics\/system/, "backend should expose a combined system diagnostics endpoint");
 assert.match(server, /\/api\/intelligence\/system-integrity/, "backend should expose the automatic system integrity endpoint");
 assert.match(server, /buildAutomaticVerificationModel/, "backend should build a combined integrity model from existing evidence");
-assert.match(server, /No business formulas, year-end rules, loan rules, report formulas, or company rules are changed/, "integrity model should explicitly protect existing formulas and rules");
+assert.match(server, /No business formulas, continuous entitlement rules, loan rules, report formulas, or company rules are changed/, "integrity model should explicitly protect existing formulas and rules");
 assert.match(server, /Promise\.allSettled/, "diagnostics should use all-settled concurrency");
 assert.match(server, /AbortController/, "diagnostics should enforce timeout protection for external checks");
 assert.doesNotMatch(server, /WHERE r\.IsActive = 1[\s\S]{0,160}ORDER BY r\.EffectiveFrom DESC, r\.PolicyRateID DESC/, "airfare policy API should return full policy history, not only active rows");

@@ -14,7 +14,8 @@ import { usePreferencesStore } from "./preferences.store";
 
 const SESSION_STORAGE_KEY = "atlas.session";
 const LEGACY_PREFERENCES_STORAGE_KEY = "atlas.ui.preferences";
-const NEW_PREFERENCES_STORAGE_KEY = "atlas.preferences.v2";
+const NEW_PREFERENCES_STORAGE_KEY = "atlas.preferences.v3";
+const PREVIOUS_PREFERENCES_STORAGE_KEY = "atlas.preferences.v2";
 const SAVE_DEBOUNCE_MS = 1000;
 
 type SavedSessionEnvelope = {
@@ -43,7 +44,7 @@ function readSavedSession(): { session: AtlasSession; companyId: number | null; 
 
 function readLocalPreferences(): AtlasPreferences {
   if (typeof window === "undefined") return createDefaultPreferences();
-  const keys = [NEW_PREFERENCES_STORAGE_KEY, LEGACY_PREFERENCES_STORAGE_KEY];
+  const keys = [NEW_PREFERENCES_STORAGE_KEY, PREVIOUS_PREFERENCES_STORAGE_KEY, LEGACY_PREFERENCES_STORAGE_KEY];
   for (const key of keys) {
     try {
       const raw = window.localStorage.getItem(key);

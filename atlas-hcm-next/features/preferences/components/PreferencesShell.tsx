@@ -34,7 +34,8 @@ const sectionDescriptions: Record<PreferenceSection, string> = {
   workspace: "Default page, panels, metrics, and navigation behavior.",
   dataSafety: "Import, export, reset, and destructive-action confirmations.",
   keyboard: "Shortcut registry and command palette behavior.",
-  notifications: "Database, Year End, import/export, and installer warnings.",
+  entitlement: "Continuous accrual, reconciliation, policy visibility, and guardrails.",
+  notifications: "Database, entitlement, import/export, and installer warnings.",
   admin: "Rate-limit visibility, diagnostics, version health, and support bundle settings."
 };
 
@@ -43,6 +44,7 @@ const sectionIcons = {
   workspace: LayoutDashboard,
   dataSafety: ShieldAlert,
   keyboard: Keyboard,
+  entitlement: Database,
   notifications: Bell,
   admin: MonitorCog
 } satisfies Record<PreferenceSection, typeof Palette>;
@@ -151,14 +153,14 @@ function PreferencesNavigation() {
                 <strong>{preferenceSectionLabels[section]}</strong>
                 <span>{sectionDescriptions[section]}</span>
               </span>
-              <kbd className={styles.shortcut}>⌘{index + 1}</kbd>
+              <kbd className={styles.shortcut}>Ctrl {index + 1}</kbd>
             </button>
           );
         })}
       </nav>
       <div className={styles.sidebarFooter}>
-        <strong>Schema v2 guarded</strong>
-        <span>Imports are validated and migrated before anything is saved to SQL.</span>
+        <strong>Schema v3 guarded</strong>
+        <span>Old annual-close warning settings are migrated into continuous entitlement preferences before SQL save.</span>
       </div>
     </aside>
   );
@@ -253,7 +255,7 @@ function AppearanceSection() {
             <div className={styles.previewBar} />
             <div className={styles.previewRows}>
               <div className={styles.previewRow}><span>Airfare payable</span><strong>BHD 150.00</strong></div>
-              <div className={styles.previewRow}><span>Year End warning</span><strong>Enabled</strong></div>
+              <div className={styles.previewRow}><span>Entitlement warning</span><strong>Enabled</strong></div>
               <div className={styles.previewRow}><span>Employee grid row</span><strong>{draft.appearance.tableRowHeight}</strong></div>
             </div>
           </div>
@@ -344,7 +346,7 @@ function DataSafetySection({ exportJson, importJson, resetToDefaults }: ReturnTy
           <h4>Safety rules</h4>
           <p>These settings control how destructive actions are confirmed across ATLAS.</p>
           <div className={styles.toggleList}>
-            <Toggle checked={draft.dataSafety.requireDestructiveConfirmations} onChange={(checked) => patchDraft((current) => patch(current, "dataSafety", { requireDestructiveConfirmations: checked }))} label="Require destructive confirmations" description="Protect delete/reset/year-end actions from accidental clicks." />
+            <Toggle checked={draft.dataSafety.requireDestructiveConfirmations} onChange={(checked) => patchDraft((current) => patch(current, "dataSafety", { requireDestructiveConfirmations: checked }))} label="Require destructive confirmations" description="Protect delete, reset, import, and entitlement write actions from accidental clicks." />
             <Toggle checked={draft.dataSafety.confirmBulkDelete} onChange={(checked) => patchDraft((current) => patch(current, "dataSafety", { confirmBulkDelete: checked }))} label="Confirm bulk delete" description="Require confirmation before deleting many records." />
             <Toggle checked={draft.dataSafety.exportIncludesUiOnly} onChange={(checked) => patchDraft((current) => patch(current, "dataSafety", { exportIncludesUiOnly: checked }))} label="Include UI-only settings in exports" description="Useful for cloning a workstation layout; off by default for clean user migrations." />
           </div>
@@ -399,7 +401,7 @@ function KeyboardSection() {
       </div>
       <div className={styles.card}>
         <div className={styles.toggleList}>
-          <Toggle checked={draft.keyboard.commandPaletteEnabled} onChange={(checked) => patchDraft((current) => patch(current, "keyboard", { commandPaletteEnabled: checked }))} label="Command palette binding" description="Enable Ctrl/⌘K command palette behavior." />
+          <Toggle checked={draft.keyboard.commandPaletteEnabled} onChange={(checked) => patchDraft((current) => patch(current, "keyboard", { commandPaletteEnabled: checked }))} label="Command palette binding" description="Enable Ctrl+K command palette behavior." />
           <Toggle checked={draft.keyboard.showShortcutHints} onChange={(checked) => patchDraft((current) => patch(current, "keyboard", { showShortcutHints: checked }))} label="Show shortcut hints" description="Display small key badges at the right edge of navigation rows." />
         </div>
         <div className={styles.shortcutTable} style={{ marginTop: "1rem" }}>
@@ -419,6 +421,72 @@ function KeyboardSection() {
   );
 }
 
+function EntitlementSection() {
+  const { draft, patchDraft } = usePreferencesStore();
+  const setEntitlement = (value: Partial<AtlasPreferences["entitlement"]>) => patchDraft((current) => patch(current, "entitlement", value));
+
+  return (
+    <section className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <div>
+          <h3>Entitlement Process</h3>
+          <p>Continuous policy enrollment replaces annual close screens. Rules, accruals, usage, and reconciliation stay visible without batch reset conflict.</p>
+        </div>
+      </div>
+      <div className={styles.cardGrid}>
+        <div className={styles.card}>
+          <h4>Process visibility</h4>
+          <p>Inspired by open-source HRMS policy assignment patterns: keep policy, enrollment, ledger, and reconciliation separate.</p>
+          <div className={styles.toggleList}>
+            <Toggle checked={draft.entitlement.showProcessPanel} onChange={(checked) => setEntitlement({ showProcessPanel: checked })} label="Show entitlement process panel" description="Expose policy enrollment, accrual forecast, usage ledger, and reconciliation status for admins." />
+            <Toggle checked={draft.entitlement.showLegacySeedGuidance} onChange={(checked) => setEntitlement({ showLegacySeedGuidance: checked })} label="Show legacy seed guidance" description="Explain opening balances as historical seed data, not a required annual close process." />
+            <Toggle checked={draft.entitlement.requireAdminForWrites} onChange={(checked) => setEntitlement({ requireAdminForWrites: checked })} label="Admin-only entitlement writes" description="Keep continuous writes locked behind admin controls until reconciliation is accepted." />
+          </div>
+        </div>
+        <div className={styles.card}>
+          <h4>Reconciliation defaults</h4>
+          <p>Defaults should help support teams catch missing seed rows and version mismatches without repeated API bursts.</p>
+          <div className={styles.fieldGrid}>
+            <div className={styles.field}>
+              <label htmlFor="reconciliationDefaultScope">Default scope</label>
+              <select
+                id="reconciliationDefaultScope"
+                value={draft.entitlement.reconciliationDefaultScope}
+                onChange={(event) => setEntitlement({ reconciliationDefaultScope: event.target.value as AtlasPreferences["entitlement"]["reconciliationDefaultScope"] })}
+              >
+                <option value="all">All mapped companies</option>
+                <option value="company">Selected company</option>
+              </select>
+              <p className={styles.helpText}>Use all-company scope for migration audits; company scope for daily admin review.</p>
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="accrualForecastHorizonDays">Forecast horizon</label>
+              <select
+                id="accrualForecastHorizonDays"
+                value={String(draft.entitlement.accrualForecastHorizonDays)}
+                onChange={(event) => setEntitlement({ accrualForecastHorizonDays: Number(event.target.value) })}
+              >
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="180">180 days</option>
+                <option value="365">365 days</option>
+              </select>
+              <p className={styles.helpText}>Forecast uses active policy enrollment and ledger history; it does not run a closing job.</p>
+            </div>
+          </div>
+          <div className={styles.processRail} aria-label="Continuous entitlement process">
+            <span>Policy rule</span>
+            <span>Enrollment</span>
+            <span>Accrual ledger</span>
+            <span>Usage events</span>
+            <span>Reconciliation</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function NotificationsSection() {
   const { draft, patchDraft } = usePreferencesStore();
   const [confirmMute, setConfirmMute] = useState(false);
@@ -429,14 +497,14 @@ function NotificationsSection() {
       <div className={styles.sectionHeader}>
         <div>
           <h3>Notifications</h3>
-          <p>Granular warning controls. Mute-all requires confirmation because it can hide Year End warnings.</p>
+          <p>Granular warning controls. Mute-all requires confirmation because it can hide entitlement and installer warnings.</p>
         </div>
       </div>
       <div className={styles.card}>
         <div className={styles.toggleList}>
           <Toggle checked={draft.notifications.muteAllWarnings} onChange={(checked) => checked ? setConfirmMute(true) : setNotification({ muteAllWarnings: false })} label="Mute all warnings" description="Requires confirmation. Keeps the UI calm, but hides important operational warnings." />
           <Toggle checked={draft.notifications.databaseWarnings} disabled={draft.notifications.muteAllWarnings} onChange={(checked) => setNotification({ databaseWarnings: checked })} label="Database warnings" description="Show SQL connection, schema, and version mismatch alerts." />
-          <Toggle checked={draft.notifications.yearEndWarnings} disabled={draft.notifications.muteAllWarnings} onChange={(checked) => setNotification({ yearEndWarnings: checked })} label="Year End warnings" description="Warn before closing fiscal-year state or using stale balances." />
+          <Toggle checked={draft.notifications.entitlementWarnings} disabled={draft.notifications.muteAllWarnings} onChange={(checked) => setNotification({ entitlementWarnings: checked })} label="Entitlement warnings" description="Warn when continuous entitlement, policy enrollment, or reconciliation evidence needs attention." />
           <Toggle checked={draft.notifications.importExportAlerts} disabled={draft.notifications.muteAllWarnings} onChange={(checked) => setNotification({ importExportAlerts: checked })} label="Import/export alerts" description="Show import validation and export completion alerts." />
           <Toggle checked={draft.notifications.installerPatchAlerts} disabled={draft.notifications.muteAllWarnings} onChange={(checked) => setNotification({ installerPatchAlerts: checked })} label="Installer patch alerts" description="Show MSI/EXE manifest, health, and version mismatch warnings." />
           <Toggle checked={draft.notifications.desktopAlerts} disabled={draft.notifications.muteAllWarnings} onChange={(checked) => setNotification({ desktopAlerts: checked })} label="Desktop alerts" description="Allow browser desktop notifications where supported." />
@@ -446,7 +514,7 @@ function NotificationsSection() {
         <ConfirmDialog
           destructive
           title="Mute all warnings?"
-          description="This can hide database, Year End, and installer mismatch warnings. Use only during controlled testing or low-noise review sessions."
+          description="This can hide database, entitlement, and installer mismatch warnings. Use only during controlled testing or low-noise review sessions."
           confirmLabel="Mute warnings"
           onCancel={() => setConfirmMute(false)}
           onConfirm={() => {
@@ -506,6 +574,8 @@ function ActiveSection(props: ReturnType<typeof useAtlasPreferences>) {
       return <DataSafetySection {...props} />;
     case "keyboard":
       return <KeyboardSection />;
+    case "entitlement":
+      return <EntitlementSection />;
     case "notifications":
       return <NotificationsSection />;
     case "admin":

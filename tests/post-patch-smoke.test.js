@@ -106,7 +106,6 @@ async function verifyFrontendRoutes() {
     { path: '/airfare', label: 'Airfare', mustContain: /ATLAS|Airfare/i },
     { path: '/loans', label: 'Loans', mustContain: /ATLAS|Airfare/i },
     { path: '/self-service', label: 'Self-Service', mustContain: /ATLAS|Airfare/i },
-    { path: '/year-end', label: 'Year End', mustContain: /ATLAS|Airfare/i },
     { path: '/reports', label: 'Reports', mustContain: /ATLAS|Airfare/i },
     { path: '/support', label: 'Support/Diagnostics', mustContain: /ATLAS|Airfare/i }
   ];
@@ -239,25 +238,17 @@ async function verifyCoreApis() {
   await expectApiOk('Diagnostics system loads', '/diagnostics/system', (body) => assert.ok(body && typeof body === 'object'));
   await expectApiOk('Diagnostics external APIs loads', '/diagnostics/external-apis', (body) => assert.ok(body && typeof body === 'object'));
 
-  if (firstCompany?.CompanyID) {
-    await expectApiOk('Year End history loads with company context', `/year-end/history?companyId=${firstCompany.CompanyID}`, (body) => assert.ok(Array.isArray(body)));
-    if (loggedInUser?.role === 'admin') {
-      await step('Year End preview accepts company-scoped dry-run request', async () => {
-        const { res, body } = await request(`${API_BASE_URL}/year-end/preview/${FISCAL_YEAR}`, {
-          method: 'POST',
-          json: { companyId: firstCompany.CompanyID, closingDate: `${FISCAL_YEAR}-12-31` }
-        });
-        if (res.status === 400 && /no eligible employees|valid year is required/i.test(String(body?.error || ''))) {
-          return { status: res.status, companyId: firstCompany.CompanyID, guard: body.error };
-        }
-        assert.ok(res.ok, `/api/year-end/preview expected 2xx or known guard 400, got ${res.status}: ${JSON.stringify(body)}`);
-        assert.ok(body.previewId || body.previewHash || body.summary, 'preview should return evidence or summary');
-        return { status: res.status, companyId: firstCompany.CompanyID };
-      });
-    }
+  if (loggedInUser?.role === 'admin') {
+    await expectApiOk('Continuous entitlement reconciliation loads', `/airfare/entitlement/reconciliation?asOfDate=${FISCAL_YEAR}-12-31&limit=5`, (body) => {
+      assert.equal(body.mode, 'migration-reconciliation');
+      assert.ok(body.summary && typeof body.summary === 'object');
+    });
+    await expectApiOk('Continuous entitlement accrual forecast loads', `/entitlement/accrual-forecast?fromDate=${FISCAL_YEAR}-01-01&toDate=${FISCAL_YEAR}-03-31`, (body) => {
+      assert.equal(body.mode, 'continuous-entitlement-accrual-forecast');
+      assert.ok(Array.isArray(body.rows));
+    });
   } else {
-    skip('Year End company-scoped checks skipped', 'No company context available.');
-    await expectApiStatus('Year End history rejects missing companyId with 400', `/year-end/history?year=${FISCAL_YEAR}`, 400);
+    skip('Continuous entitlement admin checks skipped', 'Admin login not available.');
   }
 
   return employeesResult;
@@ -265,13 +256,14 @@ async function verifyCoreApis() {
 
 function defaultPreferences() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     uiOnly: { activeSection: 'appearance', sidebarCollapsed: false, densityPreview: true },
     appearance: { theme: 'system', accentColor: '#0b63f6', density: 'standard', tableRowHeight: 'medium', reduceMotion: false },
     workspace: { defaultLandingPage: 'overview', sidebarCollapsedByDefault: false, rightPanelsVisible: true, compactMetrics: false },
     dataSafety: { requireDestructiveConfirmations: true, confirmBulkDelete: true, exportIncludesUiOnly: false },
     keyboard: { commandPaletteEnabled: true, showShortcutHints: true, shortcuts: [{ id: 'global.search', label: 'Focus search', scope: 'global', keys: ['Ctrl', 'K'], enabled: true }] },
-    notifications: { muteAllWarnings: false, databaseWarnings: true, yearEndWarnings: true, importExportAlerts: true, installerPatchAlerts: true, desktopAlerts: false },
+    entitlement: { showProcessPanel: true, showLegacySeedGuidance: true, reconciliationDefaultScope: 'all', accrualForecastHorizonDays: 90, requireAdminForWrites: true },
+    notifications: { muteAllWarnings: false, databaseWarnings: true, entitlementWarnings: true, importExportAlerts: true, installerPatchAlerts: true, desktopAlerts: false },
     admin: { apiRateLimitWarningVisible: true, diagnosticsVisible: true, supportBundleExportEnabled: true, showVersionHealth: true },
     metadata: { updatedAt: new Date().toISOString() }
   };
@@ -282,7 +274,8 @@ async function verifyPreferencesRoundTrip() {
     const loaded = await request(`${API_BASE_URL}/preferences?fiscalYear=${FISCAL_YEAR}`);
     assert.ok(loaded.res.ok, `/api/preferences GET expected 2xx, got ${loaded.res.status}: ${JSON.stringify(loaded.body)}`);
     const preferences = loaded.body.preferences || defaultPreferences();
-    preferences.schemaVersion = 2;
+    preferences.schemaVersion = 3;
+    preferences.entitlement = { ...(preferences.entitlement || defaultPreferences().entitlement), reconciliationDefaultScope: 'all' };
     preferences.metadata = { ...(preferences.metadata || {}), updatedAt: new Date().toISOString() };
     preferences.uiOnly = { ...(preferences.uiOnly || defaultPreferences().uiOnly), activeSection: 'appearance' };
     preferences.appearance = { ...(preferences.appearance || defaultPreferences().appearance), density: preferences.appearance?.density === 'compact' ? 'standard' : 'compact' };

@@ -61,6 +61,7 @@
   gap: 0.65rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .statusPill {
@@ -98,7 +99,7 @@
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
+  grid-template-columns: minmax(15rem, 17.5rem) minmax(0, 1fr);
   gap: clamp(1rem, 2vw, 1.5rem);
   width: min(100%, 1480px);
   margin: 0 auto;
@@ -249,8 +250,8 @@
 .hero h2 {
   margin: 0.2rem 0 0;
   max-width: 48rem;
-  font-size: clamp(1.75rem, 3vw, 2.45rem);
-  line-height: 1.05;
+  font-size: clamp(1.55rem, 2.55vw, 2.15rem);
+  line-height: 1.08;
   letter-spacing: -0.04em;
 }
 
@@ -264,7 +265,7 @@
 .heroMeta {
   display: grid;
   gap: 0.6rem;
-  min-width: 14rem;
+  min-width: 12rem;
 }
 
 .metaCard {
@@ -523,6 +524,28 @@
   font-size: var(--density-font, 0.92rem);
 }
 
+.processRail {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.processRail span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.45rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #eff6ff, #ecfeff);
+  color: #1e3a8a;
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-align: center;
+}
+
 .shortcutTable {
   overflow: hidden;
   border: 1px solid #e2e8f0;
@@ -640,6 +663,12 @@
   }
 }
 
+@media (max-width: 1180px) {
+  .processRail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 640px) {
   .topbar,
   .sectionHeader,
@@ -661,7 +690,8 @@
 
   .fieldGrid,
   .nav,
-  .shortcutRow {
+  .shortcutRow,
+  .processRail {
     grid-template-columns: 1fr;
   }
 

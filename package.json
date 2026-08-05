@@ -32,7 +32,8 @@
         "test:full": "node tests/full-system-test.js",
         "test:phase1": "node tests/phase1-smoke-test.js",
         "test:employee-status": "node tests/employee-status-eligibility.test.js",
-        "test:year-end-safety": "node tests/year-end-safety-contract.test.js && node tests/year-end-blueprint-ui.test.js",
+        "test:entitlement-safety": "node tests/patch-2-3-89-continuous-entitlement.test.js && node tests/patch-2-3-89-implementation.test.js",
+        "test:year-end-safety": "npm run test:entitlement-safety",
         "deploy:devops": "powershell -ExecutionPolicy Bypass -File .\\tools\\Deploy-ATLAS-DevOps.ps1",
         "verify:env": "powershell -ExecutionPolicy Bypass -File .\\tools\\Verify-ATLAS-Environment.ps1"
     },

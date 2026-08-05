@@ -5718,7 +5718,7 @@ export default function DashboardPage() {
                 >
                   <Icon size={18} />
                   <span className="nav-label">{item.label}</span>
-                  <kbd className="nav-hint">âŒ˜{index + 1}</kbd>
+                  <kbd className="nav-hint">Ctrl {index + 1}</kbd>
                 </button>
               );
             })}
@@ -5758,7 +5758,7 @@ export default function DashboardPage() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && handleSearchSubmit()}
-                placeholder="Search employees, loans, companies â€” âŒ˜K"
+                placeholder="Search employees, loans, companies - Ctrl K"
               />
             </label> : null}
             {!isEmployeePortalSession ? <button className="icon-button" onClick={handleSearchSubmit} title="Run search"><Search size={18} /></button> : null}
@@ -7322,7 +7322,7 @@ export default function DashboardPage() {
               <div className="report-preview-head">
                 <div>
                   <strong>{displayedReport.title}</strong>
-                  <span>{reportForm.from || "Start"} to {reportForm.to || "Today"} â€¢ {displayedReport.rows.length} row(s)</span>
+                  <span>{reportForm.from || "Start"} to {reportForm.to || "Today"} - {displayedReport.rows.length} row(s)</span>
                 </div>
               </div>
               <div className={`report-view-table report-density-${reportDensity} report-fit-${reportFitMode}`}>
@@ -7650,7 +7650,7 @@ export default function DashboardPage() {
                       ["inApp", "In-app alerts"],
                       ["desktop", "Desktop alerts"],
                       ["email", "Email alerts"],
-                      ["yearEndAlerts", "Entitlement alerts"],
+                      ["entitlementAlerts", "Entitlement alerts"],
                       ["installerAlerts", "Installer alerts"],
                       ["loanAlerts", "Loan alerts"],
                       ["selfServiceAlerts", "Self-service alerts"]
@@ -10183,5 +10183,3 @@ function printAllocationLetter(employee: Employee, allocation: Allocation | null
   popup.document.close();
   */
 }
-
-

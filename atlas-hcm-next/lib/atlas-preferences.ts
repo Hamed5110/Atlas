@@ -1,4 +1,4 @@
-export const ATLAS_PREFERENCES_SCHEMA_VERSION = 1;
+export const ATLAS_PREFERENCES_SCHEMA_VERSION = 2;
 
 export const atlasThemeModes = ["light", "dark", "system", "contrast"] as const;
 export const atlasThemeAccents = ["blue", "emerald", "slate", "ocean", "sunset", "custom"] as const;
@@ -41,7 +41,7 @@ export type AtlasUserPreferences = {
   };
   shortcuts: AtlasShortcut[];
   notifications: Record<AtlasNotificationChannel, boolean> & {
-    yearEndAlerts: boolean;
+    entitlementAlerts: boolean;
     installerAlerts: boolean;
     loanAlerts: boolean;
     selfServiceAlerts: boolean;
@@ -111,13 +111,13 @@ export const atlasPreferencesSchema = {
     },
     notifications: {
       type: "object",
-      required: ["inApp", "desktop", "email", "yearEndAlerts", "installerAlerts", "loanAlerts", "selfServiceAlerts", "digestFrequency"],
+      required: ["inApp", "desktop", "email", "entitlementAlerts", "installerAlerts", "loanAlerts", "selfServiceAlerts", "digestFrequency"],
       additionalProperties: false,
       properties: {
         inApp: { type: "boolean" },
         desktop: { type: "boolean" },
         email: { type: "boolean" },
-        yearEndAlerts: { type: "boolean" },
+        entitlementAlerts: { type: "boolean" },
         installerAlerts: { type: "boolean" },
         loanAlerts: { type: "boolean" },
         selfServiceAlerts: { type: "boolean" },
@@ -176,7 +176,7 @@ export function createDefaultAtlasPreferences(): AtlasUserPreferences {
       inApp: true,
       desktop: false,
       email: false,
-      yearEndAlerts: true,
+      entitlementAlerts: true,
       installerAlerts: true,
       loanAlerts: true,
       selfServiceAlerts: true,
@@ -262,7 +262,10 @@ export function normalizeAtlasPreferences(value: unknown): AtlasUserPreferences 
       inApp: pickBoolean(notifications.inApp, defaults.notifications.inApp),
       desktop: pickBoolean(notifications.desktop, defaults.notifications.desktop),
       email: pickBoolean(notifications.email, defaults.notifications.email),
-      yearEndAlerts: pickBoolean(notifications.yearEndAlerts, defaults.notifications.yearEndAlerts),
+      entitlementAlerts: pickBoolean(
+        notifications.entitlementAlerts,
+        pickBoolean(notifications.yearEndAlerts, defaults.notifications.entitlementAlerts)
+      ),
       installerAlerts: pickBoolean(notifications.installerAlerts, defaults.notifications.installerAlerts),
       loanAlerts: pickBoolean(notifications.loanAlerts, defaults.notifications.loanAlerts),
       selfServiceAlerts: pickBoolean(notifications.selfServiceAlerts, defaults.notifications.selfServiceAlerts),

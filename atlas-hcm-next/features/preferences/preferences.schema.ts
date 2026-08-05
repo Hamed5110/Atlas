@@ -1,12 +1,13 @@
 import { z } from "zod";
 
-export const ATLAS_PREFERENCES_SCHEMA_VERSION = 2;
+export const ATLAS_PREFERENCES_SCHEMA_VERSION = 3;
 
 export const preferenceSections = [
   "appearance",
   "workspace",
   "dataSafety",
   "keyboard",
+  "entitlement",
   "notifications",
   "admin"
 ] as const;
@@ -18,6 +19,7 @@ export const preferenceSectionLabels: Record<PreferenceSection, string> = {
   workspace: "Workspace",
   dataSafety: "Data & Safety",
   keyboard: "Keyboard",
+  entitlement: "Entitlement Process",
   notifications: "Notifications",
   admin: "Admin"
 };
@@ -65,10 +67,17 @@ export const atlasPreferencesSchema = z.object({
   notifications: z.object({
     muteAllWarnings: z.boolean(),
     databaseWarnings: z.boolean(),
-    yearEndWarnings: z.boolean(),
+    entitlementWarnings: z.boolean(),
     importExportAlerts: z.boolean(),
     installerPatchAlerts: z.boolean(),
     desktopAlerts: z.boolean()
+  }),
+  entitlement: z.object({
+    showProcessPanel: z.boolean(),
+    showLegacySeedGuidance: z.boolean(),
+    reconciliationDefaultScope: z.enum(["all", "company"]),
+    accrualForecastHorizonDays: z.number().int().min(30).max(730),
+    requireAdminForWrites: z.boolean()
   }),
   admin: z.object({
     apiRateLimitWarningVisible: z.boolean(),
@@ -125,10 +134,17 @@ export function createDefaultPreferences(): AtlasPreferences {
     notifications: {
       muteAllWarnings: false,
       databaseWarnings: true,
-      yearEndWarnings: true,
+      entitlementWarnings: true,
       importExportAlerts: true,
       installerPatchAlerts: true,
       desktopAlerts: false
+    },
+    entitlement: {
+      showProcessPanel: true,
+      showLegacySeedGuidance: true,
+      reconciliationDefaultScope: "all",
+      accrualForecastHorizonDays: 90,
+      requireAdminForWrites: true
     },
     admin: {
       apiRateLimitWarningVisible: true,
@@ -197,9 +213,16 @@ function migrateLegacyAtlasPreferences(value: UnknownRecord): AtlasPreferences {
     notifications: {
       ...defaults.notifications,
       databaseWarnings: pickBoolean(notifications.installerAlerts, defaults.notifications.databaseWarnings),
-      yearEndWarnings: pickBoolean(notifications.yearEndAlerts, defaults.notifications.yearEndWarnings),
+      entitlementWarnings: pickBoolean(
+        notifications.entitlementWarnings,
+        pickBoolean(notifications.yearEndWarnings, pickBoolean(notifications.yearEndAlerts, defaults.notifications.entitlementWarnings))
+      ),
       importExportAlerts: pickBoolean(notifications.selfServiceAlerts, defaults.notifications.importExportAlerts),
       desktopAlerts: pickBoolean(notifications.desktop, defaults.notifications.desktopAlerts)
+    },
+    entitlement: {
+      ...defaults.entitlement,
+      showProcessPanel: pickBoolean(value.showEntitlementPanel, defaults.entitlement.showProcessPanel)
     },
     admin: {
       ...defaults.admin,
@@ -216,7 +239,7 @@ export function normalizePreferences(value: unknown): AtlasPreferences {
   if (!isRecord(value)) return createDefaultPreferences();
   const direct = atlasPreferencesSchema.safeParse(value);
   if (direct.success) return direct.data;
-  if (value.schemaVersion === 1 || isRecord(value.appearance) || isRecord(value.layout)) {
+  if (value.schemaVersion === 1 || value.schemaVersion === 2 || isRecord(value.appearance) || isRecord(value.layout)) {
     try {
       return migrateLegacyAtlasPreferences(value);
     } catch {
@@ -249,6 +272,7 @@ export function makePreferencesSavePayload(preferences: AtlasPreferences) {
       workspace: normalized.workspace,
       dataSafety: normalized.dataSafety,
       keyboard: normalized.keyboard,
+      entitlement: normalized.entitlement,
       notifications: normalized.notifications,
       admin: normalized.admin,
       metadata: normalized.metadata
