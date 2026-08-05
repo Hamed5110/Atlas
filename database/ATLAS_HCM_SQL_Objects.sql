@@ -299,7 +299,7 @@ BEGIN
         'WARNING',
         'Main database backup not recent',
         'No completed backup for Atlasairfare010 was found in the last 7 days.',
-        'Open Companies, select Main ATLAS database, and create a backup before major imports or year-end close.',
+        'Open Companies, select Main ATLAS database, and create a backup before major imports or entitlement migrations.',
         'Companies',
         'backup',
         NULL,
@@ -314,15 +314,15 @@ BEGIN
 
     INSERT INTO @Risks (Area, Severity, Title, Detail, Recommendation, TargetView, TargetRecordType, TargetRecordID, SortWeight)
     SELECT
-        'Year End',
+        'Continuous Entitlement',
         CASE WHEN COUNT(*) > 0 THEN 'WARNING' ELSE 'INFO' END,
-        CONCAT(@year, ' year-end readiness'),
-        CONCAT(COUNT(*), ' employee(s) have negative balance days before close.'),
+        CONCAT(@year, ' continuous entitlement readiness'),
+        CONCAT(COUNT(*), ' employee(s) have negative balance days in the live entitlement view.'),
         CASE WHEN COUNT(*) > 0
-            THEN 'Resolve negative balances before final year-end close.'
-            ELSE 'Year-end balance check is clear. Run preview before final close.' END,
-        'Year End',
-        'year-end',
+            THEN 'Resolve negative balances before entitlement reconciliation is accepted.'
+            ELSE 'Continuous entitlement balance check is clear. Use reconciliation for evidence.' END,
+        'AI Insights',
+        'continuous-entitlement',
         NULL,
         CASE WHEN COUNT(*) > 0 THEN 28 ELSE 90 END
     FROM dbo.vw_ATLAS_EmployeeMaster
@@ -3829,7 +3829,7 @@ BEGIN
         40
     );
 
-    DECLARE @yearEndRisk INT = (
+    DECLARE @entitlementBalanceRisk INT = (
         SELECT COUNT(*)
         FROM dbo.vw_ATLAS_EmployeeMaster
         WHERE ClosingBalanceDays < 0
@@ -3837,17 +3837,17 @@ BEGIN
 
     INSERT INTO @Checks (Area, CheckCode, Severity, Status, Title, Detail, EvidenceCount, TargetView, TargetRecordType, SortWeight)
     VALUES (
-        'Year End',
-        'YEAR_END_NEGATIVE_BALANCE',
-        CASE WHEN @yearEndRisk > 0 THEN 'WARNING' ELSE 'INFO' END,
-        CASE WHEN @yearEndRisk > 0 THEN 'WARN' ELSE 'PASS' END,
-        'Year-end closing readiness',
-        CASE WHEN @yearEndRisk > 0
-            THEN CONCAT(@yearEndRisk, ' employee(s) have negative balance days before closing.')
-            ELSE 'No negative balance days found for year-end readiness.' END,
-        @yearEndRisk,
-        'Year End',
-        'year-end',
+        'Continuous Entitlement',
+        'CONTINUOUS_ENTITLEMENT_NEGATIVE_BALANCE',
+        CASE WHEN @entitlementBalanceRisk > 0 THEN 'WARNING' ELSE 'INFO' END,
+        CASE WHEN @entitlementBalanceRisk > 0 THEN 'WARN' ELSE 'PASS' END,
+        'Continuous entitlement balance readiness',
+        CASE WHEN @entitlementBalanceRisk > 0
+            THEN CONCAT(@entitlementBalanceRisk, ' employee(s) have negative balance days in the live entitlement view.')
+            ELSE 'No negative balance days found for continuous entitlement readiness.' END,
+        @entitlementBalanceRisk,
+        'AI Insights',
+        'continuous-entitlement',
         45
     );
 
@@ -4084,4 +4084,3 @@ BEGIN
     ORDER BY SortWeight ASC, CheckID ASC;
 END;
 GO
-
