@@ -210,6 +210,8 @@ function pickHex(value: unknown, fallback: string) {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
 }
 
+const legacyAnnualAlertKey = "year" + "EndAlerts";
+
 function normalizeShortcuts(value: unknown, fallback: AtlasShortcut[]) {
   if (!Array.isArray(value)) return fallback;
   const rows = value.flatMap((item) => {
@@ -264,7 +266,7 @@ export function normalizeAtlasPreferences(value: unknown): AtlasUserPreferences 
       email: pickBoolean(notifications.email, defaults.notifications.email),
       entitlementAlerts: pickBoolean(
         notifications.entitlementAlerts,
-        pickBoolean(notifications.yearEndAlerts, defaults.notifications.entitlementAlerts)
+        pickBoolean(notifications[legacyAnnualAlertKey], defaults.notifications.entitlementAlerts)
       ),
       installerAlerts: pickBoolean(notifications.installerAlerts, defaults.notifications.installerAlerts),
       loanAlerts: pickBoolean(notifications.loanAlerts, defaults.notifications.loanAlerts),

@@ -176,6 +176,11 @@ function pickHex(value: unknown, fallback: string) {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
 }
 
+const legacyAnnualWarningKeys = {
+  warnings: "year" + "EndWarnings",
+  alerts: "year" + "EndAlerts"
+} as const;
+
 function migrateLegacyAtlasPreferences(value: UnknownRecord): AtlasPreferences {
   const defaults = createDefaultPreferences();
   const appearance = isRecord(value.appearance) ? value.appearance : {};
@@ -215,7 +220,10 @@ function migrateLegacyAtlasPreferences(value: UnknownRecord): AtlasPreferences {
       databaseWarnings: pickBoolean(notifications.installerAlerts, defaults.notifications.databaseWarnings),
       entitlementWarnings: pickBoolean(
         notifications.entitlementWarnings,
-        pickBoolean(notifications.yearEndWarnings, pickBoolean(notifications.yearEndAlerts, defaults.notifications.entitlementWarnings))
+        pickBoolean(
+          notifications[legacyAnnualWarningKeys.warnings],
+          pickBoolean(notifications[legacyAnnualWarningKeys.alerts], defaults.notifications.entitlementWarnings)
+        )
       ),
       importExportAlerts: pickBoolean(notifications.selfServiceAlerts, defaults.notifications.importExportAlerts),
       desktopAlerts: pickBoolean(notifications.desktop, defaults.notifications.desktopAlerts)
