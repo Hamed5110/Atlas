@@ -305,8 +305,9 @@ if (Test-Path -LiteralPath $ExePath) {
     $manifest.artifacts.exe.sha256 = "sha256:" + (Get-FileHash -Algorithm SHA256 -LiteralPath $ExePath).Hash
 }
 
+$PatchRuntimeVersionPath = Join-Path $PatchDir "release\version.json"
 Write-Json -Value $manifest -Path $FinalManifestPath
-Write-Json -Value $runtimeIdentity -Path (Join-Path $PatchDir "release\version.json")
+Write-Json -Value $runtimeIdentity -Path $PatchRuntimeVersionPath
 
 if (([string]$manifest.artifacts.msi.file) -ne (Split-Path -Leaf $MsiPath)) { throw "Final manifest MSI filename mismatch." }
 if ((Test-Path -LiteralPath $ExePath) -and ([string]$manifest.artifacts.exe.file) -ne (Split-Path -Leaf $ExePath)) { throw "Final manifest EXE filename mismatch." }
@@ -317,7 +318,7 @@ if ($manifest.backendBuildHash -ne (Get-BackendHash)) { throw "Backend hash mism
 Copy-DirectoryMirror -Source $MsiStagePayloadDir -Destination $PayloadDir
 Copy-Item -LiteralPath $FinalManifestPath -Destination (Join-Path $PayloadDir "atlas-release-manifest.json") -Force
 New-Item -ItemType Directory -Path (Join-Path $PayloadDir "release") -Force | Out-Null
-Copy-Item -LiteralPath $RuntimeVersionPath -Destination (Join-Path $PayloadDir "release\version.json") -Force
+Copy-Item -LiteralPath $PatchRuntimeVersionPath -Destination (Join-Path $PayloadDir "release\version.json") -Force
 
 $artifactRows = @(
     [pscustomobject]@{
