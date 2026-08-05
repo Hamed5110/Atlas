@@ -1,13 +1,13 @@
-{
+﻿{
     "manifestSchemaVersion":  1,
     "product":  "ATLAS Airfare Allowance",
     "productCode":  "ATLAS_AIRFARE_ALLOWANCE",
-    "version":  "2.3.89",
+    "version":  "2.3.90",
     "channel":  "stable",
-    "gitCommit":  "3a191ac",
-    "buildTimestampUtc":  "2026-08-02T12:31:56Z",
-    "frontendBuildHash":  "sha256:0D7D0A30C683F5A1E57265993383DC75F646D47DA8376A02CC3F728AF3CF182B",
-    "backendBuildHash":  "sha256:5B32F6B044135B933E413D30C5DB2C17827D3B3A2D5ED2B5280539E84CB12C4A",
+    "gitCommit":  "f11b384",
+    "buildTimestampUtc":  "2026-08-05T10:04:07Z",
+    "frontendBuildHash":  "sha256:E0C09568BF9EE51302538C3E1FFDCB6A6F05FED2C557739B3A96A8AB565DCDE1",
+    "backendBuildHash":  "sha256:5E1926C8BA2E70FB61B3D1E5A445E058B06DF921E9EB96D254BD1542DD100E34",
     "databaseSchemaVersion":  "2026.08.02.001",
     "service":  {
                     "name":  "ATLASAirfareAllowance",
@@ -16,11 +16,11 @@
                 },
     "artifacts":  {
                       "msi":  {
-                                  "file":  "ATLAS-Airfare-Allowance-2.3.89-x64.msi",
+                                  "file":  "ATLAS-Airfare-Allowance-2.3.90-x64.msi",
                                   "sha256":  "sha256:computed-after-package"
                               },
                       "exe":  {
-                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.89-x64.exe",
+                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.90-x64.exe",
                                   "sha256":  "sha256:computed-after-package"
                               }
                   },

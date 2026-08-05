@@ -62,6 +62,8 @@
     UpgradeCode="$(var.UpgradeCode)"
     Compressed="yes">
 
+    <Log Prefix="ATLAS-Airfare-Allowance-Setup-$(var.ProductVersion)" />
+
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication
         Theme="hyperlinkLicense"
