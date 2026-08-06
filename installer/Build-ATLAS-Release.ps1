@@ -256,8 +256,15 @@ $manifest.gitCommit = Get-GitCommit
 $manifest.buildTimestampUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $manifest.frontendBuildHash = Get-DirectoryHash -Path (Join-Path $Root "atlas-hcm-next\out")
 $manifest.backendBuildHash = Get-BackendHash
-$manifest.service.port = 3355
-$manifest.service.healthUrl = "http://127.0.0.1:3355/api/version"
+$servicePort = 5110
+if ($manifest.service -and $manifest.service.port) {
+    $servicePort = [int]$manifest.service.port
+}
+if (-not $manifest.service) {
+    $manifest | Add-Member -NotePropertyName service -NotePropertyValue ([pscustomobject]@{})
+}
+$manifest.service.port = $servicePort
+$manifest.service.healthUrl = "http://127.0.0.1:$servicePort/api/version"
 $manifest.artifacts.msi.file = $MsiFile
 $manifest.artifacts.exe.file = $ExeFile
 $manifest.artifacts.msi.sha256 = "sha256:computed-after-package"
