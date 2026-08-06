@@ -6,6 +6,18 @@ $ErrorActionPreference = "Stop"
 
 Set-Location $PayloadPath
 
+$envFile = "C:\Airfare_Allowance\.env"
+if (Test-Path -LiteralPath $envFile) {
+    Get-Content -LiteralPath $envFile | ForEach-Object {
+        $line = [string]$_
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith("#") -or $line -notmatch "=") { return }
+        $name, $value = $line.Split("=", 2)
+        if (-not [string]::IsNullOrWhiteSpace($name)) {
+            [Environment]::SetEnvironmentVariable($name.Trim(), $value, "Process")
+        }
+    }
+}
+
 $env:PORT = "3356"
 $env:DB_SERVER = "localhost"
 $env:DB_PORT = "1433"
