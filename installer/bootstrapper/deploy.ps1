@@ -2,7 +2,7 @@ param(
     [ValidateSet("Build", "Preflight", "Install", "Repair", "Troubleshoot", "Backup", "UpdateOnlyPrepare", "UpdateOnlyFinalize")]
     [string]$Mode = "Build",
 
-    [int]$Port = 5110,
+    [int]$Port = 3356,
     [int]$SqlPort = 1433,
     [string]$DbServer = "127.0.0.1",
     [string]$SqlInstance = "ATLAS",

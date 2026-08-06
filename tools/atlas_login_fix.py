@@ -96,7 +96,7 @@ class LoginFix:
                     mapping = {
                         "INSTALLROOT": str(self.install_root),
                         "DATAROOT": str(self.data_root),
-                        "ATLASPORT": str(settings.get("PORT", self.args.app_port or "5110")),
+                        "ATLASPORT": str(settings.get("PORT", self.args.app_port or "3356")),
                         "DB_SERVER": settings.get("DB_SERVER", "127.0.0.1"),
                         "DB_PORT": str(settings.get("DB_PORT", "1433")),
                         "DB_NAME": settings.get("DB_NAME", "Atlasairfare010"),
@@ -133,7 +133,7 @@ class LoginFix:
     def discover_sql_ports(self, host, preferred):
         self.emit("Scanning SQL Ports", "STARTED", f"Testing SQL TCP ports on {host}.")
         candidates = []
-        for port in [preferred, 1433, 1434, 3009, 5110, 5000, 51433]:
+        for port in [preferred, 1433, 1434, 3009, 3356, 5000, 51433]:
             try:
                 port_int = int(port)
             except (TypeError, ValueError):
@@ -224,7 +224,7 @@ class LoginFix:
                 settings[key] = value
 
         settings.setdefault("HOST", "0.0.0.0")
-        settings.setdefault("PORT", str(self.args.app_port or 5110))
+        settings.setdefault("PORT", str(self.args.app_port or 3356))
         settings.setdefault("DB_SERVER", self.args.db_server or "127.0.0.1")
         settings.setdefault("DB_PORT", str(self.args.db_port or 1433))
         settings.setdefault("DB_NAME", self.args.db_name or "Atlasairfare010")

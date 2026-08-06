@@ -2,7 +2,7 @@
     "manifestSchemaVersion":  1,
     "product":  "ATLAS Airfare Allowance",
     "productCode":  "ATLAS_AIRFARE_ALLOWANCE",
-    "version":  "2.3.91",
+    "version":  "2.3.92",
     "channel":  "stable",
     "gitCommit":  "9d673ec",
     "buildTimestampUtc":  "2026-08-05T10:14:50Z",
@@ -11,16 +11,16 @@
     "databaseSchemaVersion":  "2026.08.02.001",
     "service":  {
                     "name":  "ATLASAirfareAllowance",
-                    "port":  5110,
-                    "healthUrl":  "http://127.0.0.1:5110/api/version"
+                    "port":  3356,
+                    "healthUrl":  "http://127.0.0.1:3356/api/version"
                 },
     "artifacts":  {
                       "msi":  {
-                                  "file":  "ATLAS-Airfare-Allowance-2.3.91-x64.msi",
+                                  "file":  "ATLAS-Airfare-Allowance-2.3.92-x64.msi",
                                   "sha256":  "sha256:computed-after-package"
                               },
                       "exe":  {
-                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.91-x64.exe",
+                                  "file":  "ATLAS-Airfare-Allowance-Setup-2.3.92-x64.exe",
                                   "sha256":  "sha256:computed-after-package"
                               }
                   },
@@ -55,7 +55,7 @@
                                            },
                               "verify":  {
                                              "kind":  "httpHeader",
-                                             "url":  "http://127.0.0.1:5110/api/health",
+                                             "url":  "http://127.0.0.1:3356/api/health",
                                              "header":  "RateLimit-Limit",
                                              "expected":  "60000"
                                          },
@@ -74,7 +74,7 @@
                                         ],
                               "verify":  {
                                              "kind":  "httpJsonEqualsManifest",
-                                             "url":  "http://127.0.0.1:5110/api/version",
+                                             "url":  "http://127.0.0.1:3356/api/version",
                                              "fields":  [
                                                             "productCode",
                                                             "version",

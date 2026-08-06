@@ -18,7 +18,7 @@ assert.match(dashboardPage, /window\.location\.href\s*=\s*"\/preferences\/"/, 'L
 assert.match(serverText, /app\.get\('\/api\/preferences'/, 'Backend must expose GET /api/preferences');
 assert.match(serverText, /app\.put\('\/api\/preferences'/, 'Backend must expose PUT /api/preferences');
 assert.match(serverText, /express\.static\(FRONTEND_BUILD_DIR[\s\S]*serveFrontendIndex/, 'Server must serve exported frontend routes and fallback safely');
-assert.equal(manifest.version, '2.3.91', 'Release manifest should target the current 5110 fresh entitlement build version');
+assert.equal(manifest.version, '2.3.92', 'Release manifest should target the current 3356 fresh entitlement build version');
 assert.ok(manifest.migrationPlan.some((step) => step.id === '20260801-preferences-schema-v2'), 'Manifest must include Preferences schema-v2 migration');
 assert.doesNotMatch(preferencesShell, /Year End|year-end|YearEnd/, 'Preferences UI must not expose Year End copy; use continuous entitlement language');
 assert.match(preferencesShell, /Entitlement Process/, 'Preferences UI must expose the continuous entitlement process section');

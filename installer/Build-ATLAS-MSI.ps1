@@ -41,6 +41,34 @@ function Copy-Tree {
     $global:LASTEXITCODE = 0
 }
 
+function Remove-LegacyAnnualClosePayload {
+    param([Parameter(Mandatory = $true)][string]$PayloadRoot)
+
+    $legacyRelativeFiles = @(
+        "STEP7_MODULE_PARITY_REPORT.md",
+        "STEP7_OPENING_BALANCE_MODULE_REPORT.md",
+        "UI_INVENTORY.md",
+        "database\ATLAS_YearEnd_Safety.sql"
+    )
+
+    foreach ($relative in $legacyRelativeFiles) {
+        $target = Join-Path $PayloadRoot $relative
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Force
+        }
+    }
+
+    $legacyPatterns = @(
+        "*YearEnd*",
+        "*year-end*"
+    )
+
+    foreach ($pattern in $legacyPatterns) {
+        Get-ChildItem -LiteralPath $PayloadRoot -Recurse -File -Force -Filter $pattern -ErrorAction SilentlyContinue |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+    }
+}
+
 function Convert-ToWixPath {
     param([string]$Path)
     return $Path.Replace("\", "\\")
@@ -139,6 +167,7 @@ Copy-Tree -Source $Root -Destination $Payload -ExcludeDirs @(
 )
 
 Copy-Tree -Source $PSScriptRoot -Destination $Payload -ExcludeDirs @("stage") -ExcludeFiles @("Build-ATLAS-MSI.ps1")
+Remove-LegacyAnnualClosePayload -PayloadRoot $Payload
 
 $nodeSource = Split-Path -Parent (Get-Command node.exe -ErrorAction Stop).Source
 Copy-Tree -Source $nodeSource -Destination $Runtime
@@ -179,7 +208,7 @@ $componentIds = [System.Collections.Generic.List[string]]::new()
     [void]$builder.AppendLine('    <Launch Condition="Privileged" Message="ATLAS Airfare Allowance must be installed with administrator rights. Right-click the MSI and choose Run as administrator, or install from an elevated Command Prompt." />')
 [void]$builder.AppendLine('    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of ATLAS Airfare Allowance is already installed. Use the newest ATLAS full setup EXE, or uninstall the newer build from Apps &amp; Features before installing this older MSI." />')
 [void]$builder.AppendLine('    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />')
-[void]$builder.AppendLine('    <Property Id="ATLASPORT" Value="5110" />')
+[void]$builder.AppendLine('    <Property Id="ATLASPORT" Value="3356" />')
 [void]$builder.AppendLine('    <Property Id="DB_SERVER" Value="localhost\ATLAS" />')
 [void]$builder.AppendLine('    <Property Id="DB_PORT" Value="1433" />')
 [void]$builder.AppendLine('    <Property Id="DB_NAME" Value="Atlasairfare010" />')

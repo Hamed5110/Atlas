@@ -19,7 +19,7 @@ const winston = require('winston');
 const Joi = require('joi');
 
 const app = express();
-const PORT = Number(process.env.PORT || 5110);
+const PORT = Number(process.env.PORT || 3356);
 const HOST = process.env.ATLAS_BIND_HOST || process.env.HOST || '0.0.0.0';
 const FRONTEND_BUILD_DIR = path.join(__dirname, "atlas-hcm-next", "out");
 const RELEASE_DIR = path.join(__dirname, "release");
@@ -7536,7 +7536,6 @@ httpServer.on('error', (err) => {
 });
 
 module.exports = app;
-
 
 
 

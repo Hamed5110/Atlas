@@ -53,7 +53,7 @@ namespace AtlasBootstrapperRunner
 
         private static int RunPreflight(Dictionary<string, string> options)
         {
-            var defaultPort = GetIntOption(options, "Port", 5110);
+            var defaultPort = GetIntOption(options, "Port", 3356);
             var dataRoot = GetPathOption(options, "DataRoot", @"C:\ProgramData\ATLAS Airfare Allowance");
             var installRoot = GetPathOption(options, "InstallRoot", @"C:\Program Files\ATLAS Airfare Allowance");
             Directory.CreateDirectory(dataRoot);

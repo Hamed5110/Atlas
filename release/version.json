@@ -1,7 +1,7 @@
 {
     "product":  "ATLAS Airfare Allowance",
     "productCode":  "ATLAS_AIRFARE_ALLOWANCE",
-    "version":  "2.3.91",
+    "version":  "2.3.92",
     "channel":  "stable",
     "gitCommit":  "9d673ec",
     "buildTimestampUtc":  "2026-08-05T10:14:50Z",

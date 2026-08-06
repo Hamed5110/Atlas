@@ -256,7 +256,7 @@ $manifest.gitCommit = Get-GitCommit
 $manifest.buildTimestampUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $manifest.frontendBuildHash = Get-DirectoryHash -Path (Join-Path $Root "atlas-hcm-next\out")
 $manifest.backendBuildHash = Get-BackendHash
-$servicePort = 5110
+$servicePort = 3356
 if ($manifest.service -and $manifest.service.port) {
     $servicePort = [int]$manifest.service.port
 }

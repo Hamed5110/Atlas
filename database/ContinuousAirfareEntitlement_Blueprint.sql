@@ -4,11 +4,11 @@ GO
 
 /*
     ATLAS Continuous Airfare Entitlement Blueprint
-    Purpose: replace mandatory Year End close with MSSQL-backed entitlement plans,
+    Purpose: replace annual batch close behavior with MSSQL-backed entitlement plans,
              dated transactions, rebuildable balances, and payroll period locks.
 
-    This script is intentionally additive. It does not drop YearEndHistory,
-    OpeningBalances, OpeningLoanBalances, or existing allocation tables.
+    This script is intentionally additive. It preserves legacy history,
+    OpeningBalances, OpeningLoanBalances, and existing allocation tables.
 */
 
 IF OBJECT_ID(N'dbo.EmployeeAirfareEntitlementPlans', N'U') IS NULL

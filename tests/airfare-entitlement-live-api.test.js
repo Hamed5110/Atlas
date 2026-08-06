@@ -1,6 +1,6 @@
 const assert = require("assert");
 
-const baseUrl = process.env.ATLAS_LIVE_API_BASE || "http://127.0.0.1:5110/api";
+const baseUrl = process.env.ATLAS_LIVE_API_BASE || "http://127.0.0.1:3356/api";
 const username = process.env.ATLAS_E2E_USERNAME;
 const password = process.env.ATLAS_E2E_PASSWORD;
 const companyId = process.env.ATLAS_E2E_COMPANY_ID || "";
