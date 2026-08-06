@@ -61,17 +61,15 @@ includesAll(api, [
 ], "frontend API types");
 
 includesAll(page, [
-  "canShowEntitlementReconciliation",
-  "handleRunEntitlementReconciliation",
-  "exportEntitlementReconciliationCsv",
-  "Airfare Entitlement - Migration Debug",
-  "Continuous Entitlement Reconciliation - not used for payroll",
-  "Legacy Airfare Balance",
-  "Continuous Airfare Balance",
+  "ReconciliationPanel",
+  "atlasFetch<AirfareEntitlementReconciliationResult>",
+  "Migration debug / reconciliation",
+  "Not used for payroll",
+  "legacyAirfareBalance",
+  "continuousAirfareBalance",
   "Difference",
-  "Continuous entitlement bridge",
-  "Open reconciliation",
-  "data-testid=\"airfare-entitlement-reconciliation\""
+  "Continuous model",
+  "Entitlement Seeds"
 ], "frontend reconciliation UI");
 
 includesAll(envExample, [

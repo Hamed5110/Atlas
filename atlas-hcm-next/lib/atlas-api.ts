@@ -283,6 +283,18 @@ export type AtlasVersionInfo = {
   gitCommit?: string;
   databaseSchemaVersion?: string;
   features?: AtlasFeatureState;
+  runtime?: {
+    nodeVersion?: string;
+    port?: number;
+    processStartedAtUtc?: string;
+    installRoot?: string;
+    dataRoot?: string;
+  };
+  database?: {
+    connected?: boolean;
+    name?: string;
+    schemaVersion?: string;
+  };
 };
 
 export type AirfareEntitlementReconciliationRow = {
