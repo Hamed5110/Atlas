@@ -117,7 +117,7 @@ def merge_settings(args):
         settings["DB_USER"] = args.db_user
     if args.db_password:
         settings["DB_PASSWORD"] = args.db_password
-    settings.setdefault("PORT", settings.get("ATLASPORT", "3355"))
+    settings.setdefault("PORT", settings.get("ATLASPORT", "5110"))
     settings.setdefault("DB_SERVER", "127.0.0.1")
     settings.setdefault("DB_PORT", "1433")
     settings.setdefault("DB_NAME", "Atlasairfare010")
@@ -271,8 +271,8 @@ def write_registry(settings, install_root, data_root, telemetry):
     values = {
         "InstallRoot": str(install_root),
         "ProgramData": str(data_root),
-        "PORT": settings.get("PORT", "3355"),
-        "ATLASPORT": settings.get("PORT", "3355"),
+        "PORT": settings.get("PORT", "5110"),
+        "ATLASPORT": settings.get("PORT", "5110"),
         "DB_SERVER": settings.get("DB_SERVER", "127.0.0.1"),
         "DB_PORT": settings.get("DB_PORT", "1433"),
         "DB_NAME": settings.get("DB_NAME", "Atlasairfare010"),
@@ -316,7 +316,7 @@ def main():
         telemetry.write("SUCCESS", f"MSSQL socket verified: {sql_host}:{settings['DB_PORT']}")
 
         step = "VERIFY_APP_PORT"
-        app_port = int(settings.get("PORT", "3355"))
+        app_port = int(settings.get("PORT", "5110"))
         try:
             telemetry.write("VERIFY", f"Checking main application port 127.0.0.1:{app_port}...")
             test_tcp("127.0.0.1", app_port, timeout=2.0)

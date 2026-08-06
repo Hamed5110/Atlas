@@ -78,7 +78,7 @@
       Condition="ATLASAPPINSTALLED OR WixBundleInstalled" />
     <?endif ?>
 
-    <Variable Name="ATLASPORT" Value="3355" bal:Overridable="yes" />
+    <Variable Name="ATLASPORT" Value="5110" bal:Overridable="yes" />
     <Variable Name="INSTALLSQLEXPRESS" Value="1" bal:Overridable="yes" />
     <Variable Name="SQLINSTANCE" Value="ATLAS" bal:Overridable="yes" />
     <Variable Name="SQLSAPASSWORD" Value="" bal:Overridable="yes" Hidden="yes" />

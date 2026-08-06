@@ -203,7 +203,7 @@ def repair(args, logger):
 
 def troubleshoot(args, logger):
     settings = read_env(args.install_root)
-    app_port = int(args.app_port or settings.get("PORT") or 3355)
+    app_port = int(args.app_port or settings.get("PORT") or 5110)
     db_port = int(args.db_port or settings.get("DB_PORT") or 1433)
     db_server = args.db_server or settings.get("DB_SERVER") or "127.0.0.1"
     logger.event("TROUBLESHOOT_APP_PORT", "OK", app_port=app_port, in_use=not port_available_for_report(app_port))
@@ -224,7 +224,7 @@ def main(argv=None):
     parser.add_argument("--mode", choices=["fresh", "repair", "troubleshoot"], required=True)
     parser.add_argument("--install-root", type=Path, default=DEFAULT_INSTALL_ROOT)
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
-    parser.add_argument("--app-port", type=int, default=3355)
+    parser.add_argument("--app-port", type=int, default=5110)
     parser.add_argument("--db-server", default="")
     parser.add_argument("--db-port", type=int, default=0)
     parser.add_argument("--db-name", default="")

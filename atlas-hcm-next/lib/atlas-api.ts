@@ -339,14 +339,14 @@ export function atlasApiBase() {
       configured.startsWith("/") &&
       /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname) &&
       window.location.port &&
-      window.location.port !== "3355"
+      window.location.port !== "5110"
     ) {
-      return `http://127.0.0.1:3355${configured}`;
+      return `http://127.0.0.1:5110${configured}`;
     }
 
     return configured;
   }
-  return CONFIGURED_API_BASE || "http://localhost:3355/api";
+  return CONFIGURED_API_BASE || "http://localhost:5110/api";
 }
 
 export function atlasPublicBase() {

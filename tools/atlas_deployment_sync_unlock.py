@@ -198,7 +198,7 @@ def main():
         if not settings:
             raise FileNotFoundError(f"Configuration file not found or empty: {env_path}")
 
-        app_port = int(args.app_port or settings.get("PORT") or 3355)
+        app_port = int(args.app_port or settings.get("PORT") or 5110)
         sql_port = int(args.sql_port or settings.get("DB_PORT") or 1433)
         db_server = settings.get("DB_SERVER", "127.0.0.1")
         db_host = tcp_host(db_server)

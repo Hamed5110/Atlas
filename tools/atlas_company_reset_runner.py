@@ -124,7 +124,7 @@ def merge_settings(args):
     settings = {
         "InstallRoot": str(install_root),
         "ProgramData": str(program_data),
-        "PORT": args.app_port or registry.get("PORT") or env_values.get("PORT") or "3355",
+        "PORT": args.app_port or registry.get("PORT") or env_values.get("PORT") or "5110",
         "DB_SERVER": args.db_server or registry.get("DB_SERVER") or env_values.get("DB_SERVER") or "127.0.0.1",
         "DB_PORT": args.db_port or registry.get("DB_PORT") or env_values.get("DB_PORT") or "1433",
         "DB_NAME": args.db_name or registry.get("DB_NAME") or env_values.get("DB_NAME") or "Atlasairfare010",

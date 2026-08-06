@@ -27,7 +27,7 @@
         "test:airfare-integration": "node tests/airfare-entitlement-live-api.test.js",
         "test:e2e:airfare": "npx playwright test tests/e2e/airfare-entitlement-reconciliation.spec.ts",
         "test:airfare-load": "k6 run tests/load/airfare-entitlement-balance.k6.js",
-        "lighthouse:airfare-reconciliation": "npx lighthouse http://127.0.0.1:3355 --output json --output html --output-path ./test-reports/lighthouse-airfare-reconciliation --quiet",
+        "lighthouse:airfare-reconciliation": "npx lighthouse http://127.0.0.1:5110 --output json --output html --output-path ./test-reports/lighthouse-airfare-reconciliation --quiet",
         "test:local-admin-reset-helper": "node tests/local-admin-password-reset-helper.test.js",
         "test:full": "node tests/full-system-test.js",
         "test:phase1": "node tests/phase1-smoke-test.js",

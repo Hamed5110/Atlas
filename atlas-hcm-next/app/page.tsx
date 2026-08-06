@@ -960,7 +960,7 @@ export default function DashboardPage() {
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<UpdateCheckStatus>({
     state: "Not checked",
-    port: "3355",
+    port: "5110",
     database: "Not checked",
     detail: "Open System Maintenance and check the current ATLAS update channel before installing a patch.",
     source: "Admin Settings > System Maintenance > Updates"
@@ -2212,26 +2212,26 @@ export default function DashboardPage() {
     setUpdateCheckStatus((current) => ({
       ...current,
       state: "Checking",
-      detail: "Checking ATLAS service health and update readiness on port 3355."
+      detail: "Checking ATLAS service health and update readiness on port 5110."
     }));
     try {
       const health = await atlasHealth();
       setUpdateCheckStatus({
         state: health?.status === "healthy" ? "Up to date" : "Needs review",
         checkedAt: health?.timestamp || new Date().toISOString(),
-        port: "3355",
+        port: "5110",
         database: String(health?.database || "unknown"),
         detail: health?.status === "healthy"
-          ? "ATLAS is healthy on port 3355. Use the verified update-only EXE when a signed patch artifact is available."
+          ? "ATLAS is healthy on port 5110. Use the verified update-only EXE when a signed patch artifact is available."
           : "ATLAS responded, but the update readiness status needs administrator review.",
         source: "Existing ATLAS update-only patch channel"
       });
-      setMessage("Update check completed. ATLAS service health verified on port 3355.");
+      setMessage("Update check completed. ATLAS service health verified on port 5110.");
     } catch (error) {
       setUpdateCheckStatus({
         state: "Offline",
         checkedAt: new Date().toISOString(),
-        port: "3355",
+        port: "5110",
         database: "Unavailable",
         detail: error instanceof Error ? error.message : "ATLAS update readiness check failed.",
         source: "Existing ATLAS update-only patch channel"
@@ -7241,9 +7241,9 @@ export default function DashboardPage() {
               <div className="standard-note">
                 <div>
                   <strong>All movement tools in one place.</strong>
-                  <span>Use the same live 3355 actions for employee master, opening balance, allocation, loan, dashboard, and report data without opening a separate shell.</span>
+                  <span>Use the same live 5110 actions for employee master, opening balance, allocation, loan, dashboard, and report data without opening a separate shell.</span>
                 </div>
-                <span className="pill">Live on 3355</span>
+                <span className="pill">Live on 5110</span>
               </div>
               <div className="report-grid">
                 <button className="soft-button" disabled={busy || !session} onClick={() => employeeImportRef.current?.click()}><Upload size={16} /> Import employee Excel</button>
@@ -8276,7 +8276,7 @@ export default function DashboardPage() {
               <div className="glass-panel form-card update-workflow-card">
                 <div className="card-title"><ShieldCheck size={18} /> Safe Update Workflow</div>
                 <div className="stack-list">
-                  <div className="notice notice-info"><span /><div><strong>1. Check</strong><p>Confirm ATLAS is reachable on port 3355 and the database is connected before patching.</p></div></div>
+                  <div className="notice notice-info"><span /><div><strong>1. Check</strong><p>Confirm ATLAS is reachable on port 5110 and the database is connected before patching.</p></div></div>
                   <div className="notice notice-warning"><span /><div><strong>2. Backup</strong><p>Use the update-only patch flow that preserves existing configuration, company data, and SQL connection settings.</p></div></div>
                   <div className="notice notice-success"><span /><div><strong>3. Verify</strong><p>After replacement, confirm copied files, backend health, frontend assets, and service restart evidence.</p></div></div>
                 </div>
