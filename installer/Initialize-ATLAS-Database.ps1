@@ -277,7 +277,10 @@ $scripts = @(
     "ATLAS_Phase1_PolicyRate_Repair.sql",
     "ATLAS_Company_Admin.sql",
     "ATLAS_Allocation_Attachments.sql",
-    "ATLAS_Loan_SQL_Objects.sql"
+    "ATLAS_Loan_SQL_Objects.sql",
+    "UserPreferences_LayoutState.sql",
+    "ContinuousAirfareEntitlement_Blueprint.sql",
+    "migrations\2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql"
 )
 
 foreach ($scriptName in $scripts) {
@@ -290,6 +293,9 @@ foreach ($scriptName in $scripts) {
 
     Write-Step "Applying $scriptName..."
     $sqlText = Get-Content -LiteralPath $scriptPath -Raw
+    $sqlText = $sqlText -replace "(?im)^\s*:\S+.*$", ""
+    $sqlText = $sqlText -replace "\`$\(CutoverDate\)", "2026-01-01"
+    $sqlText = $sqlText -replace "\`$\(CreatedBy\)", "0"
     $sqlText = $sqlText -replace "(?im)^\s*CREATE\s+DATABASE\s+\[?Atlasairfare010\]?\s*;?\s*$", "IF DB_ID(N'$quotedDbName') IS NULL EXEC(N'CREATE DATABASE [$safeDbName]');"
     $sqlText = $sqlText -replace "(?im)^\s*USE\s+\[?Atlasairfare010\]?\s*;?\s*$", "USE [$safeDbName];"
 

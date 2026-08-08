@@ -111,6 +111,11 @@ function firstRows<T>(rows: T[], count = 8) {
   return rows.slice(0, count);
 }
 
+function fiscalAsOfDate(fiscalCycle: number) {
+  const year = Number.isInteger(fiscalCycle) ? fiscalCycle : new Date().getFullYear();
+  return `${year}-12-31`;
+}
+
 function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
@@ -214,6 +219,7 @@ export default function FreshAtlasApp() {
 
     const token = activeSession.token;
     const sessionId = activeSession.sessionId;
+    const asOfDate = fiscalAsOfDate(fiscalCycle);
     const calls = await Promise.allSettled([
       atlasVersion(),
       atlasHealth(),
@@ -223,7 +229,7 @@ export default function FreshAtlasApp() {
       atlasFetch<LoanSummary>("/loans/summary", token, sessionId),
       atlasFetch<AirfarePolicy[]>("/airfare-policy-rates", token, sessionId),
       atlasFetch<AirfareEntitlementReconciliationResult>(
-        `/airfare/entitlement/reconciliation?year=${fiscalCycle}&tolerance=0.01`,
+        `/airfare/entitlement/reconciliation?asOfDate=${asOfDate}&tolerance=0.01`,
         token,
         sessionId
       )

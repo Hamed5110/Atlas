@@ -8,6 +8,8 @@ const page = fs.readFileSync(path.join(root, "atlas-hcm-next", "app", "page.tsx"
 const api = fs.readFileSync(path.join(root, "atlas-hcm-next", "lib", "atlas-api.ts"), "utf8");
 const envExample = fs.readFileSync(path.join(root, ".env.example"), "utf8");
 const migration = fs.readFileSync(path.join(root, "database", "migrations", "2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql"), "utf8");
+const bootstrapperDeploy = fs.readFileSync(path.join(root, "installer", "bootstrapper", "deploy.ps1"), "utf8");
+const installerInitializer = fs.readFileSync(path.join(root, "installer", "Initialize-ATLAS-Database.ps1"), "utf8");
 
 function includesAll(text, values, group) {
   for (const value of values) {
@@ -87,5 +89,21 @@ assert.doesNotMatch(migration, /\bTRUNCATE\s+TABLE\b/i, "migration must not trun
 assert.doesNotMatch(server, /\/api\/year-end|YEAR_END_PROCESS_REMOVED|sp_ATLAS_GetYearEndPreview|sp_ATLAS_PreviewAirfareEntitlementReset/, "annual close/reset route and procedures must not be active in Patch 2.3.89");
 assert.doesNotMatch(page, /\{\s*label:\s*"Year End"/, "normal navigation must not expose annual close");
 assert.doesNotMatch(page, /Year End|year-end|YearEnd|Open Year End blueprint|opening-year-end-bridge/, "frontend must not expose annual close labels or links");
+
+includesAll(bootstrapperDeploy, [
+  "DatabaseNameValue",
+  "DB_NAME = $DatabaseNameValue",
+  "ContinuousAirfareEntitlement_Blueprint.sql",
+  "migrations\\2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql",
+  "DB_NAME=$DatabaseName",
+  "CREATE DATABASE $safeAppDbIdentifier"
+], "interactive bootstrapper database setup");
+
+includesAll(installerInitializer, [
+  "ContinuousAirfareEntitlement_Blueprint.sql",
+  "migrations\\2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql",
+  "CutoverDate",
+  "CreatedBy"
+], "installed database initializer continuous entitlement repair");
 
 console.log("Patch 2.3.89 implementation source checks passed");

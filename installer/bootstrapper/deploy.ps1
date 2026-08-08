@@ -420,6 +420,7 @@ function Write-BootstrapConfig {
         [string]$DbServerName,
         [string]$InstanceName,
         [string]$Password,
+        [string]$DatabaseNameValue,
         [string]$CompanyCodeValue,
         [string]$CompanyNameValue,
         [string]$AdminUsernameValue,
@@ -432,6 +433,8 @@ function Write-BootstrapConfig {
         Port = $PortNumber
         SqlPort = $SqlPortNumber
         DbServer = $DbServerName
+        DB_NAME = $DatabaseNameValue
+        DbName = $DatabaseNameValue
         SqlInstance = $InstanceName
         SqlSaPassword = $Password
         CompanyCode = $CompanyCodeValue
@@ -1091,6 +1094,13 @@ function Prompt-AtlasInstallSettings {
     $rawDbServer = Read-Host "MSSQL server / host [$selectedDbServer]"
     if (-not [string]::IsNullOrWhiteSpace($rawDbServer)) { $selectedDbServer = $rawDbServer.Trim() }
 
+    $selectedDbName = "Atlasairfare3356"
+    $rawDbName = Read-Host "ATLAS application database name [$selectedDbName]"
+    if (-not [string]::IsNullOrWhiteSpace($rawDbName)) { $selectedDbName = $rawDbName.Trim() }
+    if ($selectedDbName -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') {
+        throw "ATLAS database name '$selectedDbName' is not valid. Use letters, numbers, underscore, dot, or dash."
+    }
+
     while ($true) {
         $rawSqlPort = Read-Host "MSSQL TCP port [$selectedSqlPort, enter 0 for SQL Server default/current port]"
         if (-not [string]::IsNullOrWhiteSpace($rawSqlPort)) {
@@ -1183,6 +1193,7 @@ function Prompt-AtlasInstallSettings {
         -DbServerName $selectedDbServer `
         -InstanceName $selectedInstance `
         -Password $plainPassword `
+        -DatabaseNameValue $selectedDbName `
         -CompanyCodeValue $selectedCompanyCode `
         -CompanyNameValue $selectedCompanyName `
         -AdminUsernameValue $selectedAdminUsername `
@@ -1441,6 +1452,7 @@ function Ensure-AtlasDatabase {
         [int]$SqlPortNumber,
         [string]$DbServerName = "127.0.0.1",
         [string]$Password,
+        [string]$DatabaseName = "Atlasairfare3356",
         [string]$InstallPath,
         [string]$CompanyCodeValue,
         [string]$CompanyNameValue,
@@ -1450,12 +1462,17 @@ function Ensure-AtlasDatabase {
     $dbHost = Get-AtlasSqlTcpHost -Server $DbServerName
     $server = if ($SqlPortNumber -gt 0) { "tcp:$dbHost,$SqlPortNumber" } else { Get-SqlServerName -InstanceName $InstanceName }
     $master = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
-    $appDb = "Atlasairfare3356"
+    $appDb = if ([string]::IsNullOrWhiteSpace($DatabaseName)) { "Atlasairfare3356" } else { $DatabaseName.Trim() }
+    if ($appDb -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') {
+        throw "ATLAS database name '$appDb' is not valid. Use letters, numbers, underscore, dot, or dash."
+    }
+    $safeAppDbLiteral = Escape-SqlLiteral -Value $appDb
+    $safeAppDbIdentifier = "[" + ($appDb -replace "]", "]]") + "]"
 
     Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "STARTED" -Message "Using SQL endpoint $server and database $appDb." -DataPath $DataRoot
     Write-Step "Database configuration using SQL endpoint $server."
-    $dbExists = [int](Invoke-SqlScalar -ConnectionString $master -SqlText "SELECT CASE WHEN DB_ID(N'$appDb') IS NULL THEN 0 ELSE 1 END;")
-    Invoke-SqlBatch -ConnectionString $master -SqlText "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];" -StepName "Create database $appDb"
+    $dbExists = [int](Invoke-SqlScalar -ConnectionString $master -SqlText "SELECT CASE WHEN DB_ID(N'$safeAppDbLiteral') IS NULL THEN 0 ELSE 1 END;")
+    Invoke-SqlBatch -ConnectionString $master -SqlText "IF DB_ID(N'$safeAppDbLiteral') IS NULL CREATE DATABASE $safeAppDbIdentifier;" -StepName "Create database $appDb"
     Write-Step "Database $appDb is present."
     $appConnection = "Server=$server;Database=$appDb;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
     $baseSchemaExists = [int](Invoke-SqlScalar -ConnectionString $appConnection -SqlText "SELECT CASE WHEN OBJECT_ID(N'dbo.Users', N'U') IS NULL THEN 0 ELSE 1 END;")
@@ -1463,9 +1480,13 @@ function Ensure-AtlasDatabase {
     $schemaFiles = @(
         "ATLAS_MSSQL_Schema.sql",
         "ATLAS_HCM_SQL_Objects.sql",
+        "ATLAS_Phase1_PolicyRate_Repair.sql",
         "ATLAS_Company_Admin.sql",
         "ATLAS_Allocation_Attachments.sql",
-        "ATLAS_Loan_SQL_Objects.sql"
+        "ATLAS_Loan_SQL_Objects.sql",
+        "UserPreferences_LayoutState.sql",
+        "ContinuousAirfareEntitlement_Blueprint.sql",
+        "migrations\2026.08.02_patch_2_3_89_continuous_entitlement_phase1.sql"
     )
     foreach ($file in $schemaFiles) {
         $path = Join-Path $InstallPath "database\$file"
@@ -1478,8 +1499,11 @@ function Ensure-AtlasDatabase {
 
         Write-Step "Applying database script $file."
         $sql = Get-Content -LiteralPath $path -Raw
-        $sql = $sql -replace "(?im)^\s*CREATE\s+DATABASE\s+\[?Atlasairfare010\]?\s*;?\s*$", "IF DB_ID(N'$appDb') IS NULL CREATE DATABASE [$appDb];"
-        $sql = $sql -replace "(?im)^\s*USE\s+\[?Atlasairfare010\]?\s*;?\s*$", "USE [$appDb];"
+        $sql = $sql -replace "(?im)^\s*:\S+.*$", ""
+        $sql = $sql -replace "\`$\(CutoverDate\)", "2026-01-01"
+        $sql = $sql -replace "\`$\(CreatedBy\)", "0"
+        $sql = $sql -replace "(?im)^\s*CREATE\s+DATABASE\s+\[?Atlasairfare010\]?\s*;?\s*$", "IF DB_ID(N'$safeAppDbLiteral') IS NULL CREATE DATABASE $safeAppDbIdentifier;"
+        $sql = $sql -replace "(?im)^\s*USE\s+\[?Atlasairfare010\]?\s*;?\s*$", "USE $safeAppDbIdentifier;"
         Invoke-SqlBatch -ConnectionString $appConnection -SqlText $sql -StepName "Database script $file"
         Write-Step "Database script $file completed."
     }
@@ -1507,7 +1531,8 @@ function Write-AtlasConfig {
         [int]$SqlPortNumber,
         [string]$DbServerName,
         [string]$InstanceName,
-        [string]$Password
+        [string]$Password,
+        [string]$DatabaseName = "Atlasairfare3356"
     )
     $secretBytes = New-Object byte[] 48
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($secretBytes)
@@ -1518,7 +1543,7 @@ PORT=$PortNumber
 HOST=0.0.0.0
 DB_SERVER=$DbServerName
 DB_PORT=$SqlPortNumber
-DB_NAME=Atlasairfare3356
+DB_NAME=$DatabaseName
 DB_USER=sa
 DB_PASSWORD=$Password
 DB_ODBC_DRIVER=ODBC Driver 18 for SQL Server
@@ -2200,11 +2225,14 @@ function Invoke-InstallOrRepair {
         Read-BootstrapConfig -DataPath $DataRoot
     }
     $SqlPort = [int]$script:SqlPort
+    $selectedDbName = "Atlasairfare3356"
     if ($saved) {
         if ($saved.Port) { $Port = [int]$saved.Port }
         if ($saved.SqlPort) { $SqlPort = [int]$saved.SqlPort }
         if ($saved.DbServer) { $DbServer = [string]$saved.DbServer }
         if ($saved.DB_SERVER) { $DbServer = [string]$saved.DB_SERVER }
+        if ($saved.DbName) { $selectedDbName = [string]$saved.DbName }
+        if ($saved.DB_NAME) { $selectedDbName = [string]$saved.DB_NAME }
         if ($saved.SqlInstance) { $SqlInstance = [string]$saved.SqlInstance }
         if ($saved.SqlSaPassword) { $SqlSaPassword = [string]$saved.SqlSaPassword }
         if ($saved.CompanyCode) { $CompanyCode = [string]$saved.CompanyCode }
@@ -2256,12 +2284,14 @@ function Invoke-InstallOrRepair {
     if (-not (Test-SqlLogin -InstanceName $effectiveSqlInstance -Password $SqlSaPassword)) {
         Write-Step "Warning: MSSQL instance-name login check failed after TCP verification; continuing with verified TCP endpoint 127.0.0.1:$SqlPort."
     }
-    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -DbServerName $DbServer -InstanceName $effectiveSqlInstance -Password $SqlSaPassword
+    if ([string]::IsNullOrWhiteSpace($selectedDbName)) { $selectedDbName = "Atlasairfare3356" }
+    Write-AtlasConfig -InstallPath $InstallRoot -PortNumber $Port -SqlPortNumber $SqlPort -DbServerName $DbServer -InstanceName $effectiveSqlInstance -Password $SqlSaPassword -DatabaseName $selectedDbName
     Ensure-AtlasDatabase `
         -InstanceName $effectiveSqlInstance `
         -SqlPortNumber $SqlPort `
         -DbServerName $DbServer `
         -Password $SqlSaPassword `
+        -DatabaseName $selectedDbName `
         -InstallPath $InstallRoot `
         -CompanyCodeValue $CompanyCode `
         -CompanyNameValue $CompanyName `

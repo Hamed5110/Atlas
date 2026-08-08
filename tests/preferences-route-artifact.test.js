@@ -15,6 +15,9 @@ assert.match(dashboardPage, /Fresh build · port 3356/, 'Fresh shell must identi
 assert.match(dashboardPage, /Entitlement Seeds/, 'Fresh shell must rename opening evidence to entitlement seeds');
 assert.match(dashboardPage, /No annual reset screen/, 'Fresh shell must state that the old annual reset screen is removed');
 assert.match(dashboardPage, /atlasFetch<AirfareEntitlementReconciliationResult>/, 'Fresh shell must call the typed reconciliation API');
+assert.match(dashboardPage, /fiscalAsOfDate/, 'Fresh shell must derive a deterministic YYYY-MM-DD asOfDate from the selected fiscal cycle');
+assert.match(dashboardPage, /reconciliation\?asOfDate=\$\{asOfDate\}&tolerance=0\.01/, 'Reconciliation API calls must send asOfDate, not only year');
+assert.doesNotMatch(dashboardPage, /reconciliation\?year=\$\{fiscalCycle\}/, 'Reconciliation API must not omit required asOfDate');
 assert.match(dashboardPage, /calculateExcelTotal[\s\S]*closingBalanceDays/, 'Fresh shell must keep using existing ATLAS formula helpers');
 assert.match(css, /\.atlas-root[\s\S]*grid-template-columns:\s*var\(--sidebar\)\s*minmax\(0,\s*1fr\)/, 'Fresh shell must use the new strict app grid');
 assert.match(css, /\.atlas-sidebar[\s\S]*grid-template-rows:\s*auto auto minmax\(0,\s*1fr\) auto/, 'Sidebar must use isolated header/context/nav/footer zones');
