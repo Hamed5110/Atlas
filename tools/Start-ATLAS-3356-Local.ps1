@@ -21,7 +21,7 @@ if (Test-Path -LiteralPath $envFile) {
 $env:PORT = "3356"
 $env:DB_SERVER = "localhost"
 $env:DB_PORT = "1433"
-$env:DB_NAME = "Atlasairfare010"
+$env:DB_NAME = "Atlasairfare3356"
 $env:DB_USER = "sa"
 $env:DB_PASSWORD = "Atlas@25"
 

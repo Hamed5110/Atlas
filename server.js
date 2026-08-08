@@ -766,7 +766,7 @@ const sqlEndpoint = normalizeSqlConnectionEndpoint(process.env.DB_SERVER, proces
 const dbConfig = {
     server: sqlEndpoint.server,
     port: sqlEndpoint.port,
-    database: process.env.DB_NAME || 'Atlasairfare010',
+    database: process.env.DB_NAME || 'Atlasairfare3356',
     user: process.env.DB_USER || 'atlas_user',
     password: process.env.DB_PASSWORD || '',
     options: {
@@ -6056,7 +6056,7 @@ app.post('/api/admin/company-reset', authenticateToken, requireRole('admin'), as
         confirm: Joi.string().valid('RESET_COMPANY_DATA').required(),
         companyCode: Joi.string().allow('', null).max(30).default('ATLAS'),
         companyName: Joi.string().allow('', null).max(150).default('ATLAS Airfare HCM'),
-        databaseName: Joi.string().allow('', null).max(128).default(dbConfig.database || 'Atlasairfare010')
+        databaseName: Joi.string().allow('', null).max(128).default(dbConfig.database || 'Atlasairfare3356')
     });
     const { error, value } = schema.validate(req.body || {});
     if (error) return res.status(400).json(toApiValidationError(error));
@@ -6068,7 +6068,7 @@ app.post('/api/admin/company-reset', authenticateToken, requireRole('admin'), as
             .input('Confirm', sql.NVarChar(40), value.confirm)
             .input('CompanyCode', sql.NVarChar(30), value.companyCode || 'ATLAS')
             .input('CompanyName', sql.NVarChar(150), value.companyName || 'ATLAS Airfare HCM')
-            .input('DatabaseName', sql.NVarChar(128), value.databaseName || dbConfig.database || 'Atlasairfare010')
+            .input('DatabaseName', sql.NVarChar(128), value.databaseName || dbConfig.database || 'Atlasairfare3356')
             .input('ResetBy', sql.Int, req.user.userId)
             .execute('dbo.sp_ATLAS_ResetCompanyState'), 'reset company state');
         const reset = result.recordset?.[0] || {};
@@ -7445,7 +7445,7 @@ app.get('/api/version', async (req, res) => {
     const features = getContinuousAirfareFeatureState();
     let database = {
         connected: false,
-        name: process.env.DB_NAME || 'Atlasairfare010',
+        name: process.env.DB_NAME || 'Atlasairfare3356',
         schemaVersion: identity.databaseSchemaVersion
     };
 
@@ -7454,7 +7454,7 @@ app.get('/api/version', async (req, res) => {
         await db.request().query('SELECT 1');
         database = {
             connected: true,
-            name: process.env.DB_NAME || 'Atlasairfare010',
+            name: process.env.DB_NAME || 'Atlasairfare3356',
             schemaVersion: identity.databaseSchemaVersion
         };
     } catch (err) {
@@ -7536,7 +7536,6 @@ httpServer.on('error', (err) => {
 });
 
 module.exports = app;
-
 
 
 

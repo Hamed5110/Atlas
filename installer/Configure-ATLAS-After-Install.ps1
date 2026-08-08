@@ -53,7 +53,7 @@ Write-Host ""
 $appPort = Read-DefaultedInt -Prompt "ATLAS application port" -Default 3355
 $dbServer = Read-DefaultedValue -Prompt "MSSQL server host or instance" -Default "localhost\ATLAS"
 $dbPort = Read-DefaultedInt -Prompt "MSSQL TCP port" -Default 1433
-$dbName = Read-DefaultedValue -Prompt "MSSQL database name" -Default "Atlasairfare010"
+$dbName = Read-DefaultedValue -Prompt "MSSQL database name" -Default "Atlasairfare3356"
 $dbUser = Read-DefaultedValue -Prompt "MSSQL login" -Default "sa"
 $securePassword = Read-Host "MSSQL password for '$dbUser'" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)

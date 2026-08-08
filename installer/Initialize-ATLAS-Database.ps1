@@ -245,7 +245,7 @@ $settings = Read-AtlasEnv -Path $envPath
 
 $dbServer = if ($settings.DB_SERVER) { [string]$settings.DB_SERVER } else { "localhost\ATLAS" }
 $dbPort = if ($settings.DB_PORT) { [int]$settings.DB_PORT } else { 1433 }
-$dbName = if ($settings.DB_NAME) { [string]$settings.DB_NAME } else { "Atlasairfare010" }
+$dbName = if ($settings.DB_NAME) { [string]$settings.DB_NAME } else { "Atlasairfare3356" }
 $dbUser = if ($settings.DB_USER) { [string]$settings.DB_USER } else { "sa" }
 $dbPassword = if ($settings.ContainsKey("DB_PASSWORD")) { [string]$settings.DB_PASSWORD } else { "" }
 
@@ -301,4 +301,3 @@ foreach ($scriptName in $scripts) {
 
 Write-DbSetupLog -InstallRootPath $InstallRoot -Step "database configuration" -Status "OK" -Message "Database configuration successful for '$dbName' on $serverPart."
 Write-Step "Database configuration successful for '$dbName'."
-

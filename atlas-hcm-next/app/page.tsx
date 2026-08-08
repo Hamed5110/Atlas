@@ -333,7 +333,7 @@ export default function FreshAtlasApp() {
 
           <div className="topbar-actions">
             <StatusPill label={`v${version?.version || "checking"}`} tone="blue" />
-            <StatusPill label={health?.database?.connected ? "SQL live" : "SQL pending"} tone={health?.database?.connected ? "green" : "amber"} />
+            <StatusPill label={(version?.database?.connected || health?.database?.connected) ? "SQL live" : "SQL pending"} tone={(version?.database?.connected || health?.database?.connected) ? "green" : "amber"} />
             {session ? (
               <button className="ghost-button" type="button" onClick={logout}><LogOut size={17} /> Logout</button>
             ) : null}
@@ -372,7 +372,7 @@ export default function FreshAtlasApp() {
               <InsightCard icon={Gauge} title="Entitlement formula" value={`${formatNumber(metrics.entitlementDays, 2)} days`} detail={`${formatMoney(metrics.entitlementBhd)} live balance`} />
               <InsightCard icon={CircleDollarSign} title="Policy rate" value={formatMoney(metrics.policyAmount)} detail={`${formatMoney(metrics.perDayRate)} per day`} />
               <InsightCard icon={Activity} title="Reconciliation" value={`${metrics.reconciliationIssues} review`} detail="Continuous vs legacy evidence" />
-              <InsightCard icon={Database} title="Database" value={health?.database?.name || "Atlasairfare010"} detail={health?.database?.schemaVersion || "schema pending"} />
+              <InsightCard icon={Database} title="Database" value={version?.database?.name || health?.database?.name || "Atlasairfare3356"} detail={version?.database?.schemaVersion || health?.database?.schemaVersion || version?.databaseSchemaVersion || "schema pending"} />
             </aside>
           </div>
         )}
@@ -407,7 +407,7 @@ function LoginPanel({
         </p>
         <div className="hero-proof">
           <StatusPill label={`Runtime ${version?.version || "pending"}`} tone="blue" />
-          <StatusPill label={health?.database?.connected ? "Database connected" : "Database pending"} tone={health?.database?.connected ? "green" : "amber"} />
+          <StatusPill label={(version?.database?.connected || health?.database?.connected) ? "Database connected" : "Database pending"} tone={(version?.database?.connected || health?.database?.connected) ? "green" : "amber"} />
           <StatusPill label="No annual reset screen" tone="slate" />
         </div>
       </div>
@@ -473,7 +473,7 @@ function CommandCenter({ metrics, version, health, onRefresh }: {
             <span className="eyebrow">Runtime identity</span>
             <h3>3356 build proof</h3>
           </div>
-          <StatusPill label={health?.database?.connected ? "SQL verified" : "SQL not ready"} tone={health?.database?.connected ? "green" : "amber"} />
+          <StatusPill label={(version?.database?.connected || health?.database?.connected) ? "SQL verified" : "SQL not ready"} tone={(version?.database?.connected || health?.database?.connected) ? "green" : "amber"} />
         </div>
         <div className="proof-grid">
           <Proof label="Version" value={version?.version || "pending"} />

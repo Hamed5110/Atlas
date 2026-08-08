@@ -86,7 +86,7 @@
     <Variable Name="ATLASDATAROOT" Value="C:\ProgramData\ATLAS Airfare Allowance" bal:Overridable="yes" />
     <Variable Name="ATLASDBSERVER" Value="127.0.0.1" bal:Overridable="yes" />
     <Variable Name="ATLASDBPORT" Value="1433" bal:Overridable="yes" />
-    <Variable Name="ATLASDBNAME" Value="Atlasairfare010" bal:Overridable="yes" />
+    <Variable Name="ATLASDBNAME" Value="Atlasairfare3356" bal:Overridable="yes" />
     <Variable Name="ATLASDBUSER" Value="sa" bal:Overridable="yes" />
 
     <util:RegistrySearch

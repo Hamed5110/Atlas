@@ -209,7 +209,7 @@ function Invoke-SqlText {
     $server = $settings.DB_SERVER
     if ([string]::IsNullOrWhiteSpace($server)) { $server = "localhost" }
     $database = $settings.DB_NAME
-    if ([string]::IsNullOrWhiteSpace($database)) { $database = "Atlasairfare010" }
+    if ([string]::IsNullOrWhiteSpace($database)) { $database = "Atlasairfare3356" }
     $user = $settings.DB_USER
     $password = $settings.DB_PASSWORD
     $port = $settings.DB_PORT

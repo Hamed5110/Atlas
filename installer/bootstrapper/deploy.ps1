@@ -510,7 +510,7 @@ function Save-UpdatePreservedConfig {
     if (-not $settings.Contains("PORT")) { $settings["PORT"] = [string]$Port; $changed = $true }
     if (-not $settings.Contains("DB_SERVER") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_SERVER"])) { $settings["DB_SERVER"] = "127.0.0.1"; $changed = $true }
     if (-not $settings.Contains("DB_PORT") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_PORT"])) { $settings["DB_PORT"] = "1433"; $changed = $true }
-    if (-not $settings.Contains("DB_NAME") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_NAME"])) { $settings["DB_NAME"] = "Atlasairfare010"; $changed = $true }
+    if (-not $settings.Contains("DB_NAME") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_NAME"])) { $settings["DB_NAME"] = "Atlasairfare3356"; $changed = $true }
     if (-not $settings.Contains("DB_USER") -or [string]::IsNullOrWhiteSpace([string]$settings["DB_USER"])) { $settings["DB_USER"] = "sa"; $changed = $true }
 
     if ($changed) {
@@ -1446,7 +1446,7 @@ function Ensure-AtlasDatabase {
     $dbHost = Get-AtlasSqlTcpHost -Server $DbServerName
     $server = if ($SqlPortNumber -gt 0) { "tcp:$dbHost,$SqlPortNumber" } else { Get-SqlServerName -InstanceName $InstanceName }
     $master = "Server=$server;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
-    $appDb = "Atlasairfare010"
+    $appDb = "Atlasairfare3356"
 
     Write-InstallDebugEvent -CurrentStep "Configure ATLAS database" -Status "STARTED" -Message "Using SQL endpoint $server and database $appDb." -DataPath $DataRoot
     Write-Step "Database configuration using SQL endpoint $server."
@@ -1514,7 +1514,7 @@ PORT=$PortNumber
 HOST=0.0.0.0
 DB_SERVER=$DbServerName
 DB_PORT=$SqlPortNumber
-DB_NAME=Atlasairfare010
+DB_NAME=Atlasairfare3356
 DB_USER=sa
 DB_PASSWORD=$Password
 DB_ODBC_DRIVER=ODBC Driver 18 for SQL Server
@@ -1601,7 +1601,7 @@ function Repair-AtlasConfigForPatch {
     $defaultSettings = [ordered]@{
         HOST = "0.0.0.0"
         DB_SERVER = "127.0.0.1"
-        DB_NAME = "Atlasairfare010"
+        DB_NAME = "Atlasairfare3356"
         DB_USER = "sa"
         DB_ODBC_DRIVER = "ODBC Driver 18 for SQL Server"
         DB_AUTO_SETUP = "1"
@@ -2448,4 +2448,3 @@ try {
         try { Stop-Transcript | Out-Null } catch {}
     }
 }
-
