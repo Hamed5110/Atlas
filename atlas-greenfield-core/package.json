@@ -1,0 +1,14 @@
+{
+  "name": "atlas-greenfield-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Greenfield ATLAS core: employees-first HCM foundation.",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node tests/employee-requirements.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
