@@ -660,19 +660,23 @@ function Backup-AtlasDatabaseIfPresent {
     param(
         [int]$SqlPortNumber,
         [string]$Password,
-        [string]$DataPath
+        [string]$DataPath,
+        [string]$DatabaseName = "Atlasairfare3356"
     )
     $backupDir = Join-Path $DataPath "db-backups"
     New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-    $backupPath = Join-Path $backupDir ("Atlasairfare010_copyonly_{0}.bak" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+    $safeNameForFile = ($DatabaseName -replace '[^A-Za-z0-9_.-]', '_')
+    $backupPath = Join-Path $backupDir ("{0}_copyonly_{1}.bak" -f $safeNameForFile, (Get-Date -Format "yyyyMMdd_HHmmss"))
     $safeBackupPath = Escape-SqlLiteral -Value $backupPath
+    $safeDatabaseName = Escape-SqlLiteral -Value $DatabaseName
+    $quotedDatabaseName = "[" + ($DatabaseName -replace "]", "]]") + "]"
     $connectionString = "Server=tcp:127.0.0.1,$SqlPortNumber;Database=master;User ID=sa;Password=$Password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=15;"
-    $exists = [int](Invoke-SqlScalar -ConnectionString $connectionString -SqlText "SELECT CASE WHEN DB_ID(N'Atlasairfare010') IS NULL THEN 0 ELSE 1 END;")
+    $exists = [int](Invoke-SqlScalar -ConnectionString $connectionString -SqlText "SELECT CASE WHEN DB_ID(N'$safeDatabaseName') IS NULL THEN 0 ELSE 1 END;")
     if ($exists -ne 1) {
-        Write-Step "Database Atlasairfare010 was not found; database backup skipped."
+        Write-Step "Database $DatabaseName was not found; database backup skipped."
         return $null
     }
-    Invoke-SqlBatch -ConnectionString $connectionString -SqlText "BACKUP DATABASE [Atlasairfare010] TO DISK = N'$safeBackupPath' WITH COPY_ONLY, INIT;"
+    Invoke-SqlBatch -ConnectionString $connectionString -SqlText "BACKUP DATABASE $quotedDatabaseName TO DISK = N'$safeBackupPath' WITH COPY_ONLY, INIT;"
     Write-Step "Database backup created: $backupPath"
     return $backupPath
 }
@@ -2136,6 +2140,7 @@ function Assert-AtlasPreInstallGate {
     $selectedPort = if ($saved.Port) { [int]$saved.Port } else { $Port }
     $selectedSqlPort = if ($saved.SqlPort) { [int]$saved.SqlPort } else { [int]$script:SqlPort }
     $selectedDbServer = if ($saved.DbServer) { [string]$saved.DbServer } elseif ($saved.DB_SERVER) { [string]$saved.DB_SERVER } else { $DbServer }
+    $selectedDbName = if ($saved.DbName) { [string]$saved.DbName } elseif ($saved.DB_NAME) { [string]$saved.DB_NAME } else { "Atlasairfare3356" }
     $selectedInstance = if ($saved.SqlInstance) { [string]$saved.SqlInstance } else { $SqlInstance }
     $selectedPassword = if ($saved.SqlSaPassword) { [string]$saved.SqlSaPassword } else { $SqlSaPassword }
     $selectedAction = if ($saved.SetupAction) { [string]$saved.SetupAction } else { $SetupAction }
@@ -2166,7 +2171,7 @@ function Assert-AtlasPreInstallGate {
         }
         Write-Step "Pre-installation MSSQL TCP check passed on ${selectedSqlHost}:$effectiveSqlPort."
         if ($selectedAction -eq "Install" -and (Get-BootstrapConfigBool -Config $saved -Name "BackupDatabaseBeforeFresh")) {
-            $null = Backup-AtlasDatabaseIfPresent -SqlPortNumber $effectiveSqlPort -Password $selectedPassword -DataPath $DataRoot
+            $null = Backup-AtlasDatabaseIfPresent -SqlPortNumber $effectiveSqlPort -Password $selectedPassword -DataPath $DataRoot -DatabaseName $selectedDbName
         }
     } else {
         Write-Step "Pre-installation check found no local SQL Server. SQL Express will be downloaded from Microsoft if needed."
