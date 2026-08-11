@@ -46,6 +46,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(db.support_info())
             if parsed.path == "/api/system-maintenance":
                 return self.send_json(db.system_maintenance())
+            if parsed.path == "/api/admin/backups":
+                return self.send_json(db.list_backups())
+            if parsed.path == "/api/airports/search":
+                return self.send_json(db.search_airports(required_query_text(query, "q")))
+            if parsed.path == "/api/attachments":
+                return self.send_json({"rows": db.list_attachments()})
+            if parsed.path.startswith("/api/attachments/") and parsed.path.endswith("/view"):
+                attachment_id = parsed.path.split("/")[3]
+                attachment = db.get_attachment_content(attachment_id)
+                return self.send_bytes(attachment["content"], attachment["contentType"], attachment["fileName"])
             if parsed.path == "/api/summary":
                 return self.send_json(db.summary(required_query(query, "asOfDate")))
             if parsed.path == "/api/companies":
@@ -105,6 +115,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(db.import_preview(payload.get("moduleCode", ""), payload.get("rows", [])))
             if parsed.path == "/api/preferences":
                 return self.send_json(db.save_preferences(self.read_json()))
+            if parsed.path == "/api/attachments":
+                return self.send_json({"attachment": db.create_attachment(self.read_json())}, HTTPStatus.CREATED)
+            if parsed.path == "/api/admin/backup":
+                return self.send_json(db.create_backup(), HTTPStatus.CREATED)
+            if parsed.path == "/api/admin/restore":
+                return self.send_json(db.restore_backup(self.read_json()))
+            if parsed.path == "/api/import-excel/preview":
+                return self.send_json(db.excel_import_preview(self.read_json()))
+            if parsed.path == "/api/import-excel/execute":
+                return self.send_json(db.excel_import_execute(self.read_json()))
             return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
             return self.send_error_json(exc)
@@ -154,6 +174,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def send_bytes(self, body: bytes, content_type: str, file_name: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Atlas-Python-Core", "true")
+        self.send_header("Content-Disposition", f'inline; filename="{file_name}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def send_error_json(self, exc: Exception) -> None:
         message = str(exc) or exc.__class__.__name__

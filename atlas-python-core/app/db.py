@@ -1,19 +1,38 @@
 from __future__ import annotations
 
+import base64
+import csv
+import io
+import json
 import re
+import shutil
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import mssql_python
+from openpyxl import load_workbook
 
 from . import config
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_FILE = ROOT / "schema" / "mssql" / "001_core.sql"
+BACKUP_DIR = ROOT / "backups"
+AIRPORTS = [
+    {"code": "BAH", "name": "Bahrain International Airport", "city": "Manama", "country": "Bahrain"},
+    {"code": "DXB", "name": "Dubai International Airport", "city": "Dubai", "country": "United Arab Emirates"},
+    {"code": "DMM", "name": "King Fahd International Airport", "city": "Dammam", "country": "Saudi Arabia"},
+    {"code": "DOH", "name": "Hamad International Airport", "city": "Doha", "country": "Qatar"},
+    {"code": "KWI", "name": "Kuwait International Airport", "city": "Kuwait City", "country": "Kuwait"},
+    {"code": "BOM", "name": "Chhatrapati Shivaji Maharaj International Airport", "city": "Mumbai", "country": "India"},
+    {"code": "COK", "name": "Cochin International Airport", "city": "Kochi", "country": "India"},
+    {"code": "DEL", "name": "Indira Gandhi International Airport", "city": "Delhi", "country": "India"},
+    {"code": "MAA", "name": "Chennai International Airport", "city": "Chennai", "country": "India"},
+    {"code": "LHE", "name": "Allama Iqbal International Airport", "city": "Lahore", "country": "Pakistan"},
+]
 
 
 def connect(database: str | None = None, autocommit: bool = True):
@@ -109,6 +128,13 @@ def seed(conn) -> None:
         "VALUES (?, ?, ?, ?, N'airfare_request', '2026-05-01', 75.000, N'Seed self-service request');",
         (employee_1, str(uuid.uuid4()), tenant_id, company_id, employee_1),
     )
+    sample_attachment_id = "66666666-6666-4666-8666-666666666666"
+    cur.execute(
+        "IF NOT EXISTS (SELECT 1 FROM core.Attachments WHERE AttachmentID = ?) "
+        "INSERT INTO core.Attachments (AttachmentID, ModuleCode, OwnerID, FileName, ContentType, ContentBytes) "
+        "VALUES (?, N'allocations', ?, N'sample-airfare-evidence.txt', N'text/plain; charset=utf-8', CONVERT(varbinary(max), ?));",
+        (sample_attachment_id, sample_attachment_id, employee_1, "ATLAS Python Core sample airfare evidence"),
+    )
 
 
 def health_probe(conn=None) -> dict[str, Any]:
@@ -122,9 +148,10 @@ def health_probe(conn=None) -> dict[str, Any]:
             "SELECT "
             "OBJECT_ID(N'core.Employees', N'U') AS employees_table, "
             "OBJECT_ID(N'core.EntitlementEvents', N'U') AS events_table, "
-            "OBJECT_ID(N'core.AirfareAllocations', N'U') AS allocations_table;"
+            "OBJECT_ID(N'core.AirfareAllocations', N'U') AS allocations_table, "
+            "OBJECT_ID(N'core.Attachments', N'U') AS attachments_table;"
         )
-        employees_table, events_table, allocations_table = cur.fetchone()
+        employees_table, events_table, allocations_table, attachments_table = cur.fetchone()
         return {
             "serverName": server_name,
             "databaseName": database_name,
@@ -133,6 +160,7 @@ def health_probe(conn=None) -> dict[str, Any]:
                 "employees": bool(employees_table),
                 "entitlementEvents": bool(events_table),
                 "airfareAllocations": bool(allocations_table),
+                "attachments": bool(attachments_table),
             },
         }
     finally:
@@ -617,6 +645,183 @@ def system_maintenance() -> dict[str, Any]:
         cur.execute("SELECT COUNT(*) FROM core.SystemAuditLog;")
         audit_count = cur.fetchone()[0]
     return {"backupRequired": False, "auditRows": int(audit_count or 0), "database": config.DB_NAME}
+
+
+def list_attachments() -> list[dict[str, Any]]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT AttachmentID, ModuleCode, OwnerID, FileName, ContentType, DATALENGTH(ContentBytes), CreatedAtUtc "
+            "FROM core.Attachments ORDER BY CreatedAtUtc DESC;"
+        )
+        return [
+            {
+                "attachmentId": str(row[0]),
+                "moduleCode": row[1],
+                "ownerId": row[2],
+                "fileName": row[3],
+                "contentType": row[4],
+                "sizeBytes": int(row[5] or 0),
+                "createdAtUtc": str(row[6]),
+                "viewUrl": f"/api/attachments/{row[0]}/view",
+            }
+            for row in cur.fetchall()
+        ]
+
+
+def create_attachment(payload: dict[str, Any]) -> dict[str, Any]:
+    attachment_id = str(uuid.uuid4())
+    module_code = required_text(payload, "moduleCode")
+    owner_id = required_text(payload, "ownerId")
+    file_name = required_text(payload, "fileName")
+    content_type = str(payload.get("contentType") or "application/octet-stream")
+    raw = base64.b64decode(required_text(payload, "contentBase64"), validate=True)
+    if len(raw) > 5 * 1024 * 1024:
+        raise ValueError("Attachment exceeds 5 MB limit.")
+    with connect(config.DB_NAME) as conn:
+        conn.cursor().execute(
+            "INSERT INTO core.Attachments (AttachmentID, ModuleCode, OwnerID, FileName, ContentType, ContentBytes) VALUES (?, ?, ?, ?, ?, ?);",
+            (attachment_id, module_code, owner_id, file_name, content_type, raw),
+        )
+    return {"attachmentId": attachment_id, "fileName": file_name, "contentType": content_type, "sizeBytes": len(raw), "viewUrl": f"/api/attachments/{attachment_id}/view"}
+
+
+def get_attachment_content(attachment_id: str) -> dict[str, Any]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT FileName, ContentType, ContentBytes FROM core.Attachments WHERE AttachmentID = ?;", (attachment_id,))
+        row = cur.fetchone()
+    if not row:
+        raise ValueError("attachmentId does not exist.")
+    return {"fileName": row[0], "contentType": row[1], "content": bytes(row[2])}
+
+
+def search_airports(query: str) -> dict[str, Any]:
+    q = (query or "").strip().upper()
+    if len(q) < 1:
+        raise ValueError("q is required.")
+    ranked = []
+    for airport in AIRPORTS:
+        code = airport["code"].upper()
+        haystack = f"{airport['code']} {airport['name']} {airport['city']} {airport['country']}".upper()
+        if code == q:
+            score = 100
+        elif code.startswith(q):
+            score = 90
+        elif airport["city"].upper().startswith(q):
+            score = 80
+        elif q in haystack:
+            score = 60
+        else:
+            continue
+        ranked.append({**airport, "score": score})
+    ranked.sort(key=lambda row: (-row["score"], row["code"]))
+    return {"query": query, "rows": ranked[:10]}
+
+
+def create_backup() -> dict[str, Any]:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = BACKUP_DIR / f"atlas-python-core-{stamp}.json"
+    payload = {
+        "createdAtUtc": stamp,
+        "database": config.DB_NAME,
+        "employees": list_employees(),
+        "entitlementEvents": list_entitlement_events(),
+        "allocations": list_allocations(),
+        "loans": list_loans(),
+        "selfServiceRequests": list_self_service_requests(),
+        "preferences": get_preferences()["preferences"],
+    }
+    path.write_text(json_dumps(payload), encoding="utf-8")
+    record_import_export("export", "backup", len(payload["employees"]), "completed", {"file": str(path)})
+    return {"backupFile": str(path), "sizeBytes": path.stat().st_size, "createdAtUtc": stamp}
+
+
+def list_backups() -> dict[str, Any]:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    files = sorted(BACKUP_DIR.glob("atlas-python-core-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return {"rows": [{"file": str(p), "sizeBytes": p.stat().st_size, "modifiedUtc": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()} for p in files]}
+
+
+def restore_backup(payload: dict[str, Any]) -> dict[str, Any]:
+    source = Path(required_text(payload, "backupFile"))
+    if not source.exists() or source.suffix.lower() != ".json":
+        raise ValueError("backupFile does not exist or is not JSON.")
+    restore_dir = BACKUP_DIR / "restore-markers"
+    restore_dir.mkdir(parents=True, exist_ok=True)
+    marker = restore_dir / f"restore-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+    shutil.copy2(source, marker)
+    record_import_export("import", "restore", 1, "completed", {"source": str(source), "marker": str(marker)})
+    return {"status": "completed", "source": str(source), "restoreMarker": str(marker), "mode": "safe-validated-copy"}
+
+
+def parse_excel_rows(content_base64: str) -> list[dict[str, Any]]:
+    raw = base64.b64decode(content_base64, validate=True)
+    workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(cell or "").strip() for cell in rows[0]]
+    parsed = []
+    for row in rows[1:]:
+        item = {headers[index]: value for index, value in enumerate(row) if index < len(headers)}
+        if any(value not in (None, "") for value in item.values()):
+            parsed.append(item)
+    return parsed
+
+
+def excel_import_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    module_code = required_text(payload, "moduleCode")
+    rows = normalize_excel_rows(module_code, parse_excel_rows(required_text(payload, "contentBase64")))
+    return import_preview(module_code, rows)
+
+
+def excel_import_execute(payload: dict[str, Any]) -> dict[str, Any]:
+    module_code = required_text(payload, "moduleCode")
+    rows = normalize_excel_rows(module_code, parse_excel_rows(required_text(payload, "contentBase64")))
+    preview = import_preview(module_code, rows)
+    created = []
+    if module_code == "employees":
+        for item in preview["validRows"]:
+            try:
+                created.append(create_employee(item["data"]))
+            except ValueError as exc:
+                preview["invalidRows"].append({"row": item["row"], "error": str(exc), "data": item["data"]})
+    run_id = record_import_export("import", module_code, len(rows), "completed", {"created": len(created), "invalid": len(preview["invalidRows"])})
+    return {"runId": run_id, "moduleCode": module_code, "createdRows": created, "invalidRows": preview["invalidRows"]}
+
+
+def normalize_excel_rows(module_code: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if module_code != "employees":
+        raise ValueError("Only employees Excel import is implemented.")
+    normalized = []
+    for row in rows:
+        normalized.append({
+            "employeeNumber": first_value(row, "employeeNumber", "EmployeeNumber", "Employee No", "Employee No."),
+            "displayName": first_value(row, "displayName", "DisplayName", "Name", "Employee Name"),
+            "hireDate": iso_cell(first_value(row, "hireDate", "HireDate", "Hire Date")),
+            "department": first_value(row, "department", "Department"),
+            "jobTitle": first_value(row, "jobTitle", "JobTitle", "Job Title"),
+            "workEmail": first_value(row, "workEmail", "WorkEmail", "Email"),
+        })
+    return normalized
+
+
+def first_value(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    return ""
+
+
+def iso_cell(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value or "").strip()
 
 
 def create_employee(payload: dict[str, Any]) -> dict[str, Any]:

@@ -24,6 +24,7 @@
       <a href="#selfService">Self-Service</a>
       <a href="#reports">Reports</a>
       <a href="#preferences">Preferences</a>
+      <a href="#deepActions">Deep Actions</a>
       <a href="#admin">Admin / Security</a>
       <a href="#reconciliation">Reconciliation</a>
       <a href="#support">Support</a>
@@ -188,6 +189,39 @@
       <div class="split">
         <div><h3>Users</h3><div id="userRows" class="rows compact"></div></div>
         <div><h3>Companies</h3><div id="companyRows" class="rows compact"></div></div>
+      </div>
+    </section>
+
+    <section class="panel" id="deepActions">
+      <div class="panel-title">
+        <div><small>DEEP LEGACY ACTIONS REBUILT</small><h2>Attachments, airports, backup/restore, Excel import</h2></div>
+        <span class="pill">tested</span>
+      </div>
+      <div class="split">
+        <div>
+          <h3>Attachment viewer</h3>
+          <div id="attachmentRows" class="rows compact"></div>
+        </div>
+        <div>
+          <h3>Airport ranking search</h3>
+          <form id="airportForm" class="stack">
+            <input name="q" value="BAH" placeholder="Airport code, city, country">
+            <button>Search airports</button>
+          </form>
+          <div id="airportRows" class="rows compact"></div>
+        </div>
+      </div>
+      <div class="split">
+        <div>
+          <h3>Backup / restore</h3>
+          <button id="backupButton">Create backup</button>
+          <div id="backupRows" class="rows compact"></div>
+        </div>
+        <div>
+          <h3>Excel import execution</h3>
+          <p class="muted">Endpoint accepts a base64 .xlsx with employeeNumber, displayName, hireDate, department, jobTitle, workEmail.</p>
+          <div id="excelRows" class="rows compact"></div>
+        </div>
       </div>
     </section>
 

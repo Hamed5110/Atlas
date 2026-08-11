@@ -8,7 +8,11 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import base64
+import io
 from pathlib import Path
+
+from openpyxl import Workbook
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -100,6 +104,30 @@ def test_database_repository_contract() -> None:
     assert db.diagnostics()["status"] == "ok"
     assert db.support_info()["supportMode"] == "local-greenfield"
     assert db.system_maintenance()["database"] == config.DB_NAME
+    attachment = db.create_attachment({
+        "moduleCode": "allocations",
+        "ownerId": employee["employeeId"],
+        "fileName": "evidence.txt",
+        "contentType": "text/plain; charset=utf-8",
+        "contentBase64": base64.b64encode(b"airfare evidence").decode("ascii"),
+    })
+    assert attachment["viewUrl"].endswith("/view")
+    assert db.get_attachment_content(attachment["attachmentId"])["content"] == b"airfare evidence"
+
+    airports = db.search_airports("BAH")["rows"]
+    assert airports[0]["code"] == "BAH"
+    assert airports[0]["score"] == 100
+
+    backup = db.create_backup()
+    assert Path(backup["backupFile"]).exists()
+    restore = db.restore_backup({"backupFile": backup["backupFile"]})
+    assert restore["status"] == "completed"
+
+    excel_payload = make_employee_workbook_base64(f"XL-{uuid.uuid4().hex[:8]}")
+    preview = db.excel_import_preview({"moduleCode": "employees", "contentBase64": excel_payload})
+    assert len(preview["validRows"]) == 1
+    executed = db.excel_import_execute({"moduleCode": "employees", "contentBase64": excel_payload})
+    assert len(executed["createdRows"]) == 1
 
 
 def test_http_contract() -> None:
@@ -136,6 +164,17 @@ def test_http_contract() -> None:
         assert get_json(f"http://127.0.0.1:{config.PORT}/api/diagnostics")["status"] == "ok"
         assert get_json(f"http://127.0.0.1:{config.PORT}/api/support")["supportMode"] == "local-greenfield"
         assert get_json(f"http://127.0.0.1:{config.PORT}/api/system-maintenance")["database"] == config.DB_NAME
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/airports/search?q=BAH")["rows"][0]["code"] == "BAH"
+        attachment_rows = get_json(f"http://127.0.0.1:{config.PORT}/api/attachments")["rows"]
+        assert attachment_rows
+        attachment_body = get_text(f"http://127.0.0.1:{config.PORT}{attachment_rows[0]['viewUrl']}")
+        assert attachment_body
+        backup = post_json(f"http://127.0.0.1:{config.PORT}/api/admin/backup", {})
+        assert Path(backup["backupFile"]).exists()
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/admin/backups")["rows"]
+        excel_payload = make_employee_workbook_base64(f"HTTP-XL-{uuid.uuid4().hex[:8]}")
+        excel_result = post_json(f"http://127.0.0.1:{config.PORT}/api/import-excel/execute", {"moduleCode": "employees", "contentBase64": excel_payload})
+        assert len(excel_result["createdRows"]) == 1
 
         try:
             get_json(f"http://127.0.0.1:{config.PORT}/api/summary")
@@ -164,3 +203,25 @@ def wait_for(url: str) -> None:
 def get_json(url: str) -> dict:
     with urllib.request.urlopen(url, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def get_text(url: str) -> str:
+    with urllib.request.urlopen(url, timeout=10) as response:
+        return response.read().decode("utf-8")
+
+
+def post_json(url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def make_employee_workbook_base64(employee_number: str) -> str:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["employeeNumber", "displayName", "hireDate", "department", "jobTitle", "workEmail"])
+    sheet.append([employee_number, "Excel Imported User", "2026-06-01", "Import", "Imported Employee", "excel@example.com"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")

@@ -42,7 +42,7 @@ function employeeOptions() {
 }
 
 async function refresh() {
-  const [health, summary, companyData, employeeData, rules, events, balances, allocations, loans, reconciliation, selfService, payable, employeeReport, preferences, users, diagnostics, support] = await Promise.all([
+  const [health, summary, companyData, employeeData, rules, events, balances, allocations, loans, reconciliation, selfService, payable, employeeReport, preferences, users, diagnostics, support, attachments, backups, airports] = await Promise.all([
     api("/api/health"),
     api(`/api/summary?asOfDate=${asOfDate}`),
     api("/api/companies"),
@@ -59,7 +59,10 @@ async function refresh() {
     api("/api/preferences"),
     api("/api/users"),
     api("/api/diagnostics"),
-    api("/api/support")
+    api("/api/support"),
+    api("/api/attachments"),
+    api("/api/admin/backups"),
+    api("/api/airports/search?q=BAH")
   ]);
 
   employees = employeeData.rows;
@@ -182,6 +185,32 @@ async function refresh() {
     ["Database", support.database],
     ["Mode", support.supportMode]
   ].map(([key, value]) => row([`<strong>${key}</strong>`, `<strong>${value}</strong>`, `<span>support</span>`, `<span class="ok">ready</span>`])).join("");
+
+  $("attachmentRows").innerHTML = attachments.rows.map((attachment) => row([
+    `<strong>${attachment.fileName}</strong>`,
+    `<strong>${attachment.moduleCode}</strong>`,
+    `<span>${attachment.sizeBytes} bytes</span>`,
+    `<span><a href="${attachment.viewUrl}" target="_blank" rel="noreferrer">View</a></span>`
+  ])).join("");
+
+  $("backupRows").innerHTML = backups.rows.length ? backups.rows.map((backup) => row([
+    `<strong>${backup.file.split("\\").pop()}</strong>`,
+    `<strong>${backup.sizeBytes} bytes</strong>`,
+    `<span>${backup.modifiedUtc}</span>`,
+    `<span class="ok">available</span>`
+  ])).join("") : row([`<strong>No backups yet</strong>`, `<strong>-</strong>`, `<span>Create one</span>`, `<span>ready</span>`]);
+
+  renderAirports(airports.rows);
+  $("excelRows").innerHTML = row([`<strong>Employees Excel</strong>`, `<strong>/api/import-excel/execute</strong>`, `<span>base64 .xlsx</span>`, `<span class="ok">ready</span>`]);
+}
+
+function renderAirports(rows) {
+  $("airportRows").innerHTML = rows.map((airport) => row([
+    `<strong>${airport.code}</strong>`,
+    `<strong>${airport.city}</strong>`,
+    `<span>${airport.name}</span>`,
+    `<span class="money">score ${airport.score}</span>`
+  ])).join("");
 }
 
 async function submit(formId, url, label) {
@@ -216,6 +245,26 @@ $("preferencesForm").addEventListener("submit", async (event) => {
   try {
     await api("/api/preferences", { method: "POST", body: JSON.stringify({ preferences: formJson($("preferencesForm")) }) });
     toast("Preferences saved");
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+$("airportForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const q = encodeURIComponent(formJson($("airportForm")).q || "");
+    const result = await api(`/api/airports/search?q=${q}`);
+    renderAirports(result.rows);
+    toast("Airports ranked");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+$("backupButton").addEventListener("click", async () => {
+  try {
+    await api("/api/admin/backup", { method: "POST", body: "{}" });
+    toast("Backup created");
     await refresh();
   } catch (error) {
     toast(error.message, true);

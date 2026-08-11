@@ -214,3 +214,17 @@ BEGIN
   );
 END;
 GO
+
+IF OBJECT_ID(N'core.Attachments', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.Attachments (
+    AttachmentID UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_PythonCore_Attachments PRIMARY KEY,
+    ModuleCode NVARCHAR(60) NOT NULL,
+    OwnerID NVARCHAR(80) NOT NULL,
+    FileName NVARCHAR(240) NOT NULL,
+    ContentType NVARCHAR(120) NOT NULL,
+    ContentBytes VARBINARY(MAX) NOT NULL,
+    CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_Attachments_Created DEFAULT SYSUTCDATETIME()
+  );
+END;
+GO
