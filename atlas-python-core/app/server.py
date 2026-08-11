@@ -40,6 +40,12 @@ class Handler(BaseHTTPRequestHandler):
                     "database": db.health_probe(),
                     "startupDatabaseProof": BOOT_PROOF,
                 })
+            if parsed.path == "/api/diagnostics":
+                return self.send_json(db.diagnostics())
+            if parsed.path == "/api/support":
+                return self.send_json(db.support_info())
+            if parsed.path == "/api/system-maintenance":
+                return self.send_json(db.system_maintenance())
             if parsed.path == "/api/summary":
                 return self.send_json(db.summary(required_query(query, "asOfDate")))
             if parsed.path == "/api/companies":
@@ -58,6 +64,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"rows": db.list_allocations()})
             if parsed.path == "/api/loans":
                 return self.send_json({"rows": db.list_loans()})
+            if parsed.path == "/api/self-service/requests":
+                return self.send_json({"rows": db.list_self_service_requests()})
+            if parsed.path == "/api/reports/airfare-payable":
+                return self.send_json(db.reports_airfare_payable(required_query(query, "asOfDate")))
+            if parsed.path == "/api/reports/employees":
+                return self.send_json(db.reports_employee_summary())
+            if parsed.path == "/api/preferences":
+                return self.send_json(db.get_preferences())
+            if parsed.path == "/api/users":
+                return self.send_json({"rows": db.list_users()})
+            if parsed.path == "/api/export":
+                return self.send_json(db.export_module(required_query_text(query, "module")))
             return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
             return self.send_error_json(exc)
@@ -65,6 +83,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             parsed = urlparse(self.path)
+            if parsed.path == "/api/auth/login":
+                return self.send_json(db.login(self.read_json()))
+            if parsed.path == "/api/companies":
+                return self.send_json({"company": db.create_company(self.read_json())}, HTTPStatus.CREATED)
             if parsed.path == "/api/employees":
                 return self.send_json({"employee": db.create_employee(self.read_json())}, HTTPStatus.CREATED)
             if parsed.path == "/api/entitlement/events":
@@ -73,6 +95,36 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"allocation": db.create_allocation(self.read_json())}, HTTPStatus.CREATED)
             if parsed.path == "/api/loans":
                 return self.send_json({"loan": db.create_loan(self.read_json())}, HTTPStatus.CREATED)
+            if parsed.path == "/api/self-service/requests":
+                return self.send_json({"request": db.create_self_service_request(self.read_json())}, HTTPStatus.CREATED)
+            if parsed.path.startswith("/api/self-service/requests/") and parsed.path.endswith("/transition"):
+                request_id = parsed.path.split("/")[4]
+                return self.send_json({"request": db.transition_self_service_request(request_id, self.read_json().get("statusCode", ""))})
+            if parsed.path == "/api/import-preview":
+                payload = self.read_json()
+                return self.send_json(db.import_preview(payload.get("moduleCode", ""), payload.get("rows", [])))
+            if parsed.path == "/api/preferences":
+                return self.send_json(db.save_preferences(self.read_json()))
+            return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
+        except Exception as exc:
+            return self.send_error_json(exc)
+
+    def do_PUT(self) -> None:
+        try:
+            parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/employees/"):
+                employee_id = parsed.path.split("/")[-1]
+                return self.send_json({"employee": db.update_employee(employee_id, self.read_json())})
+            return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
+        except Exception as exc:
+            return self.send_error_json(exc)
+
+    def do_DELETE(self) -> None:
+        try:
+            parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/employees/"):
+                employee_id = parsed.path.split("/")[-1]
+                return self.send_json({"employee": db.delete_employee(employee_id)})
             return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
             return self.send_error_json(exc)
@@ -116,6 +168,13 @@ def required_query(query: dict[str, list[str]], name: str) -> str:
     value = query.get(name, [""])[0].strip()
     if not value:
         raise ValueError(f"{name} is required in YYYY-MM-DD format.")
+    return value
+
+
+def required_query_text(query: dict[str, list[str]], name: str) -> str:
+    value = query.get(name, [""])[0].strip()
+    if not value:
+        raise ValueError(f"{name} is required.")
     return value
 
 

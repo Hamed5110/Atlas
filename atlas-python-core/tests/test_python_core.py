@@ -79,6 +79,28 @@ def test_database_repository_contract() -> None:
     assert reconciliation["status"] in {"balanced", "review"}
     assert "not payroll posting" in reconciliation["note"]
 
+    request = db.create_self_service_request({
+        "employeeId": employee["employeeId"],
+        "requestType": "airfare_request",
+        "requestDate": "2026-05-01",
+        "amount": "30.000",
+        "notes": "test request",
+    })
+    assert request["statusCode"] == "submitted"
+    assert db.transition_self_service_request(request["requestId"], "approved")["statusCode"] == "approved"
+
+    assert db.login({"username": "admin", "password": "Admin123!"})["user"]["roleCode"] == "admin"
+    assert db.reports_airfare_payable("2026-12-31")["employeeCount"] >= 1
+    assert db.reports_employee_summary()["total"] >= 1
+    assert db.get_preferences()["preferences"]["theme"] in {"system", "light", "dark"}
+    assert db.save_preferences({"theme": "dark", "density": "compact"})["preferences"]["theme"] == "dark"
+    assert db.list_users()[0]["username"] == "admin"
+    assert db.import_preview("employees", [{"employeeNumber": "X", "displayName": "Y", "hireDate": "2026-01-01"}, {"employeeNumber": ""}])["invalidRows"]
+    assert db.export_module("employees")["rows"]
+    assert db.diagnostics()["status"] == "ok"
+    assert db.support_info()["supportMode"] == "local-greenfield"
+    assert db.system_maintenance()["database"] == config.DB_NAME
+
 
 def test_http_contract() -> None:
     from app.server import Handler
@@ -106,6 +128,14 @@ def test_http_contract() -> None:
         assert "rows" in get_json(f"http://127.0.0.1:{config.PORT}/api/allocations")
         assert "rows" in get_json(f"http://127.0.0.1:{config.PORT}/api/loans")
         assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/reconciliation?asOfDate=2026-12-31")["status"] in {"balanced", "review"}
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/self-service/requests")["rows"]
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/reports/airfare-payable?asOfDate=2026-12-31")["employeeCount"] >= 1
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/reports/employees")["total"] >= 1
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/preferences")["preferences"]
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/users")["rows"]
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/diagnostics")["status"] == "ok"
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/support")["supportMode"] == "local-greenfield"
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/system-maintenance")["database"] == config.DB_NAME
 
         try:
             get_json(f"http://127.0.0.1:{config.PORT}/api/summary")

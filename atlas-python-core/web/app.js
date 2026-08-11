@@ -38,10 +38,11 @@ function employeeOptions() {
   $("eventEmployee").innerHTML = options;
   $("allocationEmployee").innerHTML = options;
   $("loanEmployee").innerHTML = options;
+  $("selfServiceEmployee").innerHTML = options;
 }
 
 async function refresh() {
-  const [health, summary, companyData, employeeData, rules, events, balances, allocations, loans, reconciliation] = await Promise.all([
+  const [health, summary, companyData, employeeData, rules, events, balances, allocations, loans, reconciliation, selfService, payable, employeeReport, preferences, users, diagnostics, support] = await Promise.all([
     api("/api/health"),
     api(`/api/summary?asOfDate=${asOfDate}`),
     api("/api/companies"),
@@ -51,7 +52,14 @@ async function refresh() {
     api(`/api/entitlement/balance?asOfDate=${asOfDate}`),
     api("/api/allocations"),
     api("/api/loans"),
-    api(`/api/entitlement/reconciliation?asOfDate=${asOfDate}`)
+    api(`/api/entitlement/reconciliation?asOfDate=${asOfDate}`),
+    api("/api/self-service/requests"),
+    api(`/api/reports/airfare-payable?asOfDate=${asOfDate}`),
+    api("/api/reports/employees"),
+    api("/api/preferences"),
+    api("/api/users"),
+    api("/api/diagnostics"),
+    api("/api/support")
   ]);
 
   employees = employeeData.rows;
@@ -118,6 +126,62 @@ async function refresh() {
     `<span>Earned ${money(item.earned)} / Used ${money(item.used)}</span>`,
     `<span class="${item.balance < 0 ? "bad" : "ok"}">${money(item.balance)}</span>`
   ])).join("");
+
+  $("selfServiceRows").innerHTML = selfService.rows.map((request) => row([
+    `<strong>${request.requestDate}</strong>`,
+    `<strong>${request.employeeNumber} ${request.displayName}</strong>`,
+    `<span>${request.requestType}</span>`,
+    `<span class="money">${request.statusCode} / ${money(request.amount)}</span>`
+  ])).join("");
+
+  $("payableReportRows").innerHTML = row([
+    `<strong>${payable.asOfDate}</strong>`,
+    `<strong>${payable.employeeCount} employee(s)</strong>`,
+    `<span>Total payable</span>`,
+    `<span class="money">${money(payable.totalPayable)}</span>`
+  ]);
+
+  $("employeeReportRows").innerHTML = Object.entries(employeeReport.departments).map(([department, count]) => row([
+    `<strong>${department}</strong>`,
+    `<strong>${count}</strong>`,
+    `<span>employee(s)</span>`,
+    `<span class="ok">active scope</span>`
+  ])).join("");
+
+  $("preferenceRows").innerHTML = Object.entries(preferences.preferences).map(([key, value]) => row([
+    `<strong>${key}</strong>`,
+    `<strong>${value}</strong>`,
+    `<span>MSSQL</span>`,
+    `<span class="ok">saved</span>`
+  ])).join("");
+
+  $("userRows").innerHTML = users.rows.map((user) => row([
+    `<strong>${user.username}</strong>`,
+    `<strong>${user.displayName}</strong>`,
+    `<span>${user.roleCode}</span>`,
+    `<span class="ok">${user.isActive ? "active" : "inactive"}</span>`
+  ])).join("");
+
+  $("companyRows").innerHTML = companyData.rows.map((company) => row([
+    `<strong>${company.companyCode}</strong>`,
+    `<strong>${company.companyName}</strong>`,
+    `<span>${company.baseCurrencyCode}</span>`,
+    `<span class="ok">${company.isActive ? "active" : "inactive"}</span>`
+  ])).join("");
+
+  $("diagnosticRows").innerHTML = diagnostics.checks.map((check) => row([
+    `<strong>${check.name}</strong>`,
+    `<strong>${check.status}</strong>`,
+    `<span>runtime</span>`,
+    `<span class="${check.status === "ok" ? "ok" : "bad"}">${check.status}</span>`
+  ])).join("");
+
+  $("supportRows").innerHTML = [
+    ["Product", support.product],
+    ["URL", support.localUrl],
+    ["Database", support.database],
+    ["Mode", support.supportMode]
+  ].map(([key, value]) => row([`<strong>${key}</strong>`, `<strong>${value}</strong>`, `<span>support</span>`, `<span class="ok">ready</span>`])).join("");
 }
 
 async function submit(formId, url, label) {
@@ -146,6 +210,17 @@ submit("employeeForm", "/api/employees", "Employee");
 submit("eventForm", "/api/entitlement/events", "Entitlement event");
 submit("allocationForm", "/api/allocations", "Allocation");
 submit("loanForm", "/api/loans", "Loan");
+submit("selfServiceForm", "/api/self-service/requests", "Self-service request");
+$("preferencesForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await api("/api/preferences", { method: "POST", body: JSON.stringify({ preferences: formJson($("preferencesForm")) }) });
+    toast("Preferences saved");
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
 refresh().catch((error) => {
   $("runtime").textContent = "BROKEN";
   $("version").textContent = error.message;

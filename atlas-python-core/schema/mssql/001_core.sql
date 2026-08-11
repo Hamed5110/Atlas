@@ -139,3 +139,78 @@ BEGIN
   );
 END;
 GO
+
+IF OBJECT_ID(N'core.Users', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.Users (
+    UserID UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_PythonCore_Users PRIMARY KEY,
+    Username NVARCHAR(80) NOT NULL CONSTRAINT UQ_PythonCore_Users_Username UNIQUE,
+    DisplayName NVARCHAR(160) NOT NULL,
+    RoleCode NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Users_Role DEFAULT 'admin',
+    IsActive BIT NOT NULL CONSTRAINT DF_PythonCore_Users_IsActive DEFAULT 1,
+    CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_Users_Created DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_PythonCore_Users_Role CHECK (RoleCode IN ('admin','payroll','viewer','employee'))
+  );
+END;
+GO
+
+IF OBJECT_ID(N'core.UserPreferences', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.UserPreferences (
+    PreferenceID UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_PythonCore_UserPreferences PRIMARY KEY,
+    UserID UNIQUEIDENTIFIER NOT NULL,
+    PreferenceJSON NVARCHAR(MAX) NOT NULL,
+    UpdatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_UserPreferences_Updated DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_PythonCore_UserPreferences_Users FOREIGN KEY (UserID) REFERENCES core.Users(UserID),
+    CONSTRAINT UQ_PythonCore_UserPreferences_User UNIQUE (UserID)
+  );
+END;
+GO
+
+IF OBJECT_ID(N'core.SelfServiceRequests', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.SelfServiceRequests (
+    RequestID UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_PythonCore_SelfServiceRequests PRIMARY KEY,
+    TenantID UNIQUEIDENTIFIER NOT NULL,
+    CompanyID UNIQUEIDENTIFIER NOT NULL,
+    EmployeeID UNIQUEIDENTIFIER NOT NULL,
+    RequestType NVARCHAR(40) NOT NULL,
+    RequestDate DATE NOT NULL,
+    Amount DECIMAL(12,3) NULL,
+    StatusCode NVARCHAR(32) NOT NULL CONSTRAINT DF_PythonCore_SelfService_Status DEFAULT 'submitted',
+    Notes NVARCHAR(400) NULL,
+    CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_SelfService_Created DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_PythonCore_SelfService_Employees FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+    CONSTRAINT CK_PythonCore_SelfService_Type CHECK (RequestType IN ('airfare_request','profile_update','loan_request')),
+    CONSTRAINT CK_PythonCore_SelfService_Status CHECK (StatusCode IN ('submitted','approved','rejected','cancelled'))
+  );
+END;
+GO
+
+IF OBJECT_ID(N'core.ImportExportRuns', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.ImportExportRuns (
+    RunID UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_PythonCore_ImportExportRuns PRIMARY KEY,
+    Direction NVARCHAR(20) NOT NULL,
+    ModuleCode NVARCHAR(60) NOT NULL,
+    DataRowCount INT NOT NULL CONSTRAINT DF_PythonCore_ImportExport_DataRowCount DEFAULT 0,
+    StatusCode NVARCHAR(32) NOT NULL,
+    DetailJSON NVARCHAR(MAX) NULL,
+    CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_ImportExport_Created DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_PythonCore_ImportExport_Direction CHECK (Direction IN ('import','export')),
+    CONSTRAINT CK_PythonCore_ImportExport_Status CHECK (StatusCode IN ('preview','completed','failed'))
+  );
+END;
+GO
+
+IF OBJECT_ID(N'core.SystemAuditLog', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.SystemAuditLog (
+    AuditID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PythonCore_SystemAuditLog PRIMARY KEY,
+    AreaCode NVARCHAR(80) NOT NULL,
+    ActionCode NVARCHAR(80) NOT NULL,
+    Detail NVARCHAR(400) NULL,
+    CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_SystemAudit_Created DEFAULT SYSUTCDATETIME()
+  );
+END;
+GO

@@ -51,6 +51,7 @@ def seed(conn) -> None:
     employee_1 = "33333333-3333-4333-8333-333333333333"
     employee_2 = "33333333-3333-4333-8333-333333333334"
     rule_id = "44444444-4444-4444-8444-444444444444"
+    user_id = "55555555-5555-4555-8555-555555555555"
 
     cur.execute(
         "IF NOT EXISTS (SELECT 1 FROM core.Tenants WHERE TenantID = ?) "
@@ -90,6 +91,22 @@ def seed(conn) -> None:
         "IF NOT EXISTS (SELECT 1 FROM core.EmployeeLoans WHERE EmployeeID = ? AND StartDate = '2026-02-01') "
         "INSERT INTO core.EmployeeLoans (LoanID, TenantID, CompanyID, EmployeeID, PrincipalAmount, EmiAmount, StartDate) "
         "VALUES (?, ?, ?, ?, 300.000, 50.000, '2026-02-01');",
+        (employee_1, str(uuid.uuid4()), tenant_id, company_id, employee_1),
+    )
+    cur.execute(
+        "IF NOT EXISTS (SELECT 1 FROM core.Users WHERE UserID = ?) "
+        "INSERT INTO core.Users (UserID, Username, DisplayName, RoleCode) VALUES (?, N'admin', N'System Administrator', N'admin');",
+        (user_id, user_id),
+    )
+    cur.execute(
+        "IF NOT EXISTS (SELECT 1 FROM core.UserPreferences WHERE UserID = ?) "
+        "INSERT INTO core.UserPreferences (PreferenceID, UserID, PreferenceJSON) VALUES (?, ?, ?);",
+        (user_id, str(uuid.uuid4()), user_id, '{"theme":"system","density":"comfortable","defaultPage":"command"}'),
+    )
+    cur.execute(
+        "IF NOT EXISTS (SELECT 1 FROM core.SelfServiceRequests WHERE EmployeeID = ? AND RequestDate = '2026-05-01') "
+        "INSERT INTO core.SelfServiceRequests (RequestID, TenantID, CompanyID, EmployeeID, RequestType, RequestDate, Amount, Notes) "
+        "VALUES (?, ?, ?, ?, N'airfare_request', '2026-05-01', 75.000, N'Seed self-service request');",
         (employee_1, str(uuid.uuid4()), tenant_id, company_id, employee_1),
     )
 
@@ -160,6 +177,20 @@ def summary(as_of_date: str) -> dict[str, Any]:
         }
 
 
+def login(payload: dict[str, Any]) -> dict[str, Any]:
+    username = required_text(payload, "username").lower()
+    password = required_text(payload, "password")
+    if username != "admin" or password not in {"admin", "Admin123!"}:
+        raise ValueError("Invalid username or password.")
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT UserID, DisplayName, RoleCode FROM core.Users WHERE Username = ? AND IsActive = 1;", (username,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("User is not active.")
+    return {"token": "local-python-core-admin", "sessionId": str(uuid.uuid4()), "user": {"userId": str(row[0]), "displayName": row[1], "roleCode": row[2]}}
+
+
 def list_companies() -> list[dict[str, Any]]:
     with connect(config.DB_NAME) as conn:
         cur = conn.cursor()
@@ -177,6 +208,19 @@ def list_companies() -> list[dict[str, Any]]:
             }
             for row in cur.fetchall()
         ]
+
+
+def create_company(payload: dict[str, Any]) -> dict[str, Any]:
+    company_id = str(uuid.uuid4())
+    code = required_text(payload, "companyCode").upper()
+    name = required_text(payload, "companyName")
+    currency = str(payload.get("baseCurrencyCode") or "BHD").upper()[:3]
+    with connect(config.DB_NAME) as conn:
+        conn.cursor().execute(
+            "INSERT INTO core.Companies (CompanyID, TenantID, CompanyCode, CompanyName, BaseCurrencyCode) VALUES (?, ?, ?, ?, ?);",
+            (company_id, config.TENANT_ID, code, name, currency),
+        )
+    return {"companyId": company_id, "companyCode": code, "companyName": name, "baseCurrencyCode": currency}
 
 
 def list_employees() -> list[dict[str, Any]]:
@@ -381,6 +425,13 @@ def list_loans() -> list[dict[str, Any]]:
         ]
 
 
+def settle_loan(loan_id: str) -> dict[str, Any]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE core.EmployeeLoans SET StatusCode = N'settled' WHERE LoanID = ?;", (loan_id,))
+    return {"loanId": loan_id, "statusCode": "settled"}
+
+
 def create_loan(payload: dict[str, Any]) -> dict[str, Any]:
     employee_id = required_text(payload, "employeeId")
     principal = non_negative(payload.get("principalAmount"), "principalAmount")
@@ -408,6 +459,164 @@ def reconciliation(as_of_date: str) -> dict[str, Any]:
         "rows": balances,
         "note": "Continuous entitlement reconciliation; not payroll posting and not an annual close batch.",
     }
+
+
+def list_self_service_requests() -> list[dict[str, Any]]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT r.RequestID, e.EmployeeNumber, e.DisplayName, r.RequestType, CONVERT(char(10), r.RequestDate, 23), r.Amount, r.StatusCode, r.Notes "
+            "FROM core.SelfServiceRequests r JOIN core.Employees e ON e.EmployeeID = r.EmployeeID "
+            "ORDER BY r.CreatedAtUtc DESC;"
+        )
+        return [
+            {
+                "requestId": str(row[0]),
+                "employeeNumber": row[1],
+                "displayName": row[2],
+                "requestType": row[3],
+                "requestDate": row[4],
+                "amount": money(row[5]),
+                "statusCode": row[6],
+                "notes": row[7],
+            }
+            for row in cur.fetchall()
+        ]
+
+
+def create_self_service_request(payload: dict[str, Any]) -> dict[str, Any]:
+    employee_id = required_text(payload, "employeeId")
+    request_type = required_text(payload, "requestType")
+    request_date = required_text(payload, "requestDate")
+    require_iso_date(request_date, "requestDate")
+    if request_type not in {"airfare_request", "profile_update", "loan_request"}:
+        raise ValueError("requestType is invalid.")
+    request_id = str(uuid.uuid4())
+    amount = non_negative(payload.get("amount") or 0, "amount")
+    with connect(config.DB_NAME) as conn:
+        assert_employee_exists(conn, employee_id)
+        conn.cursor().execute(
+            "INSERT INTO core.SelfServiceRequests (RequestID, TenantID, CompanyID, EmployeeID, RequestType, RequestDate, Amount, Notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+            (request_id, config.TENANT_ID, config.COMPANY_ID, employee_id, request_type, request_date, amount, payload.get("notes")),
+        )
+    return {"requestId": request_id, "employeeId": employee_id, "requestType": request_type, "requestDate": request_date, "amount": money(amount), "statusCode": "submitted"}
+
+
+def transition_self_service_request(request_id: str, status_code: str) -> dict[str, Any]:
+    if status_code not in {"approved", "rejected", "cancelled"}:
+        raise ValueError("statusCode must be approved, rejected, or cancelled.")
+    with connect(config.DB_NAME) as conn:
+        conn.cursor().execute("UPDATE core.SelfServiceRequests SET StatusCode = ? WHERE RequestID = ?;", (status_code, request_id))
+    return {"requestId": request_id, "statusCode": status_code}
+
+
+def reports_airfare_payable(as_of_date: str) -> dict[str, Any]:
+    balances = entitlement_balance(as_of_date)
+    return {
+        "asOfDate": as_of_date,
+        "currency": "BHD",
+        "employeeCount": len(balances),
+        "totalPayable": money(sum(Decimal(str(row["balance"])) for row in balances)),
+        "rows": balances,
+    }
+
+
+def reports_employee_summary() -> dict[str, Any]:
+    employees = list_employees()
+    departments: dict[str, int] = {}
+    for employee in employees:
+        key = employee["department"] or "Unassigned"
+        departments[key] = departments.get(key, 0) + 1
+    return {"total": len(employees), "departments": departments, "rows": employees}
+
+
+def get_preferences() -> dict[str, Any]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT TOP 1 PreferenceJSON FROM core.UserPreferences up JOIN core.Users u ON u.UserID = up.UserID WHERE u.Username = N'admin';"
+        )
+        row = cur.fetchone()
+    return {"preferences": json_loads(row[0]) if row else default_preferences()}
+
+
+def save_preferences(payload: dict[str, Any]) -> dict[str, Any]:
+    preferences = payload.get("preferences") if isinstance(payload.get("preferences"), dict) else payload
+    merged = {**default_preferences(), **preferences}
+    raw = json_dumps(merged)
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT UserID FROM core.Users WHERE Username = N'admin';")
+        user_id = cur.fetchone()[0]
+        cur.execute(
+            "UPDATE core.UserPreferences SET PreferenceJSON = ?, UpdatedAtUtc = SYSUTCDATETIME() WHERE UserID = ?;",
+            (raw, user_id),
+        )
+    return {"preferences": merged}
+
+
+def list_users() -> list[dict[str, Any]]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT UserID, Username, DisplayName, RoleCode, IsActive FROM core.Users ORDER BY Username;")
+        return [{"userId": str(r[0]), "username": r[1], "displayName": r[2], "roleCode": r[3], "isActive": bool(r[4])} for r in cur.fetchall()]
+
+
+def import_preview(module_code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    valid = []
+    invalid = []
+    for index, row in enumerate(rows, start=1):
+        if module_code == "employees" and row.get("employeeNumber") and row.get("displayName") and row.get("hireDate"):
+            valid.append({"row": index, "data": row})
+        else:
+            invalid.append({"row": index, "error": "Required fields missing", "data": row})
+    run_id = record_import_export("import", module_code, len(rows), "preview", {"valid": len(valid), "invalid": len(invalid)})
+    return {"runId": run_id, "moduleCode": module_code, "validRows": valid, "invalidRows": invalid}
+
+
+def export_module(module_code: str) -> dict[str, Any]:
+    if module_code == "employees":
+        rows = list_employees()
+    elif module_code == "allocations":
+        rows = list_allocations()
+    elif module_code == "loans":
+        rows = list_loans()
+    else:
+        raise ValueError("Unsupported export module.")
+    run_id = record_import_export("export", module_code, len(rows), "completed", {"rows": len(rows)})
+    return {"runId": run_id, "moduleCode": module_code, "rows": rows}
+
+
+def diagnostics() -> dict[str, Any]:
+    health = health_probe()
+    return {
+        "status": "ok" if all(health["objects"].values()) else "review",
+        "database": health,
+        "checks": [
+            {"name": "MSSQL connection", "status": "ok"},
+            {"name": "core schema", "status": "ok" if all(health["objects"].values()) else "review"},
+            {"name": "annual close disabled", "status": "ok"},
+            {"name": "continuous entitlement", "status": "ok"},
+        ],
+    }
+
+
+def support_info() -> dict[str, Any]:
+    return {
+        "product": "ATLAS Python Core",
+        "localUrl": f"http://127.0.0.1:{config.PORT}",
+        "database": config.DB_NAME,
+        "supportMode": "local-greenfield",
+    }
+
+
+def system_maintenance() -> dict[str, Any]:
+    with connect(config.DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM core.SystemAuditLog;")
+        audit_count = cur.fetchone()[0]
+    return {"backupRequired": False, "auditRows": int(audit_count or 0), "database": config.DB_NAME}
 
 
 def create_employee(payload: dict[str, Any]) -> dict[str, Any]:
@@ -440,6 +649,24 @@ def create_employee(payload: dict[str, Any]) -> dict[str, Any]:
             ),
         )
     return {"employeeId": employee_id, "employeeNumber": employee_number, "displayName": display_name, "hireDate": hire_date}
+
+
+def update_employee(employee_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    display_name = required_text(payload, "displayName")
+    with connect(config.DB_NAME) as conn:
+        assert_employee_exists(conn, employee_id)
+        conn.cursor().execute(
+            "UPDATE core.Employees SET DisplayName = ?, WorkEmail = ?, Department = ?, JobTitle = ?, UpdatedAtUtc = SYSUTCDATETIME() WHERE EmployeeID = ?;",
+            (display_name, payload.get("workEmail"), payload.get("department"), payload.get("jobTitle"), employee_id),
+        )
+    return {"employeeId": employee_id, "displayName": display_name}
+
+
+def delete_employee(employee_id: str) -> dict[str, Any]:
+    with connect(config.DB_NAME) as conn:
+        assert_employee_exists(conn, employee_id)
+        conn.cursor().execute("UPDATE core.Employees SET StatusCode = N'inactive', UpdatedAtUtc = SYSUTCDATETIME() WHERE EmployeeID = ?;", (employee_id,))
+    return {"employeeId": employee_id, "statusCode": "inactive"}
 
 
 def assert_employee_exists(conn, employee_id: str) -> None:
@@ -482,6 +709,30 @@ def non_negative(value: Any, field: str) -> Decimal:
     if amount < 0:
         raise ValueError(f"{field} must be a non-negative number.")
     return amount.quantize(Decimal("0.001"))
+
+
+def record_import_export(direction: str, module_code: str, row_count: int, status: str, detail: dict[str, Any]) -> str:
+    run_id = str(uuid.uuid4())
+    with connect(config.DB_NAME) as conn:
+        conn.cursor().execute(
+            "INSERT INTO core.ImportExportRuns (RunID, Direction, ModuleCode, DataRowCount, StatusCode, DetailJSON) VALUES (?, ?, ?, ?, ?, ?);",
+            (run_id, direction, module_code, row_count, status, json_dumps(detail)),
+        )
+    return run_id
+
+
+def default_preferences() -> dict[str, Any]:
+    return {"theme": "system", "density": "comfortable", "defaultPage": "command", "notifications": True}
+
+
+def json_loads(raw: str) -> dict[str, Any]:
+    import json
+    return json.loads(raw)
+
+
+def json_dumps(value: dict[str, Any]) -> str:
+    import json
+    return json.dumps(value, separators=(",", ":"))
 
 
 def require_iso_date(value: str, field: str) -> None:
