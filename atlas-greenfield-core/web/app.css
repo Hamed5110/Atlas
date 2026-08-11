@@ -57,14 +57,16 @@ body {
 .brand small, .metric-label, .eyebrow, .card small, .panel p { color: var(--muted); }
 
 nav { display: grid; gap: 10px; align-content: start; }
-nav a {
+nav button {
   text-decoration: none;
   color: var(--text);
   padding: 13px 14px;
   border-radius: 16px;
   font-weight: 800;
+  background: transparent;
+  text-align: left;
 }
-nav a.active, nav a:hover { background: #e8f1ff; color: #075ee8; }
+nav button.active, nav button:hover { background: #e8f1ff; color: #075ee8; }
 
 .content { display: grid; gap: 22px; align-content: start; }
 .topbar {
@@ -102,6 +104,8 @@ button {
 .card strong { font-size: 34px; letter-spacing: -0.04em; }
 
 .panel { padding: 26px; }
+.module { display: none; }
+.module.active { display: block; }
 .panel-head {
   display: flex;
   justify-content: space-between;
@@ -133,7 +137,7 @@ input {
 .rows { display: grid; gap: 10px; margin-top: 18px; }
 .row {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr) 160px 120px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 14px;
   align-items: center;
   padding: 14px;

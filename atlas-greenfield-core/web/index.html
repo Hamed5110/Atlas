@@ -13,53 +13,43 @@
           <span class="brand-mark">A</span>
           <div>
             <strong>ATLAS Greenfield</strong>
-            <small>Employees-first core</small>
+            <small>No old runtime. No double system.</small>
           </div>
         </div>
-        <nav>
-          <a class="active" href="#employees">Employees</a>
-          <a href="#companies">Companies</a>
-          <a href="#entitlements">Entitlements</a>
-          <a href="#loans">Loans / EMI</a>
-          <a href="#schema">Schema Contract</a>
+        <nav id="moduleNav">
+          <button class="active" data-module="command" type="button">Command</button>
+          <button data-module="employees" type="button">Employees</button>
+          <button data-module="companies" type="button">Companies</button>
+          <button data-module="entitlements" type="button">Entitlements</button>
+          <button data-module="seeds" type="button">Seed Evidence</button>
+          <button data-module="allocations" type="button">Allocations</button>
+          <button data-module="loans" type="button">Loans / EMI</button>
         </nav>
       </aside>
 
       <section class="content">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Null-state application</p>
-            <h1>Employee master integrity first.</h1>
+            <p class="eyebrow">Greenfield build</p>
+            <h1>One clean system. Employee master first.</h1>
           </div>
           <button id="refreshButton" type="button">Refresh</button>
         </header>
 
         <section class="grid">
-          <article class="card">
-            <span class="metric-label">Runtime</span>
-            <strong id="runtimeStatus">checking</strong>
-            <small>Standalone greenfield server</small>
-          </article>
-          <article class="card">
-            <span class="metric-label">Employees</span>
-            <strong id="employeeCount">0</strong>
-            <small>Tenant + company scoped</small>
-          </article>
-          <article class="card">
-            <span class="metric-label">Leakage</span>
-            <strong>blocked</strong>
-            <small>No old API dependency</small>
-          </article>
+          <article class="card"><span>Runtime</span><strong id="runtimeStatus">checking</strong><small id="runtimeDetail">standalone</small></article>
+          <article class="card"><span>Employees</span><strong id="employeeCount">0</strong><small>tenant + company scoped</small></article>
+          <article class="card"><span>Entitlement</span><strong id="entitlementBalance">BHD 0.00</strong><small>as-of computed</small></article>
+          <article class="card"><span>Loans</span><strong id="loanCount">0</strong><small>active recovery</small></article>
         </section>
 
-        <section id="employees" class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Employees module</p>
-              <h2>Create employee</h2>
-            </div>
-            <span class="badge">foundation module</span>
-          </div>
+        <section id="command" class="panel module active">
+          <div class="panel-head"><div><p class="eyebrow">Command</p><h2>Verified standalone core</h2></div><span class="badge">no leakage</span></div>
+          <div id="summaryRows" class="rows"></div>
+        </section>
+
+        <section id="employees" class="panel module">
+          <div class="panel-head"><div><p class="eyebrow">Employees</p><h2>Master records</h2></div><span class="badge">foundation</span></div>
           <form id="employeeForm" class="form-grid">
             <input name="employeeNumber" placeholder="Employee number" required />
             <input name="displayName" placeholder="Display name" required />
@@ -73,11 +63,11 @@
           <div id="employeeRows" class="rows"></div>
         </section>
 
-        <section id="schema" class="panel muted">
-          <p class="eyebrow">Schema contract</p>
-          <h2>Tenant, company, employee are separate from row one.</h2>
-          <p>Entitlements and loans reference the employee master. Opening seed evidence is not a reset process.</p>
-        </section>
+        <section id="companies" class="panel module"><div class="panel-head"><div><p class="eyebrow">Companies</p><h2>Tenant companies</h2></div></div><div id="companyRows" class="rows"></div></section>
+        <section id="entitlements" class="panel module"><div class="panel-head"><div><p class="eyebrow">Entitlements</p><h2>Continuous balance</h2></div><span class="badge">asOfDate required</span></div><div id="entitlementRows" class="rows"></div></section>
+        <section id="seeds" class="panel module"><div class="panel-head"><div><p class="eyebrow">Seed Evidence</p><h2>Imported balances as evidence</h2></div></div><div id="seedRows" class="rows"></div></section>
+        <section id="allocations" class="panel module"><div class="panel-head"><div><p class="eyebrow">Allocations</p><h2>Airfare usage</h2></div></div><div id="allocationRows" class="rows"></div></section>
+        <section id="loans" class="panel module"><div class="panel-head"><div><p class="eyebrow">Loans / EMI</p><h2>Recovery monitor</h2></div></div><div id="loanRows" class="rows"></div></section>
       </section>
     </main>
     <script src="/assets/app.js" type="module"></script>

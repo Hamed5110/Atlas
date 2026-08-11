@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Greenfield ATLAS core: employees-first HCM foundation.",
   "scripts": {
+    "build": "node tools/build-artifact.js",
     "start": "node src/server.js",
     "test": "node tests/employee-requirements.test.js"
   },

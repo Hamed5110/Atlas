@@ -2,57 +2,81 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMemoryStore, defaultSeed } from "./store/memoryStore.js";
+import { createGreenfieldStore } from "./store/greenfieldStore.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
-const store = createMemoryStore(defaultSeed);
 const port = Number(process.env.PORT || 3356);
+const dataFile = process.env.ATLAS_GREENFIELD_DATA || join(root, "data", "greenfield-store.json");
+const store = createGreenfieldStore({ dataFile });
+
+const modules = ["companies", "employees", "openingSeeds", "entitlements", "allocations", "loans"];
 
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
-    if (req.method === "GET" && url.pathname === "/") {
-      return sendHtml(res, readFileSync(join(root, "web", "index.html"), "utf8"));
-    }
-    if (req.method === "GET" && url.pathname === "/assets/app.css") {
-      return send(res, 200, readFileSync(join(root, "web", "app.css"), "utf8"), "text/css; charset=utf-8");
-    }
-    if (req.method === "GET" && url.pathname === "/assets/app.js") {
-      return send(res, 200, readFileSync(join(root, "web", "app.js"), "utf8"), "application/javascript; charset=utf-8");
-    }
+    if (req.method === "GET" && url.pathname === "/") return sendHtml(res, asset("web/index.html"));
+    if (req.method === "GET" && url.pathname === "/assets/app.css") return send(res, 200, asset("web/app.css"), "text/css; charset=utf-8");
+    if (req.method === "GET" && url.pathname === "/assets/app.js") return send(res, 200, asset("web/app.js"), "application/javascript; charset=utf-8");
+
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, {
         status: "ok",
         application: "atlas-greenfield-core",
-        version: "0.1.0",
+        version: "0.2.0",
         port,
+        dataFile,
         oldRuntimeLinked: false,
-        modules: ["employees"],
+        modules,
         schemaContract: "schema/mssql/001_foundation.sql"
       });
     }
-    if (req.method === "GET" && url.pathname === "/api/tenants") {
-      return sendJson(res, 200, { rows: store.listTenants() });
+
+    if (req.method === "GET" && url.pathname === "/api/summary") {
+      return sendJson(res, 200, store.moduleSummary({
+        tenantId: param(url, "tenantId"),
+        companyId: param(url, "companyId"),
+        asOfDate: requiredParam(url, "asOfDate")
+      }));
     }
-    if (req.method === "GET" && url.pathname === "/api/companies") {
-      return sendJson(res, 200, { rows: store.listCompanies(url.searchParams.get("tenantId")) });
-    }
+    if (req.method === "GET" && url.pathname === "/api/tenants") return sendJson(res, 200, { rows: store.listTenants() });
+    if (req.method === "GET" && url.pathname === "/api/companies") return sendJson(res, 200, { rows: store.listCompanies(param(url, "tenantId")) });
     if (req.method === "GET" && url.pathname === "/api/employees") {
       return sendJson(res, 200, {
         rows: store.listEmployees({
-          tenantId: url.searchParams.get("tenantId"),
-          companyId: url.searchParams.get("companyId"),
-          statusCode: url.searchParams.get("statusCode"),
-          search: url.searchParams.get("search")
+          tenantId: param(url, "tenantId"),
+          companyId: param(url, "companyId"),
+          statusCode: param(url, "statusCode"),
+          search: param(url, "search")
         })
       });
     }
-    if (req.method === "POST" && url.pathname === "/api/employees") {
-      const payload = await readJson(req);
-      const employee = store.createEmployee(payload);
-      return sendJson(res, 201, { employee });
+    if (req.method === "POST" && url.pathname === "/api/employees") return sendJson(res, 201, { employee: store.createEmployee(await readJson(req)) });
+
+    if (req.method === "GET" && url.pathname === "/api/opening-seeds") {
+      return sendJson(res, 200, { rows: store.listOpeningSeeds(scopeFromUrl(url)) });
     }
+    if (req.method === "POST" && url.pathname === "/api/opening-seeds") return sendJson(res, 201, { seed: store.createOpeningSeed(await readJson(req)) });
+
+    if (req.method === "GET" && url.pathname === "/api/entitlement/policies") {
+      return sendJson(res, 200, { rows: store.listPolicies(scopeFromUrl(url)) });
+    }
+    if (req.method === "GET" && url.pathname === "/api/entitlement/balance") {
+      return sendJson(res, 200, {
+        asOfDate: requiredParam(url, "asOfDate"),
+        rows: store.entitlementBalance({ ...scopeFromUrl(url), asOfDate: requiredParam(url, "asOfDate") })
+      });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/allocations") {
+      return sendJson(res, 200, { rows: store.listAllocations(scopeFromUrl(url)) });
+    }
+    if (req.method === "POST" && url.pathname === "/api/allocations") return sendJson(res, 201, { allocation: store.createAllocation(await readJson(req)) });
+
+    if (req.method === "GET" && url.pathname === "/api/loans") return sendJson(res, 200, { rows: store.listLoans(scopeFromUrl(url)) });
+    if (req.method === "GET" && url.pathname === "/api/loans/summary") return sendJson(res, 200, store.loanSummary(scopeFromUrl(url)));
+    if (req.method === "POST" && url.pathname === "/api/loans") return sendJson(res, 201, { loan: store.createLoan(await readJson(req)) });
+
     return sendJson(res, 404, { code: "NOT_FOUND", error: "Route not found." });
   } catch (error) {
     return sendJson(res, error.statusCode || 500, {
@@ -66,12 +90,39 @@ const server = http.createServer(async (req, res) => {
 export function start() {
   server.listen(port, "0.0.0.0", () => {
     console.log(`ATLAS greenfield core listening on http://127.0.0.1:${port}`);
+    console.log(`ATLAS greenfield data file: ${dataFile}`);
   });
   return server;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  start();
+if (process.argv[1] === fileURLToPath(import.meta.url)) start();
+
+function asset(relativePath) {
+  return readFileSync(join(root, relativePath), "utf8");
+}
+
+function param(url, name) {
+  const value = url.searchParams.get(name);
+  return value && value.trim() ? value.trim() : null;
+}
+
+function requiredParam(url, name) {
+  const value = param(url, name);
+  if (!value) {
+    const error = new Error(`${name} is required.`);
+    error.code = "REQUIRED_QUERY_PARAM";
+    error.statusCode = 400;
+    throw error;
+  }
+  return value;
+}
+
+function scopeFromUrl(url) {
+  return {
+    tenantId: param(url, "tenantId"),
+    companyId: param(url, "companyId"),
+    employeeId: param(url, "employeeId")
+  };
 }
 
 function sendHtml(res, body) {
