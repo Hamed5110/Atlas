@@ -139,6 +139,30 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'core.AirfareAllocations', N'U') IS NULL
+BEGIN
+  CREATE TABLE core.AirfareAllocations (
+    AllocationID UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_AirfareAllocations PRIMARY KEY,
+    TenantID UNIQUEIDENTIFIER NOT NULL,
+    CompanyID UNIQUEIDENTIFIER NOT NULL,
+    EmployeeID UNIQUEIDENTIFIER NOT NULL,
+    AllocationDate DATE NOT NULL,
+    TicketCost DECIMAL(12,2) NOT NULL,
+    EntitlementApplied DECIMAL(12,2) NOT NULL,
+    CompanyPaid DECIMAL(12,2) NOT NULL,
+    CurrencyCode CHAR(3) NOT NULL CONSTRAINT DF_AirfareAllocations_Currency DEFAULT 'BHD',
+    StatusCode NVARCHAR(32) NOT NULL CONSTRAINT DF_AirfareAllocations_Status DEFAULT 'posted',
+    SourceReference NVARCHAR(120) NULL,
+    EntitlementEventID BIGINT NULL,
+    CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_AirfareAllocations_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_AirfareAllocations_Employees FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+    CONSTRAINT FK_AirfareAllocations_EntitlementEvent FOREIGN KEY (EntitlementEventID) REFERENCES core.AirfareEntitlementEvents(EntitlementEventID),
+    CONSTRAINT CK_AirfareAllocations_Amounts CHECK (TicketCost >= 0 AND EntitlementApplied >= 0 AND CompanyPaid >= 0),
+    CONSTRAINT CK_AirfareAllocations_Status CHECK (StatusCode IN ('draft','posted','cancelled','reversed'))
+  );
+END;
+GO
+
 IF OBJECT_ID(N'core.EmployeeLoans', N'U') IS NULL
 BEGIN
   CREATE TABLE core.EmployeeLoans (

@@ -28,8 +28,8 @@ const tempDir = mkdtempSync(join(tmpdir(), "atlas-greenfield-"));
 const dataFile = join(tempDir, "store.json");
 try {
   const store = createGreenfieldStore({ dataFile });
-  const tenantId = "tenant-atlas-demo";
-  const companyId = "company-atlas-airfare";
+  const tenantId = "11111111-1111-4111-8111-111111111111";
+  const companyId = "22222222-2222-4222-8222-222222222222";
   const employee = store.createEmployee({
     tenantId,
     companyId,

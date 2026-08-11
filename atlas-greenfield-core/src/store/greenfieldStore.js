@@ -6,7 +6,7 @@ import { employeeBusinessKey, isIsoDate, normalizeEmployee } from "../domain/emp
 export const defaultSeed = {
   tenants: [
     {
-      tenantId: "tenant-atlas-demo",
+      tenantId: "11111111-1111-4111-8111-111111111111",
       tenantCode: "ATLAS",
       tenantName: "ATLAS Greenfield Tenant",
       databaseName: "AtlasGreenfieldCore"
@@ -14,8 +14,8 @@ export const defaultSeed = {
   ],
   companies: [
     {
-      companyId: "company-atlas-airfare",
-      tenantId: "tenant-atlas-demo",
+      companyId: "22222222-2222-4222-8222-222222222222",
+      tenantId: "11111111-1111-4111-8111-111111111111",
       companyCode: "ATLAS-AIR",
       companyName: "ATLAS Airfare Company",
       baseCurrencyCode: "BHD"
@@ -23,9 +23,9 @@ export const defaultSeed = {
   ],
   employees: [
     {
-      employeeId: "employee-greenfield-0001",
-      tenantId: "tenant-atlas-demo",
-      companyId: "company-atlas-airfare",
+      employeeId: "33333333-3333-4333-8333-333333333333",
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      companyId: "22222222-2222-4222-8222-222222222222",
       employeeNumber: "GF-0001",
       displayName: "Greenfield Employee One",
       legalName: null,
@@ -42,9 +42,9 @@ export const defaultSeed = {
   ],
   policies: [
     {
-      policyId: "policy-airfare-default",
-      tenantId: "tenant-atlas-demo",
-      companyId: "company-atlas-airfare",
+      policyId: "44444444-4444-4444-8444-444444444444",
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      companyId: "22222222-2222-4222-8222-222222222222",
       policyCode: "AIRFARE-CONTINUOUS",
       policyName: "Continuous airfare entitlement",
       accrualCadence: "monthly",
@@ -57,9 +57,9 @@ export const defaultSeed = {
   entitlementEvents: [
     {
       eventId: "event-seed-gf-0001",
-      tenantId: "tenant-atlas-demo",
-      companyId: "company-atlas-airfare",
-      employeeId: "employee-greenfield-0001",
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      companyId: "22222222-2222-4222-8222-222222222222",
+      employeeId: "33333333-3333-4333-8333-333333333333",
       eventDate: "2026-01-01",
       eventType: "seed",
       amount: 150,
@@ -72,9 +72,9 @@ export const defaultSeed = {
   openingSeeds: [
     {
       seedId: "seed-gf-0001",
-      tenantId: "tenant-atlas-demo",
-      companyId: "company-atlas-airfare",
-      employeeId: "employee-greenfield-0001",
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      companyId: "22222222-2222-4222-8222-222222222222",
+      employeeId: "33333333-3333-4333-8333-333333333333",
       seedDate: "2026-01-01",
       amount: 150,
       days: 60,

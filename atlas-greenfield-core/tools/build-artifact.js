@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(root, "..");
-const outDir = join(repoRoot, "artifacts", "greenfield-core-0.2.0");
+const version = "0.3.0";
+const outDir = join(repoRoot, "artifacts", "greenfield-core-mssql-0.3.0");
 
 if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
@@ -18,11 +19,19 @@ copyFileSync(join(root, ".gitignore"), join(outDir, ".gitignore"));
 
 const manifest = {
   product: "ATLAS Greenfield Core",
-  version: "0.2.0",
+  version,
   buildTimestampUtc: new Date().toISOString(),
   entrypoint: "src/server.js",
   defaultPort: 3356,
   oldRuntimeLinked: false,
+  packagingBoundary: "independent-greenfield-artifact-not-attached-to-legacy-installer",
+  repositoryModes: ["mssql-core"],
+  defaultRepositoryMode: "mssql",
+  database: {
+    defaultName: "AtlasGreenfieldCore",
+    schema: "core",
+    schemaContract: "schema/mssql/001_foundation.sql"
+  },
   modules: ["companies", "employees", "openingSeeds", "entitlements", "allocations", "loans"],
   schemaContract: "schema/mssql/001_foundation.sql",
   hashes: {

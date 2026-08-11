@@ -1,13 +1,18 @@
 {
   "name": "atlas-greenfield-core",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Greenfield ATLAS core: employees-first HCM foundation.",
   "scripts": {
     "build": "node tools/build-artifact.js",
     "start": "node src/server.js",
-    "test": "node tests/employee-requirements.test.js"
+    "test": "node tests/employee-requirements.test.js",
+    "test:live-api": "node tests/live-api-mssql.test.js",
+    "test:mssql": "node tests/mssql-repository.test.js"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
   },
   "engines": {
     "node": ">=20"

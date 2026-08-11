@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGreenfieldStore } from "./store/greenfieldStore.js";
+import { createMssqlRepository } from "./store/mssqlRepository.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 const port = Number(process.env.PORT || 3356);
 const dataFile = process.env.ATLAS_GREENFIELD_DATA || join(root, "data", "greenfield-store.json");
-const store = createGreenfieldStore({ dataFile });
+const repositoryMode = (process.env.ATLAS_GREENFIELD_REPOSITORY || "json").trim().toLowerCase();
+const store = await createStore();
 
 const modules = ["companies", "employees", "openingSeeds", "entitlements", "allocations", "loans"];
 
@@ -23,9 +25,11 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         status: "ok",
         application: "atlas-greenfield-core",
-        version: "0.2.0",
+        version: "0.3.0",
         port,
-        dataFile,
+        repository: store.repository || repositoryMode,
+        storage: await store.snapshot(),
+        dataFile: repositoryMode === "mssql" ? null : dataFile,
         oldRuntimeLinked: false,
         modules,
         schemaContract: "schema/mssql/001_foundation.sql"
@@ -33,17 +37,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/summary") {
-      return sendJson(res, 200, store.moduleSummary({
+      return sendJson(res, 200, await store.moduleSummary({
         tenantId: param(url, "tenantId"),
         companyId: param(url, "companyId"),
         asOfDate: requiredParam(url, "asOfDate")
       }));
     }
-    if (req.method === "GET" && url.pathname === "/api/tenants") return sendJson(res, 200, { rows: store.listTenants() });
-    if (req.method === "GET" && url.pathname === "/api/companies") return sendJson(res, 200, { rows: store.listCompanies(param(url, "tenantId")) });
+    if (req.method === "GET" && url.pathname === "/api/tenants") return sendJson(res, 200, { rows: await store.listTenants() });
+    if (req.method === "GET" && url.pathname === "/api/companies") return sendJson(res, 200, { rows: await store.listCompanies(param(url, "tenantId")) });
     if (req.method === "GET" && url.pathname === "/api/employees") {
       return sendJson(res, 200, {
-        rows: store.listEmployees({
+        rows: await store.listEmployees({
           tenantId: param(url, "tenantId"),
           companyId: param(url, "companyId"),
           statusCode: param(url, "statusCode"),
@@ -51,31 +55,31 @@ const server = http.createServer(async (req, res) => {
         })
       });
     }
-    if (req.method === "POST" && url.pathname === "/api/employees") return sendJson(res, 201, { employee: store.createEmployee(await readJson(req)) });
+    if (req.method === "POST" && url.pathname === "/api/employees") return sendJson(res, 201, { employee: await store.createEmployee(await readJson(req)) });
 
     if (req.method === "GET" && url.pathname === "/api/opening-seeds") {
-      return sendJson(res, 200, { rows: store.listOpeningSeeds(scopeFromUrl(url)) });
+      return sendJson(res, 200, { rows: await store.listOpeningSeeds(scopeFromUrl(url)) });
     }
-    if (req.method === "POST" && url.pathname === "/api/opening-seeds") return sendJson(res, 201, { seed: store.createOpeningSeed(await readJson(req)) });
+    if (req.method === "POST" && url.pathname === "/api/opening-seeds") return sendJson(res, 201, { seed: await store.createOpeningSeed(await readJson(req)) });
 
     if (req.method === "GET" && url.pathname === "/api/entitlement/policies") {
-      return sendJson(res, 200, { rows: store.listPolicies(scopeFromUrl(url)) });
+      return sendJson(res, 200, { rows: await store.listPolicies(scopeFromUrl(url)) });
     }
     if (req.method === "GET" && url.pathname === "/api/entitlement/balance") {
       return sendJson(res, 200, {
         asOfDate: requiredParam(url, "asOfDate"),
-        rows: store.entitlementBalance({ ...scopeFromUrl(url), asOfDate: requiredParam(url, "asOfDate") })
+        rows: await store.entitlementBalance({ ...scopeFromUrl(url), asOfDate: requiredParam(url, "asOfDate") })
       });
     }
 
     if (req.method === "GET" && url.pathname === "/api/allocations") {
-      return sendJson(res, 200, { rows: store.listAllocations(scopeFromUrl(url)) });
+      return sendJson(res, 200, { rows: await store.listAllocations(scopeFromUrl(url)) });
     }
-    if (req.method === "POST" && url.pathname === "/api/allocations") return sendJson(res, 201, { allocation: store.createAllocation(await readJson(req)) });
+    if (req.method === "POST" && url.pathname === "/api/allocations") return sendJson(res, 201, { allocation: await store.createAllocation(await readJson(req)) });
 
-    if (req.method === "GET" && url.pathname === "/api/loans") return sendJson(res, 200, { rows: store.listLoans(scopeFromUrl(url)) });
-    if (req.method === "GET" && url.pathname === "/api/loans/summary") return sendJson(res, 200, store.loanSummary(scopeFromUrl(url)));
-    if (req.method === "POST" && url.pathname === "/api/loans") return sendJson(res, 201, { loan: store.createLoan(await readJson(req)) });
+    if (req.method === "GET" && url.pathname === "/api/loans") return sendJson(res, 200, { rows: await store.listLoans(scopeFromUrl(url)) });
+    if (req.method === "GET" && url.pathname === "/api/loans/summary") return sendJson(res, 200, await store.loanSummary(scopeFromUrl(url)));
+    if (req.method === "POST" && url.pathname === "/api/loans") return sendJson(res, 201, { loan: await store.createLoan(await readJson(req)) });
 
     return sendJson(res, 404, { code: "NOT_FOUND", error: "Route not found." });
   } catch (error) {
@@ -90,7 +94,7 @@ const server = http.createServer(async (req, res) => {
 export function start() {
   server.listen(port, "0.0.0.0", () => {
     console.log(`ATLAS greenfield core listening on http://127.0.0.1:${port}`);
-    console.log(`ATLAS greenfield data file: ${dataFile}`);
+    console.log(`ATLAS greenfield repository: ${store.repository || repositoryMode}`);
   });
   return server;
 }
@@ -99,6 +103,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) start();
 
 function asset(relativePath) {
   return readFileSync(join(root, relativePath), "utf8");
+}
+
+async function createStore() {
+  if (repositoryMode === "mssql") {
+    return createMssqlRepository();
+  }
+  const jsonStore = createGreenfieldStore({ dataFile });
+  jsonStore.repository = "json-local";
+  jsonStore.snapshot = () => ({ repository: "json-local", dataFile });
+  return jsonStore;
 }
 
 function param(url, name) {
