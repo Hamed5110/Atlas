@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATLAS Python Core</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span>A</span><div><strong>ATLAS Python Core</strong><small>Fresh MSSQL build</small></div></div>
+    <button class="nav active" data-view="command">Command</button>
+    <button class="nav" data-view="employees">Employees</button>
+    <button class="nav" data-view="entitlement">Entitlement</button>
+    <button class="nav" data-view="loans">Loans / EMI</button>
+    <div class="guard">No Year End process. Entitlement is computed from rules + events.</div>
+  </aside>
+  <main class="shell">
+    <header>
+      <div><small>GREENFIELD PYTHON BUILD</small><h1>One clean system. MSSQL first.</h1></div>
+      <button id="refresh">Refresh</button>
+    </header>
+    <section class="cards">
+      <article><span>Runtime</span><strong id="runtime">checking</strong><small id="version">-</small></article>
+      <article><span>Database</span><strong id="database">-</strong><small id="schema">core schema</small></article>
+      <article><span>Employees</span><strong id="employees">0</strong><small>master records</small></article>
+      <article class="primary"><span>Entitlement</span><strong id="balance">BHD 0.000</strong><small>continuous as-of balance</small></article>
+    </section>
+    <section class="panel">
+      <div class="panel-title"><div><small>EMPLOYEES</small><h2>Master records</h2></div><span class="pill">foundation</span></div>
+      <div id="employeeRows" class="rows"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-title"><div><small>ENTITLEMENT</small><h2>Continuous balance</h2></div><span class="pill">no annual reset</span></div>
+      <div id="balanceRows" class="rows"></div>
+    </section>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
