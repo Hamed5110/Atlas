@@ -15,7 +15,7 @@ def main() -> None:
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
-    for folder in ["app", "schema", "web", "tests", "tools"]:
+    for folder in ["app", "schema", "web", "tests", "tools", "docs"]:
         shutil.copytree(ROOT / folder, OUT / folder)
     for file_name in ["README.md", "requirements.txt"]:
         shutil.copy2(ROOT / file_name, OUT / file_name)
@@ -29,7 +29,7 @@ def main() -> None:
         "defaultPort": 3356,
         "database": {"defaultName": "AtlasPythonCore", "schema": "core"},
         "oldRuntimeLinked": False,
-        "yearEndProcess": False,
+        "annualCloseProcess": False,
         "modules": ["employees", "companies", "entitlement", "allocations", "loans"],
         "hashes": {
             "server": sha256(OUT / "app" / "server.py"),

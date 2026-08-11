@@ -7,7 +7,7 @@ Fresh MSSQL-first ATLAS core using Microsoft `mssql-python`.
 - Schema namespace: `core`
 - Default port: `3356`
 - Default database: `AtlasPythonCore`
-- No Year End process
+- No annual close/reset process
 - No legacy installer attachment
 - No JSON application store
 

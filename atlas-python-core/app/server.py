@@ -36,16 +36,28 @@ class Handler(BaseHTTPRequestHandler):
                     "repository": "mssql-python-core",
                     "port": config.PORT,
                     "oldRuntimeLinked": False,
-                    "yearEndProcess": False,
+                    "annualCloseProcess": False,
                     "database": db.health_probe(),
                     "startupDatabaseProof": BOOT_PROOF,
                 })
             if parsed.path == "/api/summary":
                 return self.send_json(db.summary(required_query(query, "asOfDate")))
+            if parsed.path == "/api/companies":
+                return self.send_json({"rows": db.list_companies()})
             if parsed.path == "/api/employees":
                 return self.send_json({"rows": db.list_employees()})
+            if parsed.path == "/api/entitlement/rules":
+                return self.send_json({"rows": db.list_entitlement_rules()})
+            if parsed.path == "/api/entitlement/events":
+                return self.send_json({"rows": db.list_entitlement_events()})
             if parsed.path == "/api/entitlement/balance":
                 return self.send_json({"asOfDate": required_query(query, "asOfDate"), "rows": db.entitlement_balance(required_query(query, "asOfDate"))})
+            if parsed.path == "/api/entitlement/reconciliation":
+                return self.send_json(db.reconciliation(required_query(query, "asOfDate")))
+            if parsed.path == "/api/allocations":
+                return self.send_json({"rows": db.list_allocations()})
+            if parsed.path == "/api/loans":
+                return self.send_json({"rows": db.list_loans()})
             return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
             return self.send_error_json(exc)
@@ -55,6 +67,12 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             if parsed.path == "/api/employees":
                 return self.send_json({"employee": db.create_employee(self.read_json())}, HTTPStatus.CREATED)
+            if parsed.path == "/api/entitlement/events":
+                return self.send_json({"event": db.post_entitlement_event(self.read_json())}, HTTPStatus.CREATED)
+            if parsed.path == "/api/allocations":
+                return self.send_json({"allocation": db.create_allocation(self.read_json())}, HTTPStatus.CREATED)
+            if parsed.path == "/api/loans":
+                return self.send_json({"loan": db.create_loan(self.read_json())}, HTTPStatus.CREATED)
             return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
         except Exception as exc:
             return self.send_error_json(exc)

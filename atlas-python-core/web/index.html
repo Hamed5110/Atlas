@@ -3,38 +3,136 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ATLAS Python Core</title>
+  <title>ATLAS Airfare Python Core</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><span>A</span><div><strong>ATLAS Python Core</strong><small>Fresh MSSQL build</small></div></div>
-    <button class="nav active" data-view="command">Command</button>
-    <button class="nav" data-view="employees">Employees</button>
-    <button class="nav" data-view="entitlement">Entitlement</button>
-    <button class="nav" data-view="loans">Loans / EMI</button>
-    <div class="guard">No Year End process. Entitlement is computed from rules + events.</div>
+    <div class="brand">
+      <span>A</span>
+      <div>
+        <strong>ATLAS Airfare</strong>
+        <small>Python + MSSQL core</small>
+      </div>
+    </div>
+    <nav>
+      <a href="#command" class="active">Command</a>
+      <a href="#employees">Employees</a>
+      <a href="#entitlement">Entitlement</a>
+      <a href="#allocations">Allocations</a>
+      <a href="#loans">Loans / EMI</a>
+      <a href="#reconciliation">Reconciliation</a>
+    </nav>
+    <div class="guard">
+      Continuous entitlement only. No annual reset batch. Opening values are seed evidence.
+    </div>
   </aside>
+
   <main class="shell">
-    <header>
-      <div><small>GREENFIELD PYTHON BUILD</small><h1>One clean system. MSSQL first.</h1></div>
+    <header class="hero" id="command">
+      <div>
+        <small>GREENFIELD AIRFARE SYSTEM</small>
+        <h1>Employee master first. Entitlement computed live.</h1>
+        <p>Fresh Python runtime using Microsoft mssql-python and the standalone core schema.</p>
+      </div>
       <button id="refresh">Refresh</button>
     </header>
+
     <section class="cards">
       <article><span>Runtime</span><strong id="runtime">checking</strong><small id="version">-</small></article>
-      <article><span>Database</span><strong id="database">-</strong><small id="schema">core schema</small></article>
-      <article><span>Employees</span><strong id="employees">0</strong><small>master records</small></article>
-      <article class="primary"><span>Entitlement</span><strong id="balance">BHD 0.000</strong><small>continuous as-of balance</small></article>
+      <article><span>Database</span><strong id="database">-</strong><small id="schema">-</small></article>
+      <article><span>Employees</span><strong id="employees">0</strong><small>active master records</small></article>
+      <article class="primary"><span>Entitlement</span><strong id="balance">BHD 0.000</strong><small>as-of computed balance</small></article>
+      <article><span>Allocations</span><strong id="allocationsTotal">0</strong><small id="allocationsValue">BHD 0.000 used</small></article>
+      <article><span>Loans / EMI</span><strong id="loans">0</strong><small id="emi">BHD 0.000 monthly</small></article>
     </section>
-    <section class="panel">
-      <div class="panel-title"><div><small>EMPLOYEES</small><h2>Master records</h2></div><span class="pill">foundation</span></div>
+
+    <section class="panel" id="employees">
+      <div class="panel-title">
+        <div><small>EMPLOYEES</small><h2>Master records</h2></div>
+        <span class="pill">foundation</span>
+      </div>
+      <form id="employeeForm" class="form-grid">
+        <input name="employeeNumber" placeholder="Employee no." required>
+        <input name="displayName" placeholder="Display name" required>
+        <input name="hireDate" type="date" value="2026-01-01" required>
+        <input name="department" placeholder="Department">
+        <input name="jobTitle" placeholder="Job title">
+        <input name="workEmail" type="email" placeholder="Email">
+        <button>Create employee</button>
+      </form>
       <div id="employeeRows" class="rows"></div>
     </section>
-    <section class="panel">
-      <div class="panel-title"><div><small>ENTITLEMENT</small><h2>Continuous balance</h2></div><span class="pill">no annual reset</span></div>
+
+    <section class="panel" id="entitlement">
+      <div class="panel-title">
+        <div><small>ENTITLEMENT</small><h2>Rules, events, live balances</h2></div>
+        <span class="pill">continuous</span>
+      </div>
+      <div class="split">
+        <div>
+          <h3>Policy rules</h3>
+          <div id="ruleRows" class="rows compact"></div>
+        </div>
+        <form id="eventForm" class="stack">
+          <h3>Add seed/accrual/adjustment</h3>
+          <select name="employeeId" id="eventEmployee" required></select>
+          <input name="eventDate" type="date" value="2026-12-31" required>
+          <select name="eventType">
+            <option value="accrual">Accrual</option>
+            <option value="seed">Seed evidence</option>
+            <option value="adjustment">Adjustment</option>
+            <option value="reversal">Reversal</option>
+          </select>
+          <input name="amount" type="number" step="0.001" min="0" value="10" required>
+          <button>Post entitlement event</button>
+        </form>
+      </div>
       <div id="balanceRows" class="rows"></div>
+      <div id="eventRows" class="rows compact"></div>
     </section>
+
+    <section class="panel" id="allocations">
+      <div class="panel-title">
+        <div><small>AIRFARE ALLOCATIONS</small><h2>Ticket usage consumes entitlement</h2></div>
+        <span class="pill">transactional</span>
+      </div>
+      <form id="allocationForm" class="form-grid">
+        <select name="employeeId" id="allocationEmployee" required></select>
+        <input name="allocationDate" type="date" value="2026-12-31" required>
+        <input name="ticketCost" type="number" step="0.001" min="0" value="25" required>
+        <button>Post allocation</button>
+      </form>
+      <div id="allocationRows" class="rows"></div>
+    </section>
+
+    <section class="panel" id="loans">
+      <div class="panel-title">
+        <div><small>LOANS / EMI</small><h2>Recovery exposure</h2></div>
+        <span class="pill">payroll aware</span>
+      </div>
+      <form id="loanForm" class="form-grid">
+        <select name="employeeId" id="loanEmployee" required></select>
+        <input name="principalAmount" type="number" step="0.001" min="0" value="100" required>
+        <input name="emiAmount" type="number" step="0.001" min="0" value="10" required>
+        <input name="startDate" type="date" value="2026-12-31" required>
+        <button>Create loan</button>
+      </form>
+      <div id="loanRows" class="rows"></div>
+    </section>
+
+    <section class="panel" id="reconciliation">
+      <div class="panel-title">
+        <div><small>RECONCILIATION</small><h2>Continuous entitlement review</h2></div>
+        <span id="reconciliationStatus" class="pill">checking</span>
+      </div>
+      <p id="reconciliationNote" class="muted"></p>
+      <div id="reconciliationRows" class="rows"></div>
+    </section>
+
+    <div id="toast" role="status"></div>
   </main>
+
   <script src="/assets/app.js"></script>
 </body>
 </html>

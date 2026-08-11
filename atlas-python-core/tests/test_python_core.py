@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,44 @@ def test_database_repository_contract() -> None:
     balances = db.entitlement_balance("2026-12-31")
     assert any(row["employeeNumber"] == "5110" for row in balances)
 
+    rules = db.list_entitlement_rules()
+    assert any(row["ruleCode"] == "GLOBAL-150" for row in rules)
+
+    employee = db.create_employee({
+        "employeeNumber": f"PY-{uuid.uuid4().hex[:8]}",
+        "displayName": "Python Verified User",
+        "hireDate": "2026-03-01",
+        "department": "QA",
+        "jobTitle": "Verifier",
+    })
+    event = db.post_entitlement_event({
+        "employeeId": employee["employeeId"],
+        "eventDate": "2026-03-01",
+        "eventType": "seed",
+        "amount": "100.000",
+    })
+    assert event["amount"] == 100.0
+
+    allocation = db.create_allocation({
+        "employeeId": employee["employeeId"],
+        "allocationDate": "2026-03-15",
+        "ticketCost": "40.000",
+    })
+    assert allocation["entitlementApplied"] == 40.0
+    assert allocation["companyPaid"] == 0.0
+
+    loan = db.create_loan({
+        "employeeId": employee["employeeId"],
+        "principalAmount": "250.000",
+        "emiAmount": "25.000",
+        "startDate": "2026-04-01",
+    })
+    assert loan["statusCode"] == "active"
+
+    reconciliation = db.reconciliation("2026-12-31")
+    assert reconciliation["status"] in {"balanced", "review"}
+    assert "not payroll posting" in reconciliation["note"]
+
 
 def test_http_contract() -> None:
     from app.server import Handler
@@ -53,12 +92,20 @@ def test_http_contract() -> None:
         health = get_json(f"http://127.0.0.1:{config.PORT}/api/health")
         assert health["status"] == "ok"
         assert health["repository"] == "mssql-python-core"
-        assert health["yearEndProcess"] is False
+        assert health["annualCloseProcess"] is False
         assert health["database"]["databaseName"] == config.DB_NAME
 
         summary = get_json(f"http://127.0.0.1:{config.PORT}/api/summary?asOfDate=2026-12-31")
         assert summary["database"] == config.DB_NAME
         assert summary["repository"] == "mssql-python-core"
+        assert "allocations" in summary
+
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/companies")["rows"]
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/rules")["rows"]
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/events")["rows"]
+        assert "rows" in get_json(f"http://127.0.0.1:{config.PORT}/api/allocations")
+        assert "rows" in get_json(f"http://127.0.0.1:{config.PORT}/api/loans")
+        assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/reconciliation?asOfDate=2026-12-31")["status"] in {"balanced", "review"}
 
         try:
             get_json(f"http://127.0.0.1:{config.PORT}/api/summary")
