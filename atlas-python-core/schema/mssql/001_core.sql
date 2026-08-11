@@ -45,19 +45,51 @@ BEGIN
     CompanyID UNIQUEIDENTIFIER NOT NULL,
     EmployeeNumber NVARCHAR(60) NOT NULL,
     DisplayName NVARCHAR(180) NOT NULL,
+    LegalName NVARCHAR(180) NULL,
     WorkEmail NVARCHAR(254) NULL,
+    PhoneNumber NVARCHAR(60) NULL,
     Department NVARCHAR(120) NULL,
     JobTitle NVARCHAR(120) NULL,
+    EmploymentType NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Employees_EmploymentType DEFAULT 'full_time',
+    PayGroup NVARCHAR(120) NULL,
+    Nationality NVARCHAR(80) NULL,
+    PassportNumber NVARCHAR(80) NULL,
+    CPRNumber NVARCHAR(80) NULL,
+    BankName NVARCHAR(120) NULL,
+    IBAN NVARCHAR(80) NULL,
+    BasicSalary DECIMAL(12,3) NOT NULL CONSTRAINT DF_PythonCore_Employees_BasicSalary DEFAULT 0,
+    EligibleForAirfare BIT NOT NULL CONSTRAINT DF_PythonCore_Employees_EligibleForAirfare DEFAULT 1,
+    HomeAirportCode CHAR(3) NULL,
+    DestinationAirportCode CHAR(3) NULL,
     StatusCode NVARCHAR(32) NOT NULL CONSTRAINT DF_PythonCore_Employees_Status DEFAULT 'active',
     HireDate DATE NOT NULL,
+    TerminationDate DATE NULL,
     CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_Employees_Created DEFAULT SYSUTCDATETIME(),
     UpdatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_Employees_Updated DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_PythonCore_Employees_Tenants FOREIGN KEY (TenantID) REFERENCES core.Tenants(TenantID),
     CONSTRAINT FK_PythonCore_Employees_Companies FOREIGN KEY (CompanyID) REFERENCES core.Companies(CompanyID),
     CONSTRAINT UQ_PythonCore_Employees_TenantCompanyNumber UNIQUE (TenantID, CompanyID, EmployeeNumber),
+    CONSTRAINT CK_PythonCore_Employees_BasicSalary CHECK (BasicSalary >= 0),
+    CONSTRAINT CK_PythonCore_Employees_EmploymentType CHECK (EmploymentType IN ('full_time','part_time','contract','temporary','intern')),
     CONSTRAINT CK_PythonCore_Employees_Status CHECK (StatusCode IN ('active','inactive','suspended','terminated','on_leave'))
   );
 END;
+GO
+
+IF COL_LENGTH(N'core.Employees', N'LegalName') IS NULL ALTER TABLE core.Employees ADD LegalName NVARCHAR(180) NULL;
+IF COL_LENGTH(N'core.Employees', N'PhoneNumber') IS NULL ALTER TABLE core.Employees ADD PhoneNumber NVARCHAR(60) NULL;
+IF COL_LENGTH(N'core.Employees', N'EmploymentType') IS NULL ALTER TABLE core.Employees ADD EmploymentType NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Employees_EmploymentType_Add DEFAULT 'full_time';
+IF COL_LENGTH(N'core.Employees', N'PayGroup') IS NULL ALTER TABLE core.Employees ADD PayGroup NVARCHAR(120) NULL;
+IF COL_LENGTH(N'core.Employees', N'Nationality') IS NULL ALTER TABLE core.Employees ADD Nationality NVARCHAR(80) NULL;
+IF COL_LENGTH(N'core.Employees', N'PassportNumber') IS NULL ALTER TABLE core.Employees ADD PassportNumber NVARCHAR(80) NULL;
+IF COL_LENGTH(N'core.Employees', N'CPRNumber') IS NULL ALTER TABLE core.Employees ADD CPRNumber NVARCHAR(80) NULL;
+IF COL_LENGTH(N'core.Employees', N'BankName') IS NULL ALTER TABLE core.Employees ADD BankName NVARCHAR(120) NULL;
+IF COL_LENGTH(N'core.Employees', N'IBAN') IS NULL ALTER TABLE core.Employees ADD IBAN NVARCHAR(80) NULL;
+IF COL_LENGTH(N'core.Employees', N'BasicSalary') IS NULL ALTER TABLE core.Employees ADD BasicSalary DECIMAL(12,3) NOT NULL CONSTRAINT DF_PythonCore_Employees_BasicSalary_Add DEFAULT 0;
+IF COL_LENGTH(N'core.Employees', N'EligibleForAirfare') IS NULL ALTER TABLE core.Employees ADD EligibleForAirfare BIT NOT NULL CONSTRAINT DF_PythonCore_Employees_EligibleForAirfare_Add DEFAULT 1;
+IF COL_LENGTH(N'core.Employees', N'HomeAirportCode') IS NULL ALTER TABLE core.Employees ADD HomeAirportCode CHAR(3) NULL;
+IF COL_LENGTH(N'core.Employees', N'DestinationAirportCode') IS NULL ALTER TABLE core.Employees ADD DestinationAirportCode CHAR(3) NULL;
+IF COL_LENGTH(N'core.Employees', N'TerminationDate') IS NULL ALTER TABLE core.Employees ADD TerminationDate DATE NULL;
 GO
 
 IF OBJECT_ID(N'core.EntitlementRules', N'U') IS NULL
@@ -109,6 +141,12 @@ BEGIN
     CompanyID UNIQUEIDENTIFIER NOT NULL,
     EmployeeID UNIQUEIDENTIFIER NOT NULL,
     AllocationDate DATE NOT NULL,
+    OriginAirportCode CHAR(3) NULL,
+    DestinationAirportCode CHAR(3) NULL,
+    TravelDate DATE NULL,
+    AirlineName NVARCHAR(120) NULL,
+    TicketNumber NVARCHAR(80) NULL,
+    PaymentMode NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Allocations_PaymentMode DEFAULT 'entitlement',
     TicketCost DECIMAL(12,3) NOT NULL,
     EntitlementApplied DECIMAL(12,3) NOT NULL,
     CompanyPaid DECIMAL(12,3) NOT NULL,
@@ -117,9 +155,18 @@ BEGIN
     CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_Allocations_Created DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_PythonCore_Allocations_Employees FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
     CONSTRAINT FK_PythonCore_Allocations_Events FOREIGN KEY (EventID) REFERENCES core.EntitlementEvents(EventID),
-    CONSTRAINT CK_PythonCore_Allocations_Amounts CHECK (TicketCost >= 0 AND EntitlementApplied >= 0 AND CompanyPaid >= 0)
+    CONSTRAINT CK_PythonCore_Allocations_Amounts CHECK (TicketCost >= 0 AND EntitlementApplied >= 0 AND CompanyPaid >= 0),
+    CONSTRAINT CK_PythonCore_Allocations_PaymentMode CHECK (PaymentMode IN ('entitlement','loan','employee','company','mixed'))
   );
 END;
+GO
+
+IF COL_LENGTH(N'core.AirfareAllocations', N'OriginAirportCode') IS NULL ALTER TABLE core.AirfareAllocations ADD OriginAirportCode CHAR(3) NULL;
+IF COL_LENGTH(N'core.AirfareAllocations', N'DestinationAirportCode') IS NULL ALTER TABLE core.AirfareAllocations ADD DestinationAirportCode CHAR(3) NULL;
+IF COL_LENGTH(N'core.AirfareAllocations', N'TravelDate') IS NULL ALTER TABLE core.AirfareAllocations ADD TravelDate DATE NULL;
+IF COL_LENGTH(N'core.AirfareAllocations', N'AirlineName') IS NULL ALTER TABLE core.AirfareAllocations ADD AirlineName NVARCHAR(120) NULL;
+IF COL_LENGTH(N'core.AirfareAllocations', N'TicketNumber') IS NULL ALTER TABLE core.AirfareAllocations ADD TicketNumber NVARCHAR(80) NULL;
+IF COL_LENGTH(N'core.AirfareAllocations', N'PaymentMode') IS NULL ALTER TABLE core.AirfareAllocations ADD PaymentMode NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Allocations_PaymentMode_Add DEFAULT 'entitlement';
 GO
 
 IF OBJECT_ID(N'core.EmployeeLoans', N'U') IS NULL
@@ -129,15 +176,28 @@ BEGIN
     TenantID UNIQUEIDENTIFIER NOT NULL,
     CompanyID UNIQUEIDENTIFIER NOT NULL,
     EmployeeID UNIQUEIDENTIFIER NOT NULL,
+    LoanType NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Loans_LoanType DEFAULT 'airfare',
     PrincipalAmount DECIMAL(12,3) NOT NULL,
     EmiAmount DECIMAL(12,3) NOT NULL,
+    TenureMonths INT NOT NULL CONSTRAINT DF_PythonCore_Loans_TenureMonths DEFAULT 0,
+    OutstandingAmount DECIMAL(12,3) NOT NULL CONSTRAINT DF_PythonCore_Loans_OutstandingAmount DEFAULT 0,
     StartDate DATE NOT NULL,
+    LoanDate DATE NULL,
+    Notes NVARCHAR(400) NULL,
     StatusCode NVARCHAR(32) NOT NULL CONSTRAINT DF_PythonCore_Loans_Status DEFAULT 'active',
     CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_PythonCore_Loans_Created DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_PythonCore_Loans_Employees FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
-    CONSTRAINT CK_PythonCore_Loans_Amounts CHECK (PrincipalAmount >= 0 AND EmiAmount >= 0)
+    CONSTRAINT CK_PythonCore_Loans_Amounts CHECK (PrincipalAmount >= 0 AND EmiAmount >= 0 AND OutstandingAmount >= 0 AND TenureMonths >= 0),
+    CONSTRAINT CK_PythonCore_Loans_LoanType CHECK (LoanType IN ('airfare','emergency_ticket','salary_advance','manual'))
   );
 END;
+GO
+
+IF COL_LENGTH(N'core.EmployeeLoans', N'LoanType') IS NULL ALTER TABLE core.EmployeeLoans ADD LoanType NVARCHAR(40) NOT NULL CONSTRAINT DF_PythonCore_Loans_LoanType_Add DEFAULT 'airfare';
+IF COL_LENGTH(N'core.EmployeeLoans', N'TenureMonths') IS NULL ALTER TABLE core.EmployeeLoans ADD TenureMonths INT NOT NULL CONSTRAINT DF_PythonCore_Loans_TenureMonths_Add DEFAULT 0;
+IF COL_LENGTH(N'core.EmployeeLoans', N'OutstandingAmount') IS NULL ALTER TABLE core.EmployeeLoans ADD OutstandingAmount DECIMAL(12,3) NOT NULL CONSTRAINT DF_PythonCore_Loans_OutstandingAmount_Add DEFAULT 0;
+IF COL_LENGTH(N'core.EmployeeLoans', N'LoanDate') IS NULL ALTER TABLE core.EmployeeLoans ADD LoanDate DATE NULL;
+IF COL_LENGTH(N'core.EmployeeLoans', N'Notes') IS NULL ALTER TABLE core.EmployeeLoans ADD Notes NVARCHAR(400) NULL;
 GO
 
 IF OBJECT_ID(N'core.Users', N'U') IS NULL

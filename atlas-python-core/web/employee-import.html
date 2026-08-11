@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATLAS Python Core | Master Import</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="employee-import">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Safe import pipeline</small></a>
+    <nav>
+      <a href="/">Command</a><a href="/employees">Employees</a><a class="active" href="/employee-import">Master Import</a><a href="/airfare">Airfare Allocation</a><a href="/loans">Loans / EMI</a><a href="/reports">Reports</a><a href="/admin">Admin</a><a href="/support">Support</a>
+    </nav>
+    <div class="guard">Imports preview first. Bad rows are isolated; valid rows can proceed.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>MASTER IMPORT</small><h1>Excel import with validation before write.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="panel">
+      <div class="panel-title"><div><small>IMPORT FORMAT</small><h2>Employee master columns</h2></div><span class="pill">preview + execute API</span></div>
+      <p class="muted">Supported headers: employeeNumber, displayName, legalName, hireDate, terminationDate, department, jobTitle, employmentType, payGroup, workEmail, phoneNumber, nationality, passportNumber, cprNumber, bankName, iban, basicSalary, eligibleForAirfare, homeAirportCode, destinationAirportCode.</p>
+      <div class="actions">
+        <button id="sampleImportPreview">Run sample preview</button>
+        <button id="sampleImportExecute">Run sample execute</button>
+      </div>
+      <div id="importRows" class="rows"></div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

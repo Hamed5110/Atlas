@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATLAS Python Core | Airfare</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="airfare">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Continuous entitlement</small></a>
+    <nav>
+      <a href="/">Command</a><a href="/employees">Employees</a><a href="/employee-import">Master Import</a><a class="active" href="/airfare">Airfare Allocation</a><a href="/loans">Loans / EMI</a><a href="/reports">Reports</a><a href="/admin">Admin</a><a href="/support">Support</a>
+    </nav>
+    <div class="guard">No Year End reset. Usage consumes live entitlement events.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>AIRFARE</small><h1>Rules, accruals, allocation usage, reconciliation.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="cards" id="airfareCards"></section>
+    <section class="panel">
+      <div class="panel-title"><div><small>POST ENTITLEMENT EVENT</small><h2>Seed / accrual / adjustment</h2></div><span class="pill">continuous</span></div>
+      <form id="eventForm" class="form-grid">
+        <select name="employeeId" data-employee-select required></select>
+        <input name="eventDate" type="date" value="2026-12-31" required>
+        <select name="eventType"><option value="accrual">Accrual</option><option value="seed">Seed evidence</option><option value="adjustment">Adjustment</option><option value="reversal">Reversal</option></select>
+        <input name="amount" type="number" step="0.001" min="0" value="10" required>
+        <button>Post event</button>
+      </form>
+      <div id="balanceRows" class="rows"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-title"><div><small>AIRFARE ALLOCATION</small><h2>Ticket transaction</h2></div><span class="pill">uses balance</span></div>
+      <form id="allocationForm" class="form-grid">
+        <select name="employeeId" data-employee-select required></select>
+        <input name="allocationDate" type="date" value="2026-12-31" required>
+        <input name="travelDate" type="date">
+        <input name="originAirportCode" maxlength="3" placeholder="Origin e.g. BAH">
+        <input name="destinationAirportCode" maxlength="3" placeholder="Destination e.g. COK">
+        <input name="airlineName" placeholder="Airline">
+        <input name="ticketNumber" placeholder="Ticket no.">
+        <select name="paymentMode"><option value="entitlement">Entitlement</option><option value="loan">Loan</option><option value="employee">Employee</option><option value="company">Company</option><option value="mixed">Mixed</option></select>
+        <input name="ticketCost" type="number" step="0.001" min="0" value="25" required>
+        <button>Post allocation</button>
+      </form>
+      <div id="allocationRows" class="rows"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-title"><div><small>RECONCILIATION</small><h2>Continuous vs usage review</h2></div><span id="reconciliationStatus" class="pill warn">checking</span></div>
+      <p id="reconciliationNote" class="muted"></p>
+      <div id="reconciliationRows" class="rows"></div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

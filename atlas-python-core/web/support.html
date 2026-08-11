@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ATLAS Python Core | Support</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body data-page="support">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Diagnostics</small></a>
+    <nav><a href="/">Command</a><a href="/employees">Employees</a><a href="/employee-import">Master Import</a><a href="/airfare">Airfare Allocation</a><a href="/loans">Loans / EMI</a><a href="/reports">Reports</a><a href="/admin">Admin</a><a class="active" href="/support">Support</a></nav>
+    <div class="guard">Diagnostics prove SQL, schema, and route readiness.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>SUPPORT</small><h1>Diagnostics, attachments, airport search, maintenance.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="panel"><div class="panel-title"><div><small>DIAGNOSTICS</small><h2>Runtime checks</h2></div><span class="pill">live</span></div><div id="diagnosticRows" class="rows"></div></section>
+    <section class="panel"><div class="panel-title"><div><small>ATTACHMENTS</small><h2>Evidence viewer</h2></div><span class="pill">safe inline view</span></div><div id="attachmentRows" class="rows"></div></section>
+    <section class="panel"><div class="panel-title"><div><small>AIRPORT SEARCH</small><h2>Ranked IATA lookup</h2></div><span class="pill">travel helper</span></div><form id="airportForm" class="form-grid"><input name="q" value="BAH" placeholder="Airport code/city/country"><button>Search airports</button></form><div id="airportRows" class="rows"></div></section>
+    <section class="panel"><div class="panel-title"><div><small>SUPPORT INFO</small><h2>Local runtime</h2></div><span class="pill">3356</span></div><div id="supportRows" class="rows"></div></section>
+  </main>
+  <div id="toast" role="status"></div><script src="/assets/app.js"></script>
+</body>
+</html>

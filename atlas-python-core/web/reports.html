@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ATLAS Python Core | Reports</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body data-page="reports">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Reports</small></a>
+    <nav><a href="/">Command</a><a href="/employees">Employees</a><a href="/employee-import">Master Import</a><a href="/airfare">Airfare Allocation</a><a href="/loans">Loans / EMI</a><a class="active" href="/reports">Reports</a><a href="/admin">Admin</a><a href="/support">Support</a></nav>
+    <div class="guard">Reports read events and master records. They do not mutate balances.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>REPORTS</small><h1>Payable, employees, allocations, loans.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="panel"><div class="panel-title"><div><small>AIRFARE PAYABLE</small><h2>As-of entitlement report</h2></div><span class="pill">read only</span></div><div id="payableReportRows" class="rows"></div></section>
+    <section class="panel"><div class="panel-title"><div><small>EMPLOYEE SUMMARY</small><h2>Department and master-data report</h2></div><span class="pill">master data</span></div><div id="employeeReportRows" class="rows"></div></section>
+    <section class="panel"><div class="panel-title"><div><small>EXPORTS</small><h2>Machine-readable extracts</h2></div><span class="pill">JSON export API</span></div><div class="actions"><button data-export="employees">Export employees</button><button data-export="allocations">Export allocations</button><button data-export="loans">Export loans</button></div><div id="exportRows" class="rows"></div></section>
+  </main>
+  <div id="toast" role="status"></div><script src="/assets/app.js"></script>
+</body>
+</html>

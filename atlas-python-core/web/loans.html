@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ATLAS Python Core | Loans</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body data-page="loans">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Loan / EMI recovery</small></a>
+    <nav><a href="/">Command</a><a href="/employees">Employees</a><a href="/employee-import">Master Import</a><a href="/airfare">Airfare Allocation</a><a class="active" href="/loans">Loans / EMI</a><a href="/reports">Reports</a><a href="/admin">Admin</a><a href="/support">Support</a></nav>
+    <div class="guard">Loans are recovery records. They do not rewrite entitlement history.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>LOANS / EMI</small><h1>Airfare recovery with tenure and outstanding balance.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="panel">
+      <div class="panel-title"><div><small>CREATE LOAN</small><h2>Recovery setup</h2></div><span class="pill">payroll aware</span></div>
+      <form id="loanForm" class="form-grid">
+        <select name="employeeId" data-employee-select required></select>
+        <select name="loanType"><option value="airfare">Airfare</option><option value="emergency_ticket">Emergency ticket</option><option value="salary_advance">Salary advance</option><option value="manual">Manual</option></select>
+        <input name="principalAmount" type="number" step="0.001" min="0" value="100" required>
+        <input name="emiAmount" type="number" step="0.001" min="0" value="10" required>
+        <input name="tenureMonths" type="number" min="0" value="10">
+        <input name="outstandingAmount" type="number" step="0.001" min="0" value="100">
+        <input name="loanDate" type="date" value="2026-12-31">
+        <input name="startDate" type="date" value="2026-12-31" required>
+        <input name="notes" placeholder="Notes">
+        <button>Create loan</button>
+      </form>
+      <div id="loanRows" class="rows"></div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div><script src="/assets/app.js"></script>
+</body>
+</html>

@@ -51,10 +51,29 @@ def test_database_repository_contract() -> None:
     employee = db.create_employee({
         "employeeNumber": f"PY-{uuid.uuid4().hex[:8]}",
         "displayName": "Python Verified User",
+        "legalName": "Python Verified Legal User",
         "hireDate": "2026-03-01",
+        "terminationDate": "",
         "department": "QA",
         "jobTitle": "Verifier",
+        "employmentType": "full_time",
+        "payGroup": "Monthly",
+        "workEmail": "verified@example.com",
+        "phoneNumber": "+97300000000",
+        "nationality": "Bahraini",
+        "passportNumber": "P12345",
+        "cprNumber": "900000000",
+        "bankName": "ATLAS Bank",
+        "iban": "BH00ATLAS000000000000",
+        "basicSalary": "500.000",
+        "eligibleForAirfare": "true",
+        "homeAirportCode": "BAH",
+        "destinationAirportCode": "COK",
     })
+    created_rows = [row for row in db.list_employees() if row["employeeId"] == employee["employeeId"]]
+    assert created_rows[0]["cprNumber"] == "900000000"
+    assert created_rows[0]["payGroup"] == "Monthly"
+    assert created_rows[0]["homeAirportCode"] == "BAH"
     event = db.post_entitlement_event({
         "employeeId": employee["employeeId"],
         "eventDate": "2026-03-01",
@@ -66,18 +85,31 @@ def test_database_repository_contract() -> None:
     allocation = db.create_allocation({
         "employeeId": employee["employeeId"],
         "allocationDate": "2026-03-15",
+        "travelDate": "2026-04-01",
+        "originAirportCode": "BAH",
+        "destinationAirportCode": "COK",
+        "airlineName": "Gulf Air",
+        "ticketNumber": "GF-TEST-1",
+        "paymentMode": "mixed",
         "ticketCost": "40.000",
     })
     assert allocation["entitlementApplied"] == 40.0
     assert allocation["companyPaid"] == 0.0
+    assert allocation["destinationAirportCode"] == "COK"
 
     loan = db.create_loan({
         "employeeId": employee["employeeId"],
+        "loanType": "airfare",
         "principalAmount": "250.000",
         "emiAmount": "25.000",
+        "tenureMonths": "10",
+        "outstandingAmount": "250.000",
+        "loanDate": "2026-03-25",
         "startDate": "2026-04-01",
+        "notes": "test recovery",
     })
     assert loan["statusCode"] == "active"
+    assert loan["tenureMonths"] == 10
 
     reconciliation = db.reconciliation("2026-12-31")
     assert reconciliation["status"] in {"balanced", "review"}
@@ -99,7 +131,7 @@ def test_database_repository_contract() -> None:
     assert db.get_preferences()["preferences"]["theme"] in {"system", "light", "dark"}
     assert db.save_preferences({"theme": "dark", "density": "compact"})["preferences"]["theme"] == "dark"
     assert db.list_users()[0]["username"] == "admin"
-    assert db.import_preview("employees", [{"employeeNumber": "X", "displayName": "Y", "hireDate": "2026-01-01"}, {"employeeNumber": ""}])["invalidRows"]
+    assert db.import_preview("employees", [{"employeeNumber": "X", "displayName": "Y", "hireDate": "2026-01-01", "homeAirportCode": "BAH"}, {"employeeNumber": ""}])["invalidRows"]
     assert db.export_module("employees")["rows"]
     assert db.diagnostics()["status"] == "ok"
     assert db.support_info()["supportMode"] == "local-greenfield"
@@ -144,6 +176,18 @@ def test_http_contract() -> None:
         assert health["repository"] == "mssql-python-core"
         assert health["annualCloseProcess"] is False
         assert health["database"]["databaseName"] == config.DB_NAME
+
+        for route, marker in {
+            "/": "One clean system",
+            "/employees": "Complete master record",
+            "/employee-import": "Excel import with validation",
+            "/airfare": "Rules, accruals, allocation usage",
+            "/loans": "Recovery setup",
+            "/reports": "AIRFARE PAYABLE",
+            "/admin": "Companies, users, preferences",
+            "/support": "Diagnostics",
+        }.items():
+            assert marker in get_text(f"http://127.0.0.1:{config.PORT}{route}")
 
         summary = get_json(f"http://127.0.0.1:{config.PORT}/api/summary?asOfDate=2026-12-31")
         assert summary["database"] == config.DB_NAME
@@ -220,8 +264,48 @@ def post_json(url: str, payload: dict) -> dict:
 def make_employee_workbook_base64(employee_number: str) -> str:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["employeeNumber", "displayName", "hireDate", "department", "jobTitle", "workEmail"])
-    sheet.append([employee_number, "Excel Imported User", "2026-06-01", "Import", "Imported Employee", "excel@example.com"])
+    sheet.append([
+        "employeeNumber",
+        "displayName",
+        "legalName",
+        "hireDate",
+        "department",
+        "jobTitle",
+        "employmentType",
+        "payGroup",
+        "workEmail",
+        "phoneNumber",
+        "nationality",
+        "passportNumber",
+        "CPR",
+        "bankName",
+        "IBAN",
+        "basicSalary",
+        "eligibleForAirfare",
+        "homeAirportCode",
+        "destinationAirportCode",
+    ])
+    sheet.append([
+        employee_number,
+        "Excel Imported User",
+        "Excel Imported Legal User",
+        "2026-06-01",
+        "Import",
+        "Imported Employee",
+        "full_time",
+        "Monthly",
+        "excel@example.com",
+        "+97311111111",
+        "Indian",
+        "PXLSAMPLE",
+        "911111111",
+        "Import Bank",
+        "BH00IMPORT000000000",
+        350,
+        "yes",
+        "BAH",
+        "DEL",
+    ])
     buffer = io.BytesIO()
     workbook.save(buffer)
     return base64.b64encode(buffer.getvalue()).decode("ascii")

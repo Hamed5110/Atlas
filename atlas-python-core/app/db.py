@@ -255,7 +255,9 @@ def list_employees() -> list[dict[str, Any]]:
     with connect(config.DB_NAME) as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT EmployeeID, EmployeeNumber, DisplayName, WorkEmail, Department, JobTitle, StatusCode, CONVERT(char(10), HireDate, 23) "
+            "SELECT EmployeeID, EmployeeNumber, DisplayName, LegalName, WorkEmail, PhoneNumber, Department, JobTitle, EmploymentType, PayGroup, "
+            "Nationality, PassportNumber, CPRNumber, BankName, IBAN, BasicSalary, EligibleForAirfare, HomeAirportCode, DestinationAirportCode, "
+            "StatusCode, CONVERT(char(10), HireDate, 23), CONVERT(char(10), TerminationDate, 23) "
             "FROM core.Employees ORDER BY EmployeeNumber;"
         )
         return [
@@ -263,11 +265,25 @@ def list_employees() -> list[dict[str, Any]]:
                 "employeeId": str(row[0]),
                 "employeeNumber": row[1],
                 "displayName": row[2],
-                "workEmail": row[3],
-                "department": row[4],
-                "jobTitle": row[5],
-                "statusCode": row[6],
-                "hireDate": row[7],
+                "legalName": row[3],
+                "workEmail": row[4],
+                "phoneNumber": row[5],
+                "department": row[6],
+                "jobTitle": row[7],
+                "employmentType": row[8],
+                "payGroup": row[9],
+                "nationality": row[10],
+                "passportNumber": row[11],
+                "cprNumber": row[12],
+                "bankName": row[13],
+                "iban": row[14],
+                "basicSalary": money(row[15]),
+                "eligibleForAirfare": bool(row[16]),
+                "homeAirportCode": row[17],
+                "destinationAirportCode": row[18],
+                "statusCode": row[19],
+                "hireDate": row[20],
+                "terminationDate": row[21],
             }
             for row in cur.fetchall()
         ]
@@ -369,6 +385,7 @@ def list_allocations() -> list[dict[str, Any]]:
         cur = conn.cursor()
         cur.execute(
             "SELECT a.AllocationID, e.EmployeeNumber, e.DisplayName, CONVERT(char(10), a.AllocationDate, 23), "
+            "a.OriginAirportCode, a.DestinationAirportCode, CONVERT(char(10), a.TravelDate, 23), a.AirlineName, a.TicketNumber, a.PaymentMode, "
             "a.TicketCost, a.EntitlementApplied, a.CompanyPaid, a.StatusCode "
             "FROM core.AirfareAllocations a "
             "JOIN core.Employees e ON e.EmployeeID = a.EmployeeID "
@@ -380,10 +397,16 @@ def list_allocations() -> list[dict[str, Any]]:
                 "employeeNumber": row[1],
                 "displayName": row[2],
                 "allocationDate": row[3],
-                "ticketCost": money(row[4]),
-                "entitlementApplied": money(row[5]),
-                "companyPaid": money(row[6]),
-                "statusCode": row[7],
+                "originAirportCode": row[4],
+                "destinationAirportCode": row[5],
+                "travelDate": row[6],
+                "airlineName": row[7],
+                "ticketNumber": row[8],
+                "paymentMode": row[9],
+                "ticketCost": money(row[10]),
+                "entitlementApplied": money(row[11]),
+                "companyPaid": money(row[12]),
+                "statusCode": row[13],
             }
             for row in cur.fetchall()
         ]
@@ -393,6 +416,10 @@ def create_allocation(payload: dict[str, Any]) -> dict[str, Any]:
     employee_id = required_text(payload, "employeeId")
     allocation_date = required_text(payload, "allocationDate")
     ticket_cost = non_negative(payload.get("ticketCost"), "ticketCost")
+    travel_date = optional_date(payload.get("travelDate"), "travelDate")
+    origin = airport_code(payload.get("originAirportCode"))
+    destination = airport_code(payload.get("destinationAirportCode"))
+    payment_mode = option(payload.get("paymentMode") or "entitlement", "paymentMode", {"entitlement", "loan", "employee", "company", "mixed"})
     require_iso_date(allocation_date, "allocationDate")
     current_balance = Decimal(str(_employee_balance(employee_id, allocation_date)))
     entitlement_applied = min(Decimal(str(ticket_cost)), current_balance)
@@ -411,9 +438,25 @@ def create_allocation(payload: dict[str, Any]) -> dict[str, Any]:
             event_id = cur.fetchone()[0]
             cur.execute(
                 "INSERT INTO core.AirfareAllocations "
-                "(AllocationID, TenantID, CompanyID, EmployeeID, AllocationDate, TicketCost, EntitlementApplied, CompanyPaid, EventID) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                (allocation_id, config.TENANT_ID, config.COMPANY_ID, employee_id, allocation_date, ticket_cost, entitlement_applied, company_paid, event_id),
+                "(AllocationID, TenantID, CompanyID, EmployeeID, AllocationDate, OriginAirportCode, DestinationAirportCode, TravelDate, AirlineName, TicketNumber, PaymentMode, TicketCost, EntitlementApplied, CompanyPaid, EventID) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                (
+                    allocation_id,
+                    config.TENANT_ID,
+                    config.COMPANY_ID,
+                    employee_id,
+                    allocation_date,
+                    origin,
+                    destination,
+                    travel_date,
+                    text_or_none(payload.get("airlineName")),
+                    text_or_none(payload.get("ticketNumber")),
+                    payment_mode,
+                    ticket_cost,
+                    entitlement_applied,
+                    company_paid,
+                    event_id,
+                ),
             )
             conn.commit()
         except Exception:
@@ -423,6 +466,10 @@ def create_allocation(payload: dict[str, Any]) -> dict[str, Any]:
         "allocationId": allocation_id,
         "employeeId": employee_id,
         "allocationDate": allocation_date,
+        "originAirportCode": origin,
+        "destinationAirportCode": destination,
+        "travelDate": travel_date,
+        "paymentMode": payment_mode,
         "ticketCost": money(ticket_cost),
         "entitlementApplied": money(entitlement_applied),
         "companyPaid": money(company_paid),
@@ -434,7 +481,8 @@ def list_loans() -> list[dict[str, Any]]:
     with connect(config.DB_NAME) as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT l.LoanID, e.EmployeeNumber, e.DisplayName, l.PrincipalAmount, l.EmiAmount, CONVERT(char(10), l.StartDate, 23), l.StatusCode "
+            "SELECT l.LoanID, e.EmployeeNumber, e.DisplayName, l.LoanType, l.PrincipalAmount, l.EmiAmount, l.TenureMonths, l.OutstandingAmount, "
+            "CONVERT(char(10), l.StartDate, 23), CONVERT(char(10), l.LoanDate, 23), l.Notes, l.StatusCode "
             "FROM core.EmployeeLoans l "
             "JOIN core.Employees e ON e.EmployeeID = l.EmployeeID "
             "ORDER BY l.StartDate DESC, e.EmployeeNumber;"
@@ -444,10 +492,15 @@ def list_loans() -> list[dict[str, Any]]:
                 "loanId": str(row[0]),
                 "employeeNumber": row[1],
                 "displayName": row[2],
-                "principalAmount": money(row[3]),
-                "emiAmount": money(row[4]),
-                "startDate": row[5],
-                "statusCode": row[6],
+                "loanType": row[3],
+                "principalAmount": money(row[4]),
+                "emiAmount": money(row[5]),
+                "tenureMonths": int(row[6] or 0),
+                "outstandingAmount": money(row[7]),
+                "startDate": row[8],
+                "loanDate": row[9],
+                "notes": row[10],
+                "statusCode": row[11],
             }
             for row in cur.fetchall()
         ]
@@ -462,19 +515,34 @@ def settle_loan(loan_id: str) -> dict[str, Any]:
 
 def create_loan(payload: dict[str, Any]) -> dict[str, Any]:
     employee_id = required_text(payload, "employeeId")
+    loan_type = option(payload.get("loanType") or "airfare", "loanType", {"airfare", "emergency_ticket", "salary_advance", "manual"})
     principal = non_negative(payload.get("principalAmount"), "principalAmount")
     emi = non_negative(payload.get("emiAmount"), "emiAmount")
+    tenure_months = non_negative_int(payload.get("tenureMonths") or 0, "tenureMonths")
+    outstanding = non_negative(payload.get("outstandingAmount") or principal, "outstandingAmount")
     start_date = required_text(payload, "startDate")
+    loan_date = optional_date(payload.get("loanDate"), "loanDate") or start_date
     require_iso_date(start_date, "startDate")
     loan_id = str(uuid.uuid4())
     with connect(config.DB_NAME) as conn:
         assert_employee_exists(conn, employee_id)
         conn.cursor().execute(
-            "INSERT INTO core.EmployeeLoans (LoanID, TenantID, CompanyID, EmployeeID, PrincipalAmount, EmiAmount, StartDate) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?);",
-            (loan_id, config.TENANT_ID, config.COMPANY_ID, employee_id, principal, emi, start_date),
+            "INSERT INTO core.EmployeeLoans (LoanID, TenantID, CompanyID, EmployeeID, LoanType, PrincipalAmount, EmiAmount, TenureMonths, OutstandingAmount, StartDate, LoanDate, Notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            (loan_id, config.TENANT_ID, config.COMPANY_ID, employee_id, loan_type, principal, emi, tenure_months, outstanding, start_date, loan_date, text_or_none(payload.get("notes"))),
         )
-    return {"loanId": loan_id, "employeeId": employee_id, "principalAmount": money(principal), "emiAmount": money(emi), "startDate": start_date, "statusCode": "active"}
+    return {
+        "loanId": loan_id,
+        "employeeId": employee_id,
+        "loanType": loan_type,
+        "principalAmount": money(principal),
+        "emiAmount": money(emi),
+        "tenureMonths": tenure_months,
+        "outstandingAmount": money(outstanding),
+        "startDate": start_date,
+        "loanDate": loan_date,
+        "statusCode": "active",
+    }
 
 
 def reconciliation(as_of_date: str) -> dict[str, Any]:
@@ -595,8 +663,12 @@ def import_preview(module_code: str, rows: list[dict[str, Any]]) -> dict[str, An
     valid = []
     invalid = []
     for index, row in enumerate(rows, start=1):
-        if module_code == "employees" and row.get("employeeNumber") and row.get("displayName") and row.get("hireDate"):
-            valid.append({"row": index, "data": row})
+        if module_code == "employees":
+            errors = validate_employee_import_row(row)
+            if errors:
+                invalid.append({"row": index, "error": "; ".join(errors), "data": row})
+            else:
+                valid.append({"row": index, "data": row})
         else:
             invalid.append({"row": index, "error": "Required fields missing", "data": row})
     run_id = record_import_export("import", module_code, len(rows), "preview", {"valid": len(valid), "invalid": len(invalid)})
@@ -801,10 +873,24 @@ def normalize_excel_rows(module_code: str, rows: list[dict[str, Any]]) -> list[d
         normalized.append({
             "employeeNumber": first_value(row, "employeeNumber", "EmployeeNumber", "Employee No", "Employee No."),
             "displayName": first_value(row, "displayName", "DisplayName", "Name", "Employee Name"),
+            "legalName": first_value(row, "legalName", "LegalName", "Legal Name"),
             "hireDate": iso_cell(first_value(row, "hireDate", "HireDate", "Hire Date")),
+            "terminationDate": iso_cell(first_value(row, "terminationDate", "TerminationDate", "Termination Date")),
             "department": first_value(row, "department", "Department"),
             "jobTitle": first_value(row, "jobTitle", "JobTitle", "Job Title"),
+            "employmentType": first_value(row, "employmentType", "EmploymentType", "Employment Type"),
+            "payGroup": first_value(row, "payGroup", "PayGroup", "Pay Group", "Employee Group"),
             "workEmail": first_value(row, "workEmail", "WorkEmail", "Email"),
+            "phoneNumber": first_value(row, "phoneNumber", "PhoneNumber", "Phone", "Mobile"),
+            "nationality": first_value(row, "nationality", "Nationality"),
+            "passportNumber": first_value(row, "passportNumber", "PassportNumber", "Passport No", "Passport"),
+            "cprNumber": first_value(row, "cprNumber", "CPRNumber", "CPR", "National ID"),
+            "bankName": first_value(row, "bankName", "BankName", "Bank"),
+            "iban": first_value(row, "iban", "IBAN", "Iban"),
+            "basicSalary": first_value(row, "basicSalary", "BasicSalary", "Basic Salary", "Salary"),
+            "eligibleForAirfare": bool_cell(first_value(row, "eligibleForAirfare", "EligibleForAirfare", "Airfare Eligible")),
+            "homeAirportCode": first_value(row, "homeAirportCode", "HomeAirportCode", "Home Airport"),
+            "destinationAirportCode": first_value(row, "destinationAirportCode", "DestinationAirportCode", "Destination Airport"),
         })
     return normalized
 
@@ -824,12 +910,29 @@ def iso_cell(value: Any) -> str:
     return str(value or "").strip()
 
 
+def bool_cell(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "1", "true", "yes", "y", "eligible"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "not eligible"}:
+        return False
+    return True
+
+
 def create_employee(payload: dict[str, Any]) -> dict[str, Any]:
     employee_id = str(uuid.uuid4())
     employee_number = required_text(payload, "employeeNumber")
     display_name = required_text(payload, "displayName")
     hire_date = required_text(payload, "hireDate")
     require_iso_date(hire_date, "hireDate")
+    termination_date = optional_date(payload.get("terminationDate"), "terminationDate")
+    employment_type = option(payload.get("employmentType") or "full_time", "employmentType", {"full_time", "part_time", "contract", "temporary", "intern"})
+    basic_salary = non_negative(payload.get("basicSalary") or 0, "basicSalary")
+    eligible = bool_cell(payload.get("eligibleForAirfare"))
+    home_airport = airport_code(payload.get("homeAirportCode"))
+    destination_airport = airport_code(payload.get("destinationAirportCode"))
     with connect(config.DB_NAME) as conn:
         cur = conn.cursor()
         cur.execute(
@@ -839,30 +942,82 @@ def create_employee(payload: dict[str, Any]) -> dict[str, Any]:
         if cur.fetchone():
             raise ValueError("employeeNumber already exists for this company.")
         cur.execute(
-            "INSERT INTO core.Employees (EmployeeID, TenantID, CompanyID, EmployeeNumber, DisplayName, WorkEmail, Department, JobTitle, HireDate) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            "INSERT INTO core.Employees "
+            "(EmployeeID, TenantID, CompanyID, EmployeeNumber, DisplayName, LegalName, WorkEmail, PhoneNumber, Department, JobTitle, EmploymentType, PayGroup, "
+            "Nationality, PassportNumber, CPRNumber, BankName, IBAN, BasicSalary, EligibleForAirfare, HomeAirportCode, DestinationAirportCode, StatusCode, HireDate, TerminationDate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
             (
                 employee_id,
                 config.TENANT_ID,
                 config.COMPANY_ID,
                 employee_number,
                 display_name,
-                payload.get("workEmail"),
-                payload.get("department"),
-                payload.get("jobTitle"),
+                text_or_none(payload.get("legalName")),
+                text_or_none(payload.get("workEmail")),
+                text_or_none(payload.get("phoneNumber")),
+                text_or_none(payload.get("department")),
+                text_or_none(payload.get("jobTitle")),
+                employment_type,
+                text_or_none(payload.get("payGroup")),
+                text_or_none(payload.get("nationality")),
+                text_or_none(payload.get("passportNumber")),
+                text_or_none(payload.get("cprNumber")),
+                text_or_none(payload.get("bankName")),
+                text_or_none(payload.get("iban")),
+                basic_salary,
+                1 if eligible else 0,
+                home_airport,
+                destination_airport,
+                option(payload.get("statusCode") or "active", "statusCode", {"active", "inactive", "suspended", "terminated", "on_leave"}),
                 hire_date,
+                termination_date,
             ),
         )
-    return {"employeeId": employee_id, "employeeNumber": employee_number, "displayName": display_name, "hireDate": hire_date}
+    return {
+        "employeeId": employee_id,
+        "employeeNumber": employee_number,
+        "displayName": display_name,
+        "legalName": text_or_none(payload.get("legalName")),
+        "hireDate": hire_date,
+        "employmentType": employment_type,
+        "payGroup": text_or_none(payload.get("payGroup")),
+        "eligibleForAirfare": eligible,
+    }
 
 
 def update_employee(employee_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     display_name = required_text(payload, "displayName")
+    termination_date = optional_date(payload.get("terminationDate"), "terminationDate")
+    employment_type = option(payload.get("employmentType") or "full_time", "employmentType", {"full_time", "part_time", "contract", "temporary", "intern"})
+    basic_salary = non_negative(payload.get("basicSalary") or 0, "basicSalary")
     with connect(config.DB_NAME) as conn:
         assert_employee_exists(conn, employee_id)
         conn.cursor().execute(
-            "UPDATE core.Employees SET DisplayName = ?, WorkEmail = ?, Department = ?, JobTitle = ?, UpdatedAtUtc = SYSUTCDATETIME() WHERE EmployeeID = ?;",
-            (display_name, payload.get("workEmail"), payload.get("department"), payload.get("jobTitle"), employee_id),
+            "UPDATE core.Employees SET DisplayName = ?, LegalName = ?, WorkEmail = ?, PhoneNumber = ?, Department = ?, JobTitle = ?, EmploymentType = ?, "
+            "PayGroup = ?, Nationality = ?, PassportNumber = ?, CPRNumber = ?, BankName = ?, IBAN = ?, BasicSalary = ?, EligibleForAirfare = ?, "
+            "HomeAirportCode = ?, DestinationAirportCode = ?, StatusCode = ?, TerminationDate = ?, UpdatedAtUtc = SYSUTCDATETIME() WHERE EmployeeID = ?;",
+            (
+                display_name,
+                text_or_none(payload.get("legalName")),
+                text_or_none(payload.get("workEmail")),
+                text_or_none(payload.get("phoneNumber")),
+                text_or_none(payload.get("department")),
+                text_or_none(payload.get("jobTitle")),
+                employment_type,
+                text_or_none(payload.get("payGroup")),
+                text_or_none(payload.get("nationality")),
+                text_or_none(payload.get("passportNumber")),
+                text_or_none(payload.get("cprNumber")),
+                text_or_none(payload.get("bankName")),
+                text_or_none(payload.get("iban")),
+                basic_salary,
+                1 if bool_cell(payload.get("eligibleForAirfare")) else 0,
+                airport_code(payload.get("homeAirportCode")),
+                airport_code(payload.get("destinationAirportCode")),
+                option(payload.get("statusCode") or "active", "statusCode", {"active", "inactive", "suspended", "terminated", "on_leave"}),
+                termination_date,
+                employee_id,
+            ),
         )
     return {"employeeId": employee_id, "displayName": display_name}
 
@@ -914,6 +1069,80 @@ def non_negative(value: Any, field: str) -> Decimal:
     if amount < 0:
         raise ValueError(f"{field} must be a non-negative number.")
     return amount.quantize(Decimal("0.001"))
+
+
+def non_negative_int(value: Any, field: str) -> int:
+    try:
+        number = int(value)
+    except Exception as exc:
+        raise ValueError(f"{field} must be a non-negative integer.") from exc
+    if number < 0:
+        raise ValueError(f"{field} must be a non-negative integer.")
+    return number
+
+
+def text_or_none(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def optional_date(value: Any, field: str) -> str | None:
+    text = text_or_none(value)
+    if text is None:
+        return None
+    require_iso_date(text, field)
+    return text
+
+
+def option(value: Any, field: str, allowed: set[str]) -> str:
+    text = str(value or "").strip().lower()
+    if text not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ValueError(f"{field} must be one of: {allowed_text}.")
+    return text
+
+
+def airport_code(value: Any) -> str | None:
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+    if not re.match(r"^[A-Z]{3}$", text):
+        raise ValueError("Airport code must be a 3-letter IATA code.")
+    return text
+
+
+def validate_employee_import_row(row: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if not text_or_none(row.get("employeeNumber")):
+        errors.append("employeeNumber is required")
+    if not text_or_none(row.get("displayName")):
+        errors.append("displayName is required")
+    try:
+        require_iso_date(str(row.get("hireDate") or ""), "hireDate")
+    except ValueError:
+        errors.append("hireDate must be YYYY-MM-DD")
+    if text_or_none(row.get("terminationDate")):
+        try:
+            require_iso_date(str(row.get("terminationDate")), "terminationDate")
+        except ValueError:
+            errors.append("terminationDate must be YYYY-MM-DD")
+    if text_or_none(row.get("employmentType")):
+        try:
+            option(row.get("employmentType"), "employmentType", {"full_time", "part_time", "contract", "temporary", "intern"})
+        except ValueError as exc:
+            errors.append(str(exc))
+    if text_or_none(row.get("basicSalary")):
+        try:
+            non_negative(row.get("basicSalary"), "basicSalary")
+        except ValueError as exc:
+            errors.append(str(exc))
+    for field in ("homeAirportCode", "destinationAirportCode"):
+        if text_or_none(row.get(field)):
+            try:
+                airport_code(row.get(field))
+            except ValueError:
+                errors.append(f"{field} must be a 3-letter IATA code")
+    return errors
 
 
 def record_import_export(direction: str, module_code: str, row_count: int, status: str, detail: dict[str, Any]) -> str:

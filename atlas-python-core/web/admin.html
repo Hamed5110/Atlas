@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ATLAS Python Core | Admin</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body data-page="admin">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Admin / settings</small></a>
+    <nav><a href="/">Command</a><a href="/employees">Employees</a><a href="/employee-import">Master Import</a><a href="/airfare">Airfare Allocation</a><a href="/loans">Loans / EMI</a><a href="/reports">Reports</a><a class="active" href="/admin">Admin</a><a href="/support">Support</a></nav>
+    <div class="guard">Settings are isolated from payroll calculations.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>ADMIN</small><h1>Companies, users, preferences, backup.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="panel"><div class="panel-title"><div><small>PREFERENCES</small><h2>Local admin workspace</h2></div><span class="pill">MSSQL saved</span></div><form id="preferencesForm" class="form-grid"><select name="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><select name="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select><select name="defaultPage"><option value="command">Command</option><option value="employees">Employees</option><option value="airfare">Airfare</option></select><button>Save preferences</button></form><div id="preferenceRows" class="rows"></div></section>
+    <section class="panel"><div class="panel-title"><div><small>USERS + COMPANIES</small><h2>Access and tenancy</h2></div><span class="pill">read now</span></div><div class="split"><div><h3>Users</h3><div id="userRows" class="rows"></div></div><div><h3>Companies</h3><div id="companyRows" class="rows"></div></div></div></section>
+    <section class="panel"><div class="panel-title"><div><small>BACKUP</small><h2>Safe app-level backup marker</h2></div><span class="pill">no blind restore</span></div><button id="backupButton">Create backup</button><div id="backupRows" class="rows"></div></section>
+  </main>
+  <div id="toast" role="status"></div><script src="/assets/app.js"></script>
+</body>
+</html>

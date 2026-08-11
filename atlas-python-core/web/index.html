@@ -3,242 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ATLAS Airfare Python Core</title>
+  <title>ATLAS Python Core | Command</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
+<body data-page="command">
   <aside class="sidebar">
-    <div class="brand">
-      <span>A</span>
-      <div>
-        <strong>ATLAS Airfare</strong>
-        <small>Python + MSSQL core</small>
-      </div>
-    </div>
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Python + MSSQL · no old runtime</small></a>
     <nav>
-      <a href="#command" class="active">Command</a>
-      <a href="#employees">Employees</a>
-      <a href="#entitlement">Entitlement</a>
-      <a href="#allocations">Allocations</a>
-      <a href="#loans">Loans / EMI</a>
-      <a href="#selfService">Self-Service</a>
-      <a href="#reports">Reports</a>
-      <a href="#preferences">Preferences</a>
-      <a href="#deepActions">Deep Actions</a>
-      <a href="#admin">Admin / Security</a>
-      <a href="#reconciliation">Reconciliation</a>
-      <a href="#support">Support</a>
+      <a class="active" href="/">Command</a>
+      <a href="/employees">Employees</a>
+      <a href="/employee-import">Master Import</a>
+      <a href="/airfare">Airfare Allocation</a>
+      <a href="/loans">Loans / EMI</a>
+      <a href="/reports">Reports</a>
+      <a href="/admin">Admin</a>
+      <a href="/support">Support</a>
     </nav>
-    <div class="guard">
-      Continuous entitlement only. No annual reset batch. Opening values are seed evidence.
-    </div>
+    <div class="guard">Continuous entitlement only. Opening balances are seed evidence, not an annual close screen.</div>
   </aside>
-
   <main class="shell">
-    <header class="hero" id="command">
-      <div>
-        <small>GREENFIELD AIRFARE SYSTEM</small>
-        <h1>Employee master first. Entitlement computed live.</h1>
-        <p>Fresh Python runtime using Microsoft mssql-python and the standalone core schema.</p>
-      </div>
-      <button id="refresh">Refresh</button>
+    <header class="hero">
+      <div><small>GREENFIELD BUILD</small><h1>One clean system. Employee master first.</h1><p>Fresh application logic using the core MSSQL repository. Separate pages, no Year End process, no 3355 mixing.</p></div>
+      <button data-refresh>Refresh</button>
     </header>
-
-    <section class="cards">
-      <article><span>Runtime</span><strong id="runtime">checking</strong><small id="version">-</small></article>
-      <article><span>Database</span><strong id="database">-</strong><small id="schema">-</small></article>
-      <article><span>Employees</span><strong id="employees">0</strong><small>active master records</small></article>
-      <article class="primary"><span>Entitlement</span><strong id="balance">BHD 0.000</strong><small>as-of computed balance</small></article>
-      <article><span>Allocations</span><strong id="allocationsTotal">0</strong><small id="allocationsValue">BHD 0.000 used</small></article>
-      <article><span>Loans / EMI</span><strong id="loans">0</strong><small id="emi">BHD 0.000 monthly</small></article>
+    <section class="cards" id="commandCards"></section>
+    <section class="panel">
+      <div class="panel-title"><div><small>RUNTIME IDENTITY</small><h2>3356 build proof</h2></div><span id="runtimePill" class="pill warn">checking</span></div>
+      <div id="runtimeRows" class="rows"></div>
     </section>
-
-    <section class="panel" id="employees">
-      <div class="panel-title">
-        <div><small>EMPLOYEES</small><h2>Master records</h2></div>
-        <span class="pill">foundation</span>
-      </div>
-      <form id="employeeForm" class="form-grid">
-        <input name="employeeNumber" placeholder="Employee no." required>
-        <input name="displayName" placeholder="Display name" required>
-        <input name="hireDate" type="date" value="2026-01-01" required>
-        <input name="department" placeholder="Department">
-        <input name="jobTitle" placeholder="Job title">
-        <input name="workEmail" type="email" placeholder="Email">
-        <button>Create employee</button>
-      </form>
-      <div id="employeeRows" class="rows"></div>
-    </section>
-
-    <section class="panel" id="entitlement">
-      <div class="panel-title">
-        <div><small>ENTITLEMENT</small><h2>Rules, events, live balances</h2></div>
-        <span class="pill">continuous</span>
-      </div>
-      <div class="split">
-        <div>
-          <h3>Policy rules</h3>
-          <div id="ruleRows" class="rows compact"></div>
-        </div>
-        <form id="eventForm" class="stack">
-          <h3>Add seed/accrual/adjustment</h3>
-          <select name="employeeId" id="eventEmployee" required></select>
-          <input name="eventDate" type="date" value="2026-12-31" required>
-          <select name="eventType">
-            <option value="accrual">Accrual</option>
-            <option value="seed">Seed evidence</option>
-            <option value="adjustment">Adjustment</option>
-            <option value="reversal">Reversal</option>
-          </select>
-          <input name="amount" type="number" step="0.001" min="0" value="10" required>
-          <button>Post entitlement event</button>
-        </form>
-      </div>
-      <div id="balanceRows" class="rows"></div>
-      <div id="eventRows" class="rows compact"></div>
-    </section>
-
-    <section class="panel" id="allocations">
-      <div class="panel-title">
-        <div><small>AIRFARE ALLOCATIONS</small><h2>Ticket usage consumes entitlement</h2></div>
-        <span class="pill">transactional</span>
-      </div>
-      <form id="allocationForm" class="form-grid">
-        <select name="employeeId" id="allocationEmployee" required></select>
-        <input name="allocationDate" type="date" value="2026-12-31" required>
-        <input name="ticketCost" type="number" step="0.001" min="0" value="25" required>
-        <button>Post allocation</button>
-      </form>
-      <div id="allocationRows" class="rows"></div>
-    </section>
-
-    <section class="panel" id="loans">
-      <div class="panel-title">
-        <div><small>LOANS / EMI</small><h2>Recovery exposure</h2></div>
-        <span class="pill">payroll aware</span>
-      </div>
-      <form id="loanForm" class="form-grid">
-        <select name="employeeId" id="loanEmployee" required></select>
-        <input name="principalAmount" type="number" step="0.001" min="0" value="100" required>
-        <input name="emiAmount" type="number" step="0.001" min="0" value="10" required>
-        <input name="startDate" type="date" value="2026-12-31" required>
-        <button>Create loan</button>
-      </form>
-      <div id="loanRows" class="rows"></div>
-    </section>
-
-    <section class="panel" id="reconciliation">
-      <div class="panel-title">
-        <div><small>RECONCILIATION</small><h2>Continuous entitlement review</h2></div>
-        <span id="reconciliationStatus" class="pill">checking</span>
-      </div>
-      <p id="reconciliationNote" class="muted"></p>
-      <div id="reconciliationRows" class="rows"></div>
-    </section>
-
-    <section class="panel" id="selfService">
-      <div class="panel-title">
-        <div><small>EMPLOYEE SELF-SERVICE</small><h2>Employee requests</h2></div>
-        <span class="pill">workflow</span>
-      </div>
-      <form id="selfServiceForm" class="form-grid">
-        <select name="employeeId" id="selfServiceEmployee" required></select>
-        <select name="requestType">
-          <option value="airfare_request">Airfare request</option>
-          <option value="profile_update">Profile update</option>
-          <option value="loan_request">Loan request</option>
-        </select>
-        <input name="requestDate" type="date" value="2026-12-31" required>
-        <input name="amount" type="number" step="0.001" min="0" value="50">
-        <input name="notes" placeholder="Notes">
-        <button>Create request</button>
-      </form>
-      <div id="selfServiceRows" class="rows"></div>
-    </section>
-
-    <section class="panel" id="reports">
-      <div class="panel-title">
-        <div><small>REPORTS</small><h2>Airfare payable and employee summary</h2></div>
-        <span class="pill">as-of date</span>
-      </div>
-      <div class="split">
-        <div><h3>Airfare payable</h3><div id="payableReportRows" class="rows"></div></div>
-        <div><h3>Employee departments</h3><div id="employeeReportRows" class="rows compact"></div></div>
-      </div>
-    </section>
-
-    <section class="panel" id="preferences">
-      <div class="panel-title">
-        <div><small>PREFERENCES</small><h2>Local user settings</h2></div>
-        <span class="pill">MSSQL saved</span>
-      </div>
-      <form id="preferencesForm" class="form-grid">
-        <select name="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
-        <select name="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select>
-        <select name="defaultPage"><option value="command">Command</option><option value="employees">Employees</option><option value="entitlement">Entitlement</option></select>
-        <button>Save preferences</button>
-      </form>
-      <div id="preferenceRows" class="rows compact"></div>
-    </section>
-
-    <section class="panel" id="admin">
-      <div class="panel-title">
-        <div><small>ADMIN / SECURITY</small><h2>Users and company scope</h2></div>
-        <span class="pill">admin</span>
-      </div>
-      <div class="split">
-        <div><h3>Users</h3><div id="userRows" class="rows compact"></div></div>
-        <div><h3>Companies</h3><div id="companyRows" class="rows compact"></div></div>
-      </div>
-    </section>
-
-    <section class="panel" id="deepActions">
-      <div class="panel-title">
-        <div><small>DEEP LEGACY ACTIONS REBUILT</small><h2>Attachments, airports, backup/restore, Excel import</h2></div>
-        <span class="pill">tested</span>
-      </div>
-      <div class="split">
-        <div>
-          <h3>Attachment viewer</h3>
-          <div id="attachmentRows" class="rows compact"></div>
-        </div>
-        <div>
-          <h3>Airport ranking search</h3>
-          <form id="airportForm" class="stack">
-            <input name="q" value="BAH" placeholder="Airport code, city, country">
-            <button>Search airports</button>
-          </form>
-          <div id="airportRows" class="rows compact"></div>
-        </div>
-      </div>
-      <div class="split">
-        <div>
-          <h3>Backup / restore</h3>
-          <button id="backupButton">Create backup</button>
-          <div id="backupRows" class="rows compact"></div>
-        </div>
-        <div>
-          <h3>Excel import execution</h3>
-          <p class="muted">Endpoint accepts a base64 .xlsx with employeeNumber, displayName, hireDate, department, jobTitle, workEmail.</p>
-          <div id="excelRows" class="rows compact"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" id="support">
-      <div class="panel-title">
-        <div><small>SUPPORT / MAINTENANCE</small><h2>Diagnostics and runtime proof</h2></div>
-        <span class="pill">local</span>
-      </div>
-      <div class="split">
-        <div><h3>Diagnostics</h3><div id="diagnosticRows" class="rows compact"></div></div>
-        <div><h3>Support info</h3><div id="supportRows" class="rows compact"></div></div>
-      </div>
-    </section>
-
-    <div id="toast" role="status"></div>
   </main>
-
+  <div id="toast" role="status"></div>
   <script src="/assets/app.js"></script>
 </body>
 </html>

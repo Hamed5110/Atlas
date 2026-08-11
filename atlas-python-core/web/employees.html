@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATLAS Python Core | Employees</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="employees">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Employee master foundation</small></a>
+    <nav>
+      <a href="/">Command</a><a class="active" href="/employees">Employees</a><a href="/employee-import">Master Import</a><a href="/airfare">Airfare Allocation</a><a href="/loans">Loans / EMI</a><a href="/reports">Reports</a><a href="/admin">Admin</a><a href="/support">Support</a>
+    </nav>
+    <div class="guard">Employee identity is the root. No foreign key to a weak master record.</div>
+  </aside>
+  <main class="shell">
+    <header class="page-head"><div><small>EMPLOYEE MASTER</small><h1>Master fields with payroll and travel identity.</h1></div><button data-refresh>Refresh</button></header>
+    <section class="panel">
+      <div class="panel-title"><div><small>CREATE EMPLOYEE</small><h2>Complete master record</h2></div><span class="pill">MSSQL core.Employees</span></div>
+      <form id="employeeForm" class="form-grid wide">
+        <input name="employeeNumber" placeholder="Employee no. *" required>
+        <input name="displayName" placeholder="Display name *" required>
+        <input name="legalName" placeholder="Legal name">
+        <input name="hireDate" type="date" value="2026-01-01" required>
+        <input name="terminationDate" type="date">
+        <select name="statusCode"><option value="active">Active</option><option value="on_leave">On leave</option><option value="suspended">Suspended</option><option value="terminated">Terminated</option><option value="inactive">Inactive</option></select>
+        <input name="department" placeholder="Department">
+        <input name="jobTitle" placeholder="Job title">
+        <select name="employmentType"><option value="full_time">Full time</option><option value="part_time">Part time</option><option value="contract">Contract</option><option value="temporary">Temporary</option><option value="intern">Intern</option></select>
+        <input name="payGroup" placeholder="Pay group">
+        <input name="workEmail" type="email" placeholder="Work email">
+        <input name="phoneNumber" placeholder="Phone number">
+        <input name="nationality" placeholder="Nationality">
+        <input name="passportNumber" placeholder="Passport number">
+        <input name="cprNumber" placeholder="CPR / national ID">
+        <input name="bankName" placeholder="Bank name">
+        <input name="iban" placeholder="IBAN">
+        <input name="basicSalary" type="number" step="0.001" min="0" value="0" placeholder="Basic salary">
+        <select name="eligibleForAirfare"><option value="true">Airfare eligible</option><option value="false">Not eligible</option></select>
+        <input name="homeAirportCode" maxlength="3" placeholder="Home airport e.g. BAH">
+        <input name="destinationAirportCode" maxlength="3" placeholder="Destination e.g. COK">
+        <button>Create employee</button>
+      </form>
+    </section>
+    <section class="panel">
+      <div class="panel-title"><div><small>MASTER LIST</small><h2>Employees</h2></div><span id="employeeCount" class="pill">0 records</span></div>
+      <div id="employeeRows" class="rows"></div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

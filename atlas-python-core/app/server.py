@@ -11,6 +11,16 @@ from . import config, db
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
+PAGES = {
+    "/": "index.html",
+    "/employees": "employees.html",
+    "/employee-import": "employee-import.html",
+    "/airfare": "airfare.html",
+    "/loans": "loans.html",
+    "/reports": "reports.html",
+    "/admin": "admin.html",
+    "/support": "support.html",
+}
 BOOT_PROOF = db.initialize()
 
 
@@ -21,8 +31,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
-            if parsed.path == "/":
-                return self.send_file(WEB / "index.html", "text/html; charset=utf-8")
+            if parsed.path in PAGES:
+                return self.send_file(WEB / PAGES[parsed.path], "text/html; charset=utf-8")
             if parsed.path == "/assets/app.css":
                 return self.send_file(WEB / "app.css", "text/css; charset=utf-8")
             if parsed.path == "/assets/app.js":
