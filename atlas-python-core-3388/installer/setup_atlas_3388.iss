@@ -132,7 +132,7 @@ begin
     wpSelectDir,
     'Database and Service Configuration',
     'Configure the isolated ATLAS Python Core 3388 service.',
-    'Enter the SQL Server connection details. Custom SQL ports are supported using Server=host,port.'
+    'Enter the SQL Server connection details. Leave SQL Custom Port blank for a named instance such as localhost\ATLAS. Enter a port only for fixed TCP connections.'
   );
   DbPage.Add('SQL Server Host:', False);
   DbPage.Add('SQL Custom Port:', False);
@@ -141,8 +141,8 @@ begin
   DbPage.Add('DB Password:', True);
   DbPage.Add('Application Service Port:', False);
 
-  DbPage.Values[0] := CmdParamValue('SQLHOST', 'localhost');
-  DbPage.Values[1] := CmdParamValue('SQLPORT', '1433');
+  DbPage.Values[0] := CmdParamValue('SQLHOST', 'localhost\ATLAS');
+  DbPage.Values[1] := CmdParamValue('SQLPORT', '');
   DbPage.Values[2] := CmdParamValue('DBNAME', 'AtlasPythonCore3388');
   DbPage.Values[3] := CmdParamValue('DBUSER', 'sa');
   DbPage.Values[4] := CmdParamValue('DBPASSWORD', 'Atlas@25');
@@ -155,7 +155,7 @@ begin
   if CurPageID = DbPage.ID then
   begin
     if Trim(DbPage.Values[0]) = '' then begin MsgBox('SQL Server Host is required.', mbError, MB_OK); Result := False; Exit; end;
-    if not IsNumericText(Trim(DbPage.Values[1])) then begin MsgBox('SQL Custom Port must be numeric.', mbError, MB_OK); Result := False; Exit; end;
+    if (Trim(DbPage.Values[1]) <> '') and (not IsNumericText(Trim(DbPage.Values[1]))) then begin MsgBox('SQL Custom Port must be numeric or blank for a named/default instance.', mbError, MB_OK); Result := False; Exit; end;
     if Trim(DbPage.Values[2]) = '' then begin MsgBox('Database Name is required.', mbError, MB_OK); Result := False; Exit; end;
     if Trim(DbPage.Values[3]) = '' then begin MsgBox('DB Username is required.', mbError, MB_OK); Result := False; Exit; end;
     if Trim(DbPage.Values[4]) = '' then begin MsgBox('DB Password is required.', mbError, MB_OK); Result := False; Exit; end;

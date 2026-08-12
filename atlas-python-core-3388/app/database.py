@@ -15,17 +15,18 @@ class Base(DeclarativeBase):
 
 def build_mssql_url(database: str | None = None) -> str:
     server = os.getenv("ATLAS_PYTHON_DB_SERVER", "localhost")
-    port = os.getenv("ATLAS_PYTHON_DB_PORT", "1433")
+    port = os.getenv("ATLAS_PYTHON_DB_PORT", "")
     database_name = database or os.getenv("ATLAS_PYTHON_DB_NAME", "AtlasPythonCore3388")
     username = os.getenv("ATLAS_PYTHON_DB_USER", "sa")
     password = os.getenv("ATLAS_PYTHON_DB_PASSWORD", "Atlas@25")
     driver = os.getenv("ATLAS_PYTHON_ODBC_DRIVER", "ODBC Driver 18 for SQL Server")
     trust_server_certificate = os.getenv("ATLAS_PYTHON_TRUST_CERT", "yes")
     encrypt = os.getenv("ATLAS_PYTHON_ENCRYPT", "yes")
+    server_part = f"{server},{port}" if port.strip() else server
 
     odbc = (
         f"DRIVER={{{driver}}};"
-        f"SERVER={server},{port};"
+        f"SERVER={server_part};"
         f"DATABASE={database_name};"
         f"UID={username};"
         f"PWD={password};"

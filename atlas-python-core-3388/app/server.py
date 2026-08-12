@@ -5,11 +5,35 @@ import logging
 import os
 import signal
 import sys
+from pathlib import Path
 from typing import Any
 
 import uvicorn
 
 
+def runtime_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
+
+
+def load_runtime_config() -> None:
+    config_path = runtime_root() / "config" / "runtime-env.json"
+    if not config_path.exists():
+        return
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        raise RuntimeError(f"Invalid runtime config file: {config_path}. {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Invalid runtime config file: {config_path}. Expected JSON object.")
+    for key, value in payload.items():
+        if value is None:
+            continue
+        os.environ[str(key)] = str(value)
+
+
+load_runtime_config()
 PORT = int(os.getenv("PORT", "3388"))
 HOST = os.getenv("ATLAS_PYTHON_HOST", "0.0.0.0")
 WORKERS = int(os.getenv("ATLAS_UVICORN_WORKERS", "1"))
@@ -75,7 +99,15 @@ def run() -> None:
     )
 
 
+def run_setup_database() -> int:
+    from scripts import migrate_and_seed
+
+    return migrate_and_seed.main()
+
+
 if __name__ == "__main__":
+    if "--setup-check-db" in sys.argv:
+        sys.exit(run_setup_database())
     try:
         run()
     except KeyboardInterrupt:

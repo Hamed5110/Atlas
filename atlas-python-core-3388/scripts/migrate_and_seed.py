@@ -45,15 +45,16 @@ def build_url(database: str) -> str:
     from urllib.parse import quote_plus
 
     server = env("ATLAS_PYTHON_DB_SERVER", env("DB_SERVER", "localhost"))
-    port = env("ATLAS_PYTHON_DB_PORT", env("DB_PORT", "1433"))
+    port = env("ATLAS_PYTHON_DB_PORT", env("DB_PORT", ""))
     username = env("ATLAS_PYTHON_DB_USER", env("DB_USER", "sa"))
     password = env("ATLAS_PYTHON_DB_PASSWORD", env("DB_PASSWORD", "Atlas@25"))
     driver = env("ATLAS_PYTHON_ODBC_DRIVER", "ODBC Driver 18 for SQL Server")
     encrypt = env("ATLAS_PYTHON_ENCRYPT", "yes")
     trust = env("ATLAS_PYTHON_TRUST_CERT", "yes")
+    server_part = f"{server},{port}" if port.strip() else server
     odbc = (
         f"DRIVER={{{driver}}};"
-        f"SERVER={server},{port};"
+        f"SERVER={server_part};"
         f"DATABASE={database};"
         f"UID={username};"
         f"PWD={password};"

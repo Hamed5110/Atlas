@@ -1,8 +1,8 @@
 param(
     [string]$SourceRoot = "C:\Airfare_Allowance\atlas-python-core-3388",
     [string]$InstallRoot = "C:\Atlas3388",
-    [string]$DbServer = "localhost",
-    [string]$DbPort = "1433",
+    [string]$DbServer = "localhost\ATLAS",
+    [string]$DbPort = "",
     [string]$DbName = "AtlasPythonCore3388",
     [string]$DbUser = "sa",
     [string]$DbPassword = "Atlas@25",
@@ -131,6 +131,42 @@ function Assert-BundledRuntime {
     return $exe
 }
 
+function Invoke-DatabaseSetup {
+    param([string]$RuntimeExe)
+    Write-Host "SETUP: creating/verifying MSSQL database $DbName on $DbServer $(if ($DbPort) { "port $DbPort" } else { "named/default instance" })"
+    $process = Start-Process -FilePath $RuntimeExe -ArgumentList @("--setup-check-db") -WorkingDirectory $InstallRoot -Wait -PassThru -NoNewWindow
+    if ($process.ExitCode -ne 0) {
+        throw "Database setup failed with exit code $($process.ExitCode). Check $SetupLog and $LogRoot\migrate_and_seed.log."
+    }
+    Write-Host "OK: database created/verified before service install."
+}
+
+function Write-RuntimeConfig {
+    $configDir = Join-Path $InstallRoot "config"
+    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    $payload = [ordered]@{
+        PORT = $Port
+        ATLAS_PYTHON_PORT = $Port
+        ATLAS_PYTHON_HOST = "0.0.0.0"
+        ATLAS_PYTHON_DB_SERVER = $DbServer
+        ATLAS_PYTHON_DB_PORT = $DbPort
+        ATLAS_PYTHON_DB_NAME = $DbName
+        ATLAS_PYTHON_DB_USER = $DbUser
+        ATLAS_PYTHON_DB_PASSWORD = $DbPassword
+        ATLAS_PYTHON_ODBC_DRIVER = $odbcDriver
+        ATLAS_PYTHON_ENCRYPT = "yes"
+        ATLAS_PYTHON_TRUST_CERT = "yes"
+        ATLAS_PYTHON_DB_ENCRYPT = "yes"
+        ATLAS_PYTHON_DB_TRUST_CERT = "yes"
+        JWT_SECRET = $JwtSecret
+        ATLAS_UVICORN_WORKERS = "1"
+        ATLAS_PYTHON_CORE_VERSION = "0.3.0"
+    }
+    $path = Join-Path $configDir "runtime-env.json"
+    $payload | ConvertTo-Json -Depth 5 | Set-Content -Path $path -Encoding UTF8
+    Write-Host "OK: runtime config written: $path"
+}
+
 function Wait-Health {
     param([int]$Attempts = 45)
     for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
@@ -176,6 +212,9 @@ Set-MachineEnvironment "ATLAS_PYTHON_DB_TRUST_CERT" "yes"
 Set-MachineEnvironment "JWT_SECRET" $JwtSecret
 Set-MachineEnvironment "ATLAS_UVICORN_WORKERS" "1"
 Set-MachineEnvironment "ATLAS_PYTHON_CORE_VERSION" "0.3.0"
+
+Write-RuntimeConfig
+Invoke-DatabaseSetup -RuntimeExe $runtimeExe
 
 if (-not $SkipFirewall) {
     $rule = Get-NetFirewallRule -DisplayName "ATLAS Python Core 3388" -ErrorAction SilentlyContinue
