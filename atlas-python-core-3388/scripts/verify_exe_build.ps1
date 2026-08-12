@@ -67,10 +67,11 @@ if ($service.Status -ne "Running") {
 }
 
 $health = Invoke-RestMethod -Uri "http://127.0.0.1:3388/api/v1/health" -TimeoutSec 20
-if ($health.status -ne "ok" -or $health.port -ne 3388 -or $health.oldRuntimeLinked -ne $false -or $health.legacyBatchCloseLinked -ne $false) {
+if ($health.status -ne "ok" -or $health.port -ne 3388 -or $health.runtimeIsolated -ne $true -or $health.continuousModelOnly -ne $true) {
     throw "Health verification failed: $($health | ConvertTo-Json -Depth 6)"
 }
 
 Write-Host "PASS: Setup_AtlasPythonCore3388_v0.3.0.exe compiled, installed, and verified on port 3388."
+
 
 

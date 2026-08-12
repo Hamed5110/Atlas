@@ -2,20 +2,21 @@
 
 Fresh MSSQL-first ATLAS core using Microsoft `mssql-python`.
 
-- Runtime: Python stdlib HTTP server
+- Runtime: Python FastAPI service
 - Database: Microsoft SQL Server
 - Schema namespace: `core`
 - Default port: `3388`
-- Default database: `AtlasPythonCore`
+- Default database: `AtlasPythonCore3388`
 - Continuous entitlement model with no periodic reset screen
-- No legacy installer attachment
+- Independent installer and service package
 - No JSON application store
 
 Run:
 
 ```powershell
-Set-Location C:\Airfare_Allowance\atlas-python-core
+Set-Location C:\Airfare_Allowance\atlas-python-core-3388
 .\.venv\Scripts\python.exe -m app.server
 ```
+
 
 

@@ -131,8 +131,8 @@ def write_manifest() -> dict[str, Any]:
             "schema": "core",
             "migrationEngine": "scripts/migrate_and_seed.py",
         },
-        "oldRuntimeLinked": False,
-        "legacyBatchCloseLinked": False,
+        "runtimeIsolated": True,
+        "continuousModelOnly": True,
         "moduleCompatibility": MODULE_COMPATIBILITY,
         "artifactHashes": file_hashes(),
     }
@@ -178,5 +178,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 

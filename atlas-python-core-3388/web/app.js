@@ -24,7 +24,7 @@ const navItems = [
   ["import", "Master Import", "2"],
   ["entitlement", "Entitlement + Claims", "3"],
   ["reports", "Reports", "4"],
-  ["reconciliation", "Field Matrix", "5"]
+  ["reconciliation", "Coverage Matrix", "5"]
 ];
 
 const employeeSections = [
@@ -32,87 +32,87 @@ const employeeSections = [
     id: "personal",
     label: "Personal",
     fields: [
-      field("employee_code", "Employee Code / ID", "text", { required: true, maxLength: 50, legacy: "EMP_NO", note: "Required, trim whitespace, auto-uppercase" }),
-      field("punch_machine_id", "Punch Machine ID", "text", { maxLength: 50, legacy: "PUNCH_ID", note: "Optional biometric/time machine reference" }),
-      field("full_name", "Full Name", "text", { required: true, maxLength: 200, span: 2, legacy: "EMP_NAME", note: "Required, min 3 characters" }),
-      field("first_name", "First Name", "text", { required: true, maxLength: 80, legacy: "FIRST_NAME", note: "Required" }),
-      field("middle_name", "Middle Name", "text", { maxLength: 80, legacy: "MIDDLE_NAME", note: "Optional" }),
-      field("last_name", "Last Name", "text", { required: true, maxLength: 80, legacy: "LAST_NAME", note: "Required" }),
-      field("passport_name", "Passport Name", "text", { maxLength: 200, legacy: "PASSPORT_NAME", note: "Legal travel name" }),
-      field("gender", "Gender", "select", { required: true, options: ["Male", "Female", "Other", "Undisclosed"], legacy: "GENDER", note: "Controlled value" }),
-      field("date_of_birth", "Date of Birth", "date", { required: true, legacy: "DOB", note: "Must be before joining date" }),
-      field("nationality", "Nationality", "text", { required: true, maxLength: 80, legacy: "NATIONALITY", note: "Required" }),
-      field("religion", "Religion", "text", { maxLength: 80, legacy: "RELIGION", note: "Optional" }),
-      field("marital_status", "Marital Status", "select", { options: ["", "Single", "Married", "Divorced", "Widowed", "Other"], legacy: "MARITAL_STATUS", note: "Controlled optional value" })
+      field("employee_code", "Employee Code / ID", "text", { required: true, maxLength: 50, note: "Required, trim whitespace, auto-uppercase" }),
+      field("punch_machine_id", "Punch Machine ID", "text", { maxLength: 50, note: "Optional biometric/time machine reference" }),
+      field("full_name", "Full Name", "text", { required: true, maxLength: 200, span: 2, note: "Required, min 3 characters" }),
+      field("first_name", "First Name", "text", { required: true, maxLength: 80, note: "Required" }),
+      field("middle_name", "Middle Name", "text", { maxLength: 80, note: "Optional" }),
+      field("last_name", "Last Name", "text", { required: true, maxLength: 80, note: "Required" }),
+      field("passport_name", "Passport Name", "text", { maxLength: 200, note: "Legal travel name" }),
+      field("gender", "Gender", "select", { required: true, options: ["Male", "Female", "Other", "Undisclosed"], note: "Controlled value" }),
+      field("date_of_birth", "Date of Birth", "date", { required: true, note: "Must be before joining date" }),
+      field("nationality", "Nationality", "text", { required: true, maxLength: 80, note: "Required" }),
+      field("religion", "Religion", "text", { maxLength: 80, note: "Optional" }),
+      field("marital_status", "Marital Status", "select", { options: ["", "Single", "Married", "Divorced", "Widowed", "Other"], note: "Controlled optional value" })
     ]
   },
   {
     id: "job",
     label: "Job Details",
     fields: [
-      field("joining_date", "Joining Date", "date", { required: true, legacy: "JOINING_DATE", note: "ISO date required" }),
-      field("probation_end_date", "Probation End Date", "date", { legacy: "PROBATION_END_DATE", note: "Cannot be before joining date" }),
-      field("confirmation_date", "Confirmation Date", "date", { legacy: "CONFIRMATION_DATE", note: "Cannot be before joining date" }),
-      field("department_id", "Department ID", "number", { min: 1, legacy: "DEPT_ID", note: "FK placeholder to core.Departments" }),
-      field("designation", "Designation / Role", "text", { required: true, maxLength: 120, legacy: "DESIGNATION", note: "Required job title" }),
-      field("grade_level", "Grade / Level", "text", { maxLength: 60, legacy: "GRADE", note: "Optional grade band" }),
-      field("branch_id", "Branch / Location ID", "number", { min: 1, legacy: "BRANCH_ID", note: "FK placeholder to core.Branches" }),
-      field("employment_type", "Employment Type", "select", { required: true, options: ["Permanent", "Contract", "Probation", "Temporary", "Intern"], legacy: "EMP_TYPE", note: "Controlled value" }),
-      field("status", "Status", "select", { required: true, options: ["Active", "Inactive", "Resigned", "Terminated", "OnLeave"], legacy: "STATUS", note: "Soft-delete sets inactive" }),
-      field("direct_manager_id", "Direct Manager ID", "number", { min: 1, legacy: "SUPERVISOR_ID", note: "Self-FK placeholder" })
+      field("joining_date", "Joining Date", "date", { required: true, note: "ISO date required" }),
+      field("probation_end_date", "Probation End Date", "date", { note: "Cannot be before joining date" }),
+      field("confirmation_date", "Confirmation Date", "date", { note: "Cannot be before joining date" }),
+      field("department_id", "Department ID", "number", { min: 1, note: "FK placeholder to core.Departments" }),
+      field("designation", "Designation / Role", "text", { required: true, maxLength: 120, note: "Required job title" }),
+      field("grade_level", "Grade / Level", "text", { maxLength: 60, note: "Optional grade band" }),
+      field("branch_id", "Branch / Location ID", "number", { min: 1, note: "FK placeholder to core.Branches" }),
+      field("employment_type", "Employment Type", "select", { required: true, options: ["Permanent", "Contract", "Probation", "Temporary", "Intern"], note: "Controlled value" }),
+      field("status", "Status", "select", { required: true, options: ["Active", "Inactive", "Resigned", "Terminated", "OnLeave"], note: "Soft-delete sets inactive" }),
+      field("direct_manager_id", "Direct Manager ID", "number", { min: 1, note: "Self-FK placeholder" })
     ]
   },
   {
     id: "contact",
     label: "Contact",
     fields: [
-      field("personal_email", "Personal Email", "email", { legacy: "PERSONAL_EMAIL", note: "Validated email format" }),
-      field("work_email", "Work Email", "email", { legacy: "WORK_EMAIL", note: "Validated email format" }),
-      field("mobile_number", "Mobile Number", "text", { maxLength: 40, legacy: "MOBILE_NO", note: "Optional" }),
-      field("emergency_contact_name", "Emergency Contact Name", "text", { maxLength: 160, legacy: "EMERGENCY_NAME", note: "Optional" }),
-      field("emergency_contact_phone", "Emergency Contact Phone", "text", { maxLength: 40, legacy: "EMERGENCY_PHONE", note: "Optional" }),
-      field("emergency_contact_relationship", "Emergency Relationship", "text", { maxLength: 80, legacy: "EMERGENCY_RELATION", note: "Optional" }),
-      field("local_address", "Local Address", "textarea", { span: 2, legacy: "LOCAL_ADDRESS", note: "Optional" }),
-      field("home_country_address", "Home Country Address", "textarea", { span: 2, legacy: "PERMANENT_ADDRESS", note: "Optional" })
+      field("personal_email", "Personal Email", "email", { note: "Validated email format" }),
+      field("work_email", "Work Email", "email", { note: "Validated email format" }),
+      field("mobile_number", "Mobile Number", "text", { maxLength: 40, note: "Optional" }),
+      field("emergency_contact_name", "Emergency Contact Name", "text", { maxLength: 160, note: "Optional" }),
+      field("emergency_contact_phone", "Emergency Contact Phone", "text", { maxLength: 40, note: "Optional" }),
+      field("emergency_contact_relationship", "Emergency Relationship", "text", { maxLength: 80, note: "Optional" }),
+      field("local_address", "Local Address", "textarea", { span: 2, note: "Optional" }),
+      field("home_country_address", "Home Country Address", "textarea", { span: 2, note: "Optional" })
     ]
   },
   {
     id: "identity",
     label: "Identity Docs",
     fields: [
-      field("passport_number", "Passport Number", "text", { maxLength: 80, legacy: "PASSPORT_NO", note: "Unique when supplied; required for expatriates by policy" }),
-      field("passport_expiry", "Passport Expiry", "date", { legacy: "PASSPORT_EXPIRY", note: "Tracked for expiry report" }),
-      field("civil_id", "Civil / Resident ID", "text", { maxLength: 80, legacy: "CIVIL_ID", note: "Unique when supplied" }),
-      field("civil_id_expiry", "Civil ID Expiry", "date", { legacy: "CIVIL_ID_EXPIRY", note: "Tracked for expiry report" }),
-      field("visa_number", "Visa Number", "text", { maxLength: 80, legacy: "VISA_NO", note: "Optional" }),
-      field("visa_type", "Visa Type", "text", { maxLength: 80, legacy: "VISA_TYPE", note: "Optional" }),
-      field("visa_expiry", "Visa Expiry", "date", { legacy: "VISA_EXPIRY", note: "Tracked for expiry report" }),
-      field("labour_card_number", "Labour Card Number", "text", { maxLength: 80, legacy: "LABOUR_CARD_NO", note: "Optional" }),
-      field("labour_card_expiry", "Labour Card Expiry", "date", { legacy: "LABOUR_CARD_EXPIRY", note: "Tracked for expiry report" })
+      field("passport_number", "Passport Number", "text", { maxLength: 80, note: "Unique when supplied; required for expatriates by policy" }),
+      field("passport_expiry", "Passport Expiry", "date", { note: "Tracked for expiry report" }),
+      field("civil_id", "Civil / Resident ID", "text", { maxLength: 80, note: "Unique when supplied" }),
+      field("civil_id_expiry", "Civil ID Expiry", "date", { note: "Tracked for expiry report" }),
+      field("visa_number", "Visa Number", "text", { maxLength: 80, note: "Optional" }),
+      field("visa_type", "Visa Type", "text", { maxLength: 80, note: "Optional" }),
+      field("visa_expiry", "Visa Expiry", "date", { note: "Tracked for expiry report" }),
+      field("labour_card_number", "Labour Card Number", "text", { maxLength: 80, note: "Optional" }),
+      field("labour_card_expiry", "Labour Card Expiry", "date", { note: "Tracked for expiry report" })
     ]
   },
   {
     id: "salary",
     label: "Salary + Bank",
     fields: [
-      field("basic_salary", "Basic Salary", "number", { required: true, min: 0, step: "0.001", legacy: "BASIC_SAL", note: "DECIMAL(18,3), non-negative" }),
-      field("housing_allowance", "Housing Allowance", "number", { min: 0, step: "0.001", legacy: "HOUSE_ALLOW", note: "DECIMAL(18,3), non-negative" }),
-      field("transport_allowance", "Transport Allowance", "number", { min: 0, step: "0.001", legacy: "TRANSPORT_ALLOW", note: "DECIMAL(18,3), non-negative" }),
-      field("other_fixed_allowances", "Other Fixed Allowances", "number", { min: 0, step: "0.001", legacy: "OTHER_ALLOW", note: "DECIMAL(18,3), non-negative" }),
-      field("payment_mode", "Payment Mode", "select", { required: true, options: ["Bank", "Cash", "WPS"], legacy: "PAY_MODE", note: "IBAN required for Bank/WPS" }),
-      field("bank_name", "Bank Name", "text", { maxLength: 160, legacy: "BANK_NAME", note: "Optional for cash" }),
-      field("iban_account_number", "IBAN / Account Number", "text", { maxLength: 80, legacy: "IBAN", note: "Required for Bank/WPS" }),
-      field("swift_code", "Swift Code", "text", { maxLength: 40, legacy: "SWIFT_CODE", note: "Optional" })
+      field("basic_salary", "Basic Salary", "number", { required: true, min: 0, step: "0.001", note: "DECIMAL(18,3), non-negative" }),
+      field("housing_allowance", "Housing Allowance", "number", { min: 0, step: "0.001", note: "DECIMAL(18,3), non-negative" }),
+      field("transport_allowance", "Transport Allowance", "number", { min: 0, step: "0.001", note: "DECIMAL(18,3), non-negative" }),
+      field("other_fixed_allowances", "Other Fixed Allowances", "number", { min: 0, step: "0.001", note: "DECIMAL(18,3), non-negative" }),
+      field("payment_mode", "Payment Mode", "select", { required: true, options: ["Bank", "Cash", "WPS"], note: "IBAN required for Bank/WPS" }),
+      field("bank_name", "Bank Name", "text", { maxLength: 160, note: "Optional for cash" }),
+      field("iban_account_number", "IBAN / Account Number", "text", { maxLength: 80, note: "Required for Bank/WPS" }),
+      field("swift_code", "Swift Code", "text", { maxLength: 40, note: "Optional" })
     ]
   },
   {
     id: "exit",
     label: "Exit Tracking",
     fields: [
-      field("resignation_date", "Resignation Date", "date", { legacy: "RESIGN_DATE", note: "Optional" }),
-      field("last_working_day", "Last Working Day", "date", { legacy: "LAST_WORKING_DAY", note: "Required for resigned/terminated status" }),
-      field("reason_for_leaving", "Reason for Leaving", "textarea", { span: 2, maxLength: 400, legacy: "LEAVING_REASON", note: "Optional exit note" }),
-      field("rehire_eligible", "Rehire Eligible", "select", { options: ["true", "false"], legacy: "REHIRE_ELIGIBLE", note: "Boolean" })
+      field("resignation_date", "Resignation Date", "date", { note: "Optional" }),
+      field("last_working_day", "Last Working Day", "date", { note: "Required for resigned/terminated status" }),
+      field("reason_for_leaving", "Reason for Leaving", "textarea", { span: 2, maxLength: 400, note: "Optional exit note" }),
+      field("rehire_eligible", "Rehire Eligible", "select", { options: ["true", "false"], note: "Boolean" })
     ]
   }
 ];
@@ -354,7 +354,7 @@ function renderEmployeeSelectors() {
 
 async function loadHealth() {
   const health = await api("/api/v1/health");
-  const ok = health.status === "ok" && health.port === 3388 && health.oldRuntimeLinked === false && health.legacyBatchCloseLinked === false;
+  const ok = health.status === "ok" && health.port === 3388 && health.runtimeIsolated === true && health.continuousModelOnly === true;
   $("apiBadge").textContent = ok ? "API Online - Port 3388" : "API review";
   $("apiBadge").className = `badge ${ok ? "ok" : "bad"}`;
   $("dbBadge").textContent = `${health.database.serverName} / ${health.database.databaseName}`;
@@ -365,16 +365,16 @@ async function loadHealth() {
 
 function renderFieldMatrix() {
   const rows = [
-    ...allEmployeeFields.map((f) => [f.legacy, legacyType(f), f.name, mssqlColumn(f.name), f.note]),
+    ...allEmployeeFields.map((f) => [f.label, fieldType(f), f.name, mssqlColumn(f.name), f.note]),
     ["AIRFARE_RATE", "NUMERIC(18,2), global/company policy", "monthly_rate", "core.SystemSettings[airfare.monthly_rate_bhd]", "Continuous monthly rate used for elapsed-service accrual"],
     ["AIRFARE_CLAIM_AMOUNT", "NUMERIC(18,2), cannot exceed balance", "claim_amount", "core.AirfareClaims.ClaimAmount DECIMAL(18,3)", "Validated by Pydantic and submitted as claim transaction"],
     ["AIRFARE_SECTOR", "VARCHAR(20)", "sector_code", "core.AirfareClaims.SectorCode NVARCHAR(40)", "Required route/sector code"],
-    ["OPENING_BALANCE", "NUMERIC(18,2), legacy seed", "seed_evidence.amount", "core.SeedEvidence.Amount DECIMAL(18,3)", "Seed evidence only; continuous balance computes from rules + claims + seeds"]
+    ["Seed Evidence", "DECIMAL(18,3), approved source evidence", "seed_evidence.amount", "core.SeedEvidence.Amount DECIMAL(18,3)", "Seed evidence supports continuous balance from rules + claims + approved source records"]
   ];
   $("fieldMatrixBody").innerHTML = rows.map((r) => `<tr>${r.map((cell) => `<td>${html(cell || "â€”")}</td>`).join("")}</tr>`).join("");
 }
 
-function legacyType(f) {
+function fieldType(f) {
   if (f.type === "date") return "DATETIME/DATE";
   if (f.type === "number") return f.step ? "NUMERIC(18,2)" : "INT";
   if (f.type === "select") return "VARCHAR controlled list";
@@ -689,4 +689,7 @@ renderFieldMatrix();
 setDates();
 bindEvents();
 refresh().catch((error) => toast(error.message, true));
+
+
+
 

@@ -88,8 +88,8 @@ def test_live_port_3388_all_modules() -> None:
     with httpx.Client(base_url=BASE_URL, timeout=30.0) as client:
         health = assert_ok(client.get("/api/v1/health"))
         assert health["port"] == 3388
-        assert health["legacyBatchCloseLinked"] is False
-        assert health["oldRuntimeLinked"] is False
+        assert health["continuousModelOnly"] is True
+        assert health["runtimeIsolated"] is True
 
         created = assert_ok(client.post("/api/v1/employees", json=employee_payload(code)))
         emp_id = created["employee_id"]
@@ -153,4 +153,5 @@ def test_live_port_3388_all_modules() -> None:
 
         deleted = client.delete(f"/api/v1/employees/{emp_id}")
         assert deleted.status_code == 204
+
 

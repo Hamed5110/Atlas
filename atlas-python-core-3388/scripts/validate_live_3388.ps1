@@ -53,7 +53,7 @@ try {
     for ($attempt = 1; $attempt -le 20; $attempt++) {
         try {
             $health = Invoke-RestMethod -Uri "http://127.0.0.1:3388/api/v1/health" -TimeoutSec 3
-            if ($health.status -eq "ok" -and $health.port -eq 3388 -and $health.oldRuntimeLinked -eq $false -and $health.legacyBatchCloseLinked -eq $false) {
+            if ($health.status -eq "ok" -and $health.port -eq 3388 -and $health.runtimeIsolated -eq $true -and $health.continuousModelOnly -eq $true) {
                 $ready = $true
                 break
             }
@@ -77,5 +77,6 @@ try {
         Stop-Process -Id $server.Id -Force
     }
 }
+
 
 

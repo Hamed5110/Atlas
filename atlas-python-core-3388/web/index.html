@@ -268,7 +268,7 @@
             <div class="panel-head">
               <div>
                 <h2>Operational Reports Center</h2>
-                <p>Continuous entitlement, payroll, document, loan, and costing reports. Built from live core MSSQL tables, not legacy annual batch output.</p>
+                <p>Continuous entitlement, payroll, document, loan, and costing reports. Built from live core MSSQL tables, not periodic batch output.</p>
               </div>
               <div class="actions">
                 <button id="runReport" class="btn primary">Run Report</button>
@@ -304,13 +304,13 @@
             <div class="panel-head">
               <div>
                 <h2>Field Reconciliation Matrix</h2>
-                <p>Explicit legacy-to-new mapping for Employee Master and Allowances. This is coverage proof, not UI decoration.</p>
+                <p>Explicit field coverage for Employee Master and Allowances. This is coverage proof, not UI decoration.</p>
               </div>
             </div>
             <div class="panel-body">
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Legacy Field</th><th>Legacy Type / Rule</th><th>Target Field</th><th>MSSQL Column</th><th>Validation / Business Logic</th></tr></thead>
+                  <thead><tr><th>Field</th><th>Type / Rule</th><th>API Field</th><th>MSSQL Column</th><th>Validation / Business Logic</th></tr></thead>
                   <tbody id="fieldMatrixBody"></tbody>
                 </table>
               </div>
@@ -357,4 +357,5 @@
   <script src="/assets/app.js"></script>
 </body>
 </html>
+
 

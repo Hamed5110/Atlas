@@ -76,7 +76,7 @@ if (-not (Test-Path -LiteralPath $setup)) { throw "Setup EXE was not created: $s
 Write-Ok "Setup EXE exists: $setup"
 
 $manifest = Get-Content -LiteralPath (Join-Path $Root "dist\atlas-python-core-3388\python-core-manifest.json") -Raw | ConvertFrom-Json
-if ($manifest.service.port -ne 3388 -or $manifest.oldRuntimeLinked -ne $false -or $manifest.legacyBatchCloseLinked -ne $false) {
+if ($manifest.service.port -ne 3388 -or $manifest.runtimeIsolated -ne $true -or $manifest.continuousModelOnly -ne $true) {
     throw "Manifest isolation verification failed: $($manifest | ConvertTo-Json -Depth 6)"
 }
 Write-Ok "Manifest confirms port 3388 and isolated runtime links"
@@ -117,7 +117,7 @@ if ($service.Status -ne "Running") {
 Write-Ok "Windows service is running"
 
 $health = Invoke-RestMethod -Uri "http://127.0.0.1:3388/api/v1/health" -TimeoutSec 20
-if ($health.status -ne "ok" -or $health.port -ne 3388 -or $health.oldRuntimeLinked -ne $false -or $health.legacyBatchCloseLinked -ne $false) {
+if ($health.status -ne "ok" -or $health.port -ne 3388 -or $health.runtimeIsolated -ne $true -or $health.continuousModelOnly -ne $true) {
     throw "Health verification failed: $($health | ConvertTo-Json -Depth 6)"
 }
 Write-Ok "Health endpoint is OK on port 3388"
@@ -129,6 +129,7 @@ if ($root -ne "200") {
 Write-Ok "Dashboard root returns HTTP 200"
 
 Write-Host "PASS: Setup_AtlasPythonCore3388_v0.3.0.exe built, installed, migrated, served, and verified on port 3388." -ForegroundColor Green
+
 
 
 
