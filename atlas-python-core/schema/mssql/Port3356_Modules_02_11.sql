@@ -41,6 +41,27 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'core.ImportPreviewSessions', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.ImportPreviewSessions (
+        PreviewToken NVARCHAR(96) NOT NULL CONSTRAINT PK_core_ImportPreviewSessions PRIMARY KEY,
+        ModuleCode NVARCHAR(60) NOT NULL,
+        FileName NVARCHAR(260) NOT NULL,
+        PayloadJSON NVARCHAR(MAX) NOT NULL,
+        TotalRows INT NOT NULL,
+        ValidRowsCount INT NOT NULL,
+        ErrorRowsCount INT NOT NULL,
+        DuplicateRowsCount INT NOT NULL,
+        IsCommitted BIT NOT NULL CONSTRAINT DF_core_ImportPreviewSessions_IsCommitted DEFAULT (0),
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_ImportPreviewSessions_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        ExpiresAtUtc DATETIME2(0) NOT NULL,
+        CommittedAtUtc DATETIME2(0) NULL,
+        CONSTRAINT CK_core_ImportPreviewSessions_JSON CHECK (ISJSON(PayloadJSON) = 1),
+        CONSTRAINT CK_core_ImportPreviewSessions_Counts CHECK (TotalRows >= 0 AND ValidRowsCount >= 0 AND ErrorRowsCount >= 0 AND DuplicateRowsCount >= 0)
+    );
+END;
+GO
+
 IF OBJECT_ID(N'core.AirfareClaims', N'U') IS NULL
 BEGIN
     CREATE TABLE core.AirfareClaims (
@@ -285,6 +306,9 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_ImportRowErrors_Batch' AND object_id = OBJECT_ID(N'core.ImportRowErrors'))
     CREATE INDEX IX_core_ImportRowErrors_Batch ON core.ImportRowErrors(ImportBatchID, RowNumber);
 GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_ImportPreviewSessions_Expiry' AND object_id = OBJECT_ID(N'core.ImportPreviewSessions'))
+    CREATE INDEX IX_core_ImportPreviewSessions_Expiry ON core.ImportPreviewSessions(ExpiresAtUtc, IsCommitted);
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_AirfareClaims_EmployeeStatus' AND object_id = OBJECT_ID(N'core.AirfareClaims'))
     CREATE INDEX IX_core_AirfareClaims_EmployeeStatus ON core.AirfareClaims(EmployeeID, ApprovalStatus, ClaimDate DESC);
 GO
@@ -299,4 +323,41 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Airports_Search'
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_AuditLogs_Created' AND object_id = OBJECT_ID(N'core.AuditLogs'))
     CREATE INDEX IX_core_AuditLogs_Created ON core.AuditLogs(CreatedAtUtc DESC, Username, ActionCode);
+GO
+
+CREATE OR ALTER VIEW core.vw_EmployeeAirfareEntitlement
+AS
+WITH RateSetting AS (
+    SELECT TOP (1) TRY_CONVERT(DECIMAL(18,3), SettingValue) AS MonthlyRate
+    FROM core.SystemSettings
+    WHERE SettingKey = N'airfare.monthly_rate_bhd'
+),
+ApprovedClaims AS (
+    SELECT EmployeeID, SUM(ClaimAmount) AS ClaimedBalance
+    FROM core.AirfareClaims
+    WHERE ApprovalStatus = N'Approved'
+    GROUP BY EmployeeID
+),
+ApprovedSeeds AS (
+    SELECT EmployeeID, SUM(Amount) AS SeedBalance
+    FROM core.SeedEvidence
+    WHERE SeedType = N'AirfareEntitlement' AND ApprovalStatus = N'Approved'
+    GROUP BY EmployeeID
+)
+SELECT
+    e.EmployeeID,
+    e.EmployeeCode,
+    e.FullName,
+    e.JoiningDate,
+    CAST(SYSUTCDATETIME() AS DATE) AS TargetDate,
+    DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) AS ElapsedServiceDays,
+    CAST(COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) AS DECIMAL(18,3)) AS MonthlyRate,
+    CAST(ROUND((CASE WHEN DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) END) * COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) / 30.4375, 3) AS DECIMAL(18,3)) AS AccruedBalance,
+    CAST(COALESCE(s.SeedBalance, 0) AS DECIMAL(18,3)) AS SeedBalance,
+    CAST(COALESCE(c.ClaimedBalance, 0) AS DECIMAL(18,3)) AS ClaimedBalance,
+    CAST(ROUND(((CASE WHEN DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) END) * COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) / 30.4375) + COALESCE(s.SeedBalance, 0) - COALESCE(c.ClaimedBalance, 0), 3) AS DECIMAL(18,3)) AS AvailableBalance
+FROM core.Employees e
+LEFT JOIN ApprovedClaims c ON c.EmployeeID = e.EmployeeID
+LEFT JOIN ApprovedSeeds s ON s.EmployeeID = e.EmployeeID
+WHERE e.IsDeleted = 0 AND e.Status = N'Active';
 GO

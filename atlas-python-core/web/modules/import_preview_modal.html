@@ -1,0 +1,34 @@
+<section class="modal-shell" aria-labelledby="importPreviewTitle" role="dialog">
+  <div class="modal-card">
+    <header class="modal-header">
+      <div>
+        <small>PRE-IMPORT VERIFICATION</small>
+        <h2 id="importPreviewTitle">Review before database commit</h2>
+        <p>Preview validates required fields, formats, and duplicates. This step does not write employee rows.</p>
+      </div>
+      <span class="pill warn" id="importPreviewStatus">Awaiting file</span>
+    </header>
+
+    <div class="cards">
+      <article><span>Total rows</span><strong id="previewTotalRows">0</strong><small>parsed</small></article>
+      <article class="primary"><span>Valid rows</span><strong id="previewValidRows">0</strong><small>ready to commit</small></article>
+      <article><span>Error rows</span><strong id="previewErrorRows">0</strong><small>blocked</small></article>
+      <article><span>Duplicates</span><strong id="previewDuplicateRows">0</strong><small>existing or repeated</small></article>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><div><small>TOP 50 ROWS</small><h3>Field-level validation grid</h3></div><span class="pill">VALID / WARNING / ERROR</span></div>
+      <div id="previewGrid" class="rows"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><div><small>ERROR DETAILS</small><h3>Rows that must be corrected</h3></div><span class="pill warn">no database write yet</span></div>
+      <div id="previewErrors" class="rows"></div>
+    </div>
+
+    <footer class="actions">
+      <button type="button" id="cancelImportPreview">Cancel</button>
+      <button type="button" id="confirmCommitImport" class="primary" disabled>Confirm & Commit Import</button>
+    </footer>
+  </div>
+</section>

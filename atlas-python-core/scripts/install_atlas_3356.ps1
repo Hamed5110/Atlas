@@ -119,6 +119,7 @@ Set-MachineEnvironment "ATLAS_PYTHON_DB_ENCRYPT" "yes"
 Set-MachineEnvironment "ATLAS_PYTHON_DB_TRUST_CERT" "yes"
 Set-MachineEnvironment "JWT_SECRET" $JwtSecret
 Set-MachineEnvironment "ATLAS_UVICORN_WORKERS" "1"
+Set-MachineEnvironment "ATLAS_PYTHON_CORE_VERSION" "0.3.0"
 
 .\.venv\Scripts\python.exe scripts\migrate_and_seed.py
 if ($LASTEXITCODE -ne 0) { throw "Migration and seed failed." }

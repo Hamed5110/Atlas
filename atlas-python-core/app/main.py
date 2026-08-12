@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from http import HTTPStatus
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
@@ -13,8 +16,10 @@ from app.database import assert_database_ready
 from app.routers import employee, module_blueprints
 
 
-APP_VERSION = os.getenv("ATLAS_PYTHON_CORE_VERSION", "0.2.0")
+APP_VERSION = os.getenv("ATLAS_PYTHON_CORE_VERSION", "0.3.0")
 PORT = int(os.getenv("PORT", os.getenv("ATLAS_PYTHON_PORT", "3356")))
+ROOT = Path(__file__).resolve().parents[1]
+WEB = ROOT / "web"
 
 
 def create_app() -> FastAPI:
@@ -38,6 +43,8 @@ def create_app() -> FastAPI:
 
     app.include_router(employee.router)
     app.include_router(module_blueprints.router)
+    app.mount("/assets", StaticFiles(directory=WEB), name="assets")
+    app.mount("/modules", StaticFiles(directory=WEB / "modules"), name="modules")
 
     register_exception_handlers(app)
 
@@ -67,6 +74,10 @@ def create_app() -> FastAPI:
                 "backup-restore-audit",
             ],
         }
+
+    @app.get("/")
+    def dashboard() -> FileResponse:
+        return FileResponse(WEB / "index.html", media_type="text/html")
 
     return app
 

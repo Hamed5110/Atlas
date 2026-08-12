@@ -114,6 +114,18 @@ def test_live_port_3356_all_modules() -> None:
         import_response = assert_ok(client.post("/api/v1/imports/employees/preview", files={"file": ("employees.csv", csv_payload.getvalue(), "text/csv")}))
         assert import_response["valid"] == 1
 
+        verified = assert_ok(client.post("/api/v1/import/verify-preview", files={"file": ("employees.csv", csv_payload.getvalue(), "text/csv")}))
+        assert verified["totalRows"] == 1
+        assert verified["validRowsCount"] == 1
+        assert verified["errorRowsCount"] == 0
+        committed = assert_ok(client.post("/api/v1/import/commit", json={"previewToken": verified["previewToken"]}))
+        assert committed["insertedRows"] == 1
+
+        entitlement = assert_ok(client.get(f"/api/v1/airfare/entitlement/{emp_id}", params={"target_date": "2026-12-31"}))
+        assert entitlement["employeeId"] == emp_id
+        assert entitlement["model"] == "continuous-accrual-elapsed-service-days"
+        assert float(entitlement["availableBalance"]) >= 0
+
         claim = assert_ok(client.post("/api/v1/airfare/claims", json={"employee_id": emp_id, "claim_date": "2026-03-01", "sector_code": "INDIA", "claim_type": "Ticket", "claim_amount": "100.000", "accrued_balance": "150.000", "notes": "live validation"}))
         assert claim["status"] == "Submitted"
         approved = assert_ok(client.post(f"/api/v1/airfare/claims/{claim['claimId']}/approve"))

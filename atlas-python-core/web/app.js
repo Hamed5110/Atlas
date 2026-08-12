@@ -65,21 +65,26 @@ function renderEmployees(rows) {
 }
 
 async function renderCommand() {
-  const [health, summary] = await Promise.all([api("/api/health"), api(`/api/summary?asOfDate=${asOfDate}`)]);
+  const health = await api("/api/v1/health");
+  setText("serviceHealth", health.status === "ok" ? "OK" : "review");
+  setHtml("systemStatusRows", [
+    row(["<strong>Service health</strong>", `<strong>${health.status}</strong>`, "<span>FastAPI</span>", "<span class='ok'>live</span>"]),
+    row(["<strong>Database</strong>", `<strong>${health.database.databaseName}</strong>`, `<span>${health.database.serverName}</span>`, "<span class='ok'>connected</span>"]),
+    row(["<strong>Application port</strong>", `<strong>${health.port}</strong>`, "<span>service endpoint</span>", "<span class='ok'>active</span>"]),
+    row(["<strong>API docs</strong>", "<strong><a href='/docs'>Open docs</a></strong>", "<span>/docs</span>", "<span class='ok'>available</span>"])
+  ].join(""));
   setHtml("commandCards", [
-    card("Runtime", summary.runtime, `${summary.application} v${summary.version}`),
-    card("Database", health.database.databaseName, `${health.database.serverName} / ${health.database.schema}`),
-    card("Employees", summary.employees.active, `${summary.employees.total} total`),
-    card("Entitlement", money(summary.entitlement.balance), "as-of computed", true),
-    card("Allocations", summary.allocations.total, `${money(summary.allocations.entitlementApplied)} used`),
-    card("Loans / EMI", summary.loans.active, `${money(summary.loans.monthlyEmi)} monthly`)
+    card("Runtime", health.runtime, `${health.application} v${health.version}`),
+    card("Database", health.database.databaseName, health.database.serverName),
+    card("Port", health.port, "active application port", true),
+    card("Modules", health.registeredModules.length, "registered API modules")
   ].join(""));
   setText("runtimePill", health.status === "ok" ? "SQL ready" : "review");
   setHtml("runtimeRows", [
     row(["<strong>Version</strong>", `<strong>${health.version}</strong>`, "<span>runtime</span>", "<span class='ok'>fresh</span>"]),
     row(["<strong>Port</strong>", `<strong>${health.port}</strong>`, "<span>isolation</span>", "<span class='ok'>3356</span>"]),
     row(["<strong>Old runtime linked</strong>", `<strong>${health.oldRuntimeLinked}</strong>`, "<span>must be false</span>", "<span class='ok'>no mixing</span>"]),
-    row(["<strong>Annual close</strong>", `<strong>${health.annualCloseProcess}</strong>`, "<span>must be false</span>", "<span class='ok'>removed</span>"])
+    row(["<strong>Batch reset linked</strong>", `<strong>${health.legacyBatchCloseLinked}</strong>`, "<span>must be false</span>", "<span class='ok'>isolated</span>"])
   ].join(""));
 }
 
@@ -163,7 +168,7 @@ function renderAirports(rows) {
 }
 
 async function renderImport() {
-  setHtml("importRows", row(["<strong>Ready</strong>", "<strong>Preview first</strong>", "<span>Use /api/import-excel/preview or /execute</span>", "<span class='ok'>validated</span>"]));
+  setHtml("importRows", row(["<strong>Ready</strong>", "<strong>Verify first</strong>", "<span>Use /api/v1/import/verify-preview then /commit</span>", "<span class='ok'>no write during preview</span>"]));
 }
 
 async function refresh() {

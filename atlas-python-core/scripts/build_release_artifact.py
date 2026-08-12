@@ -61,7 +61,7 @@ def build_binary() -> None:
 
 
 def copy_deployment_files() -> None:
-    for folder in ("schema", "scripts", "web"):
+    for folder in ("schema", "scripts", "web", "installer"):
         source = ROOT / folder
         target = PACKAGE_DIR / folder
         if target.exists():

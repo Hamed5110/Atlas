@@ -114,6 +114,7 @@ def seed_system_data(target_db: str) -> None:
             ("wps.company.bank.code", "CONFIGURE", "string", False),
             ("working_days_per_month", "26", "number", False),
             ("security.jwt.issuer", "atlas-python-core-3356", "string", False),
+            ("airfare.monthly_rate_bhd", "150.000", "number", False),
         ]
         for key, value, value_type, is_secret in settings:
             connection.execute(
@@ -178,6 +179,7 @@ def verify_schema(target_db: str) -> None:
     required_tables = [
         "Employees",
         "ImportBatches",
+        "ImportPreviewSessions",
         "AirfareClaims",
         "Loans",
         "SeedEvidence",
@@ -193,6 +195,7 @@ def verify_schema(target_db: str) -> None:
         "IX_core_Employees_EmployeeCode",
         "IX_core_Employees_DepartmentID",
         "IX_core_Employees_Status",
+        "IX_core_ImportPreviewSessions_Expiry",
         "IX_core_AirfareClaims_EmployeeStatus",
         "IX_core_Loans_EmployeeStatus",
         "IX_core_Airports_Search",
@@ -235,9 +238,13 @@ def verify_schema(target_db: str) -> None:
         if trigger_exists is None:
             raise RuntimeError("Missing trigger core.trg_Employees_SetUpdatedAtUtc.")
 
+        entitlement_view = connection.execute(text("SELECT OBJECT_ID(N'core.vw_EmployeeAirfareEntitlement', N'V')")).scalar()
+        if entitlement_view is None:
+            raise RuntimeError("Missing view core.vw_EmployeeAirfareEntitlement.")
+
         airport_count = connection.execute(text("SELECT COUNT(*) FROM core.Airports")).scalar()
         settings_count = connection.execute(text("SELECT COUNT(*) FROM core.SystemSettings")).scalar()
-        if int(airport_count or 0) < 10 or int(settings_count or 0) < 5:
+        if int(airport_count or 0) < 10 or int(settings_count or 0) < 6:
             raise RuntimeError("Seed verification failed.")
 
     log("verify.done", database=target_db, tables=len(required_tables), indexes=len(required_indexes), foreignKeys=fk_count)
