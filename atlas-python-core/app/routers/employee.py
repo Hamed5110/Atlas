@@ -10,14 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Unicode, UnicodeText, and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
+from app.database import Base, get_db
 
 router = APIRouter(prefix="/api/v1/employees", tags=["Employee Master"])
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 class Gender(StrEnum):
@@ -263,11 +260,7 @@ class EmployeeListResponse(BaseModel):
     total: int
 
 
-def get_session() -> Session:
-    raise RuntimeError("Wire this dependency to the Port 3356 SQLAlchemy session factory in app startup.")
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
+SessionDep = Annotated[Session, Depends(get_db)]
 
 
 @router.get("", response_model=EmployeeListResponse)
