@@ -66,7 +66,23 @@ def copy_deployment_files() -> None:
         target = PACKAGE_DIR / folder
         if target.exists():
             shutil.rmtree(target)
-        shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "logs", "dist", "build"))
+        shutil.copytree(
+            source,
+            target,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                "*.pyc",
+                "logs",
+                "dist",
+                "build",
+                "build_release_artifact.py",
+                "verify_build.ps1",
+                "verify_build_3388.ps1",
+                "verify_exe_build.ps1",
+                "001_core.sql",
+                "reference_module_source.txt",
+            ),
+        )
     for file_name in ("requirements.txt", "README.md", "AtlasPythonCore3388.spec", "build_spec.py"):
         source = ROOT / file_name
         if source.exists():

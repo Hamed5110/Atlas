@@ -9,7 +9,9 @@ ROOT = Path(SPECPATH)
 
 datas = [
     (str(ROOT / "web"), "web"),
-    (str(ROOT / "schema"), "schema"),
+    (str(ROOT / "schema" / "mssql" / "Port3388_Complete_Schema.sql"), "schema/mssql"),
+    (str(ROOT / "schema" / "mssql" / "Port3388_EmployeeMaster.sql"), "schema/mssql"),
+    (str(ROOT / "schema" / "mssql" / "Port3388_Modules_02_11.sql"), "schema/mssql"),
     (str(ROOT / "scripts" / "migrate_and_seed.py"), "scripts"),
 ]
 
