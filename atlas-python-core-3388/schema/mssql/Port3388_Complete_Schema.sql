@@ -1,0 +1,539 @@
+﻿/*
+  ATLAS Port 3388 - Complete MSSQL schema.
+  Fresh isolated Python/FastAPI database: AtlasPythonCore3388.
+  Continuous entitlement model only.
+*/
+
+/*
+  ATLAS Port 3388 - Module 1 Employee Master
+  Clean-room MSSQL schema for Python/FastAPI rebuild.
+  Employee master schema for continuous entitlement operations.
+*/
+
+SET XACT_ABORT ON;
+GO
+
+IF SCHEMA_ID(N'core') IS NULL EXEC(N'CREATE SCHEMA core');
+GO
+
+IF OBJECT_ID(N'core.Departments', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.Departments (
+        DepartmentID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_Departments PRIMARY KEY,
+        DepartmentCode NVARCHAR(40) NOT NULL CONSTRAINT UQ_core_Departments_Code UNIQUE,
+        DepartmentName NVARCHAR(160) NOT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_core_Departments_IsActive DEFAULT (1),
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_Departments_CreatedAtUtc DEFAULT SYSUTCDATETIME()
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.Branches', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.Branches (
+        BranchID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_Branches PRIMARY KEY,
+        BranchCode NVARCHAR(40) NOT NULL CONSTRAINT UQ_core_Branches_Code UNIQUE,
+        BranchName NVARCHAR(160) NOT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_core_Branches_IsActive DEFAULT (1),
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_Branches_CreatedAtUtc DEFAULT SYSUTCDATETIME()
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.Employees', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.Employees (
+        EmployeeID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_Employees PRIMARY KEY,
+        EmployeeCode NVARCHAR(50) NOT NULL,
+        PunchMachineID NVARCHAR(50) NULL,
+
+        FullName NVARCHAR(200) NOT NULL,
+        FirstName NVARCHAR(80) NOT NULL,
+        MiddleName NVARCHAR(80) NULL,
+        LastName NVARCHAR(80) NOT NULL,
+        PassportName NVARCHAR(200) NULL,
+        Gender NVARCHAR(20) NOT NULL,
+        DateOfBirth DATE NOT NULL,
+        Nationality NVARCHAR(80) NOT NULL,
+        Religion NVARCHAR(80) NULL,
+        MaritalStatus NVARCHAR(30) NULL,
+
+        JoiningDate DATE NOT NULL,
+        ProbationEndDate DATE NULL,
+        ConfirmationDate DATE NULL,
+        DepartmentID INT NULL,
+        Designation NVARCHAR(120) NOT NULL,
+        GradeLevel NVARCHAR(60) NULL,
+        BranchID INT NULL,
+        EmploymentType NVARCHAR(30) NOT NULL,
+        Status NVARCHAR(30) NOT NULL CONSTRAINT DF_core_Employees_Status DEFAULT (N'Active'),
+        DirectManagerID INT NULL,
+
+        PersonalEmail NVARCHAR(254) NULL,
+        WorkEmail NVARCHAR(254) NULL,
+        MobileNumber NVARCHAR(40) NULL,
+        EmergencyContactName NVARCHAR(160) NULL,
+        EmergencyContactPhone NVARCHAR(40) NULL,
+        EmergencyContactRelationship NVARCHAR(80) NULL,
+        LocalAddress NVARCHAR(500) NULL,
+        HomeCountryAddress NVARCHAR(500) NULL,
+
+        PassportNumber NVARCHAR(80) NULL,
+        PassportExpiry DATE NULL,
+        CivilID NVARCHAR(80) NULL,
+        CivilIDExpiry DATE NULL,
+        VisaNumber NVARCHAR(80) NULL,
+        VisaType NVARCHAR(80) NULL,
+        VisaExpiry DATE NULL,
+        LabourCardNumber NVARCHAR(80) NULL,
+        LabourCardExpiry DATE NULL,
+
+        BasicSalary DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_Employees_BasicSalary DEFAULT (0),
+        HousingAllowance DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_Employees_HousingAllowance DEFAULT (0),
+        TransportAllowance DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_Employees_TransportAllowance DEFAULT (0),
+        OtherFixedAllowances DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_Employees_OtherFixedAllowances DEFAULT (0),
+        PaymentMode NVARCHAR(20) NOT NULL,
+        BankName NVARCHAR(160) NULL,
+        IBANAccountNumber NVARCHAR(80) NULL,
+        SwiftCode NVARCHAR(40) NULL,
+
+        ResignationDate DATE NULL,
+        LastWorkingDay DATE NULL,
+        ReasonForLeaving NVARCHAR(400) NULL,
+        RehireEligible BIT NOT NULL CONSTRAINT DF_core_Employees_RehireEligible DEFAULT (1),
+
+        RowVersion ROWVERSION NOT NULL,
+        IsDeleted BIT NOT NULL CONSTRAINT DF_core_Employees_IsDeleted DEFAULT (0),
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_Employees_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        UpdatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_Employees_UpdatedAtUtc DEFAULT SYSUTCDATETIME(),
+
+        CONSTRAINT UQ_core_Employees_EmployeeCode UNIQUE (EmployeeCode),
+        CONSTRAINT FK_core_Employees_Department FOREIGN KEY (DepartmentID) REFERENCES core.Departments(DepartmentID),
+        CONSTRAINT FK_core_Employees_Branch FOREIGN KEY (BranchID) REFERENCES core.Branches(BranchID),
+        CONSTRAINT FK_core_Employees_Manager FOREIGN KEY (DirectManagerID) REFERENCES core.Employees(EmployeeID),
+
+        CONSTRAINT CK_core_Employees_Gender CHECK (Gender IN (N'Male', N'Female', N'Other', N'Undisclosed')),
+        CONSTRAINT CK_core_Employees_MaritalStatus CHECK (MaritalStatus IS NULL OR MaritalStatus IN (N'Single', N'Married', N'Divorced', N'Widowed', N'Other')),
+        CONSTRAINT CK_core_Employees_EmploymentType CHECK (EmploymentType IN (N'Permanent', N'Contract', N'Probation', N'Temporary', N'Intern')),
+        CONSTRAINT CK_core_Employees_Status CHECK (Status IN (N'Active', N'Inactive', N'Resigned', N'Terminated', N'OnLeave')),
+        CONSTRAINT CK_core_Employees_PaymentMode CHECK (PaymentMode IN (N'Bank', N'Cash', N'WPS')),
+        CONSTRAINT CK_core_Employees_SalaryNonNegative CHECK (
+            BasicSalary >= 0 AND HousingAllowance >= 0 AND TransportAllowance >= 0 AND OtherFixedAllowances >= 0
+        ),
+        CONSTRAINT CK_core_Employees_ProbationAfterJoin CHECK (ProbationEndDate IS NULL OR ProbationEndDate >= JoiningDate),
+        CONSTRAINT CK_core_Employees_ConfirmationAfterJoin CHECK (ConfirmationDate IS NULL OR ConfirmationDate >= JoiningDate),
+        CONSTRAINT CK_core_Employees_ExitDates CHECK (
+            (ResignationDate IS NULL AND LastWorkingDay IS NULL)
+            OR (LastWorkingDay IS NULL OR ResignationDate IS NULL OR LastWorkingDay >= ResignationDate)
+        )
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Employees_EmployeeCode' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE INDEX IX_core_Employees_EmployeeCode ON core.Employees(EmployeeCode) INCLUDE (FullName, Status, DepartmentID);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_core_Employees_CivilID_NotNull' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE UNIQUE INDEX UX_core_Employees_CivilID_NotNull ON core.Employees(CivilID) WHERE CivilID IS NOT NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_core_Employees_PassportNumber_NotNull' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE UNIQUE INDEX UX_core_Employees_PassportNumber_NotNull ON core.Employees(PassportNumber) WHERE PassportNumber IS NOT NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Employees_DepartmentID' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE INDEX IX_core_Employees_DepartmentID ON core.Employees(DepartmentID) INCLUDE (EmployeeCode, FullName, Status);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Employees_Status' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE INDEX IX_core_Employees_Status ON core.Employees(Status, IsDeleted) INCLUDE (EmployeeCode, FullName, JoiningDate);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Employees_DocExpiry' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE INDEX IX_core_Employees_DocExpiry ON core.Employees(PassportExpiry, CivilIDExpiry, VisaExpiry, LabourCardExpiry) WHERE IsDeleted = 0;
+GO
+
+CREATE OR ALTER TRIGGER core.trg_Employees_SetUpdatedAtUtc
+ON core.Employees
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE e
+        SET UpdatedAtUtc = SYSUTCDATETIME()
+    FROM core.Employees e
+    INNER JOIN inserted i ON i.EmployeeID = e.EmployeeID;
+END;
+GO
+
+
+
+
+/*
+  ATLAS Port 3388 - Modules 02 through 11 MSSQL DDL
+  Clean-room Python/FastAPI schema. Continuous entitlement only, continuous entitlement only, isolated UI dependencies.
+*/
+
+SET XACT_ABORT ON;
+GO
+
+IF SCHEMA_ID(N'core') IS NULL EXEC(N'CREATE SCHEMA core');
+GO
+
+IF OBJECT_ID(N'core.ImportBatches', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.ImportBatches (
+        ImportBatchID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_ImportBatches PRIMARY KEY,
+        ModuleCode NVARCHAR(60) NOT NULL,
+        FileName NVARCHAR(260) NOT NULL,
+        TotalRows INT NOT NULL CONSTRAINT DF_core_ImportBatches_TotalRows DEFAULT 0,
+        InsertedRows INT NOT NULL CONSTRAINT DF_core_ImportBatches_InsertedRows DEFAULT 0,
+        FailedRows INT NOT NULL CONSTRAINT DF_core_ImportBatches_FailedRows DEFAULT 0,
+        BatchStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_ImportBatches_Status DEFAULT N'Preview',
+        CreatedBy NVARCHAR(120) NOT NULL CONSTRAINT DF_core_ImportBatches_CreatedBy DEFAULT N'system',
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_ImportBatches_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT CK_core_ImportBatches_Status CHECK (BatchStatus IN (N'Preview', N'Processing', N'Completed', N'Failed', N'RolledBack'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.ImportRowErrors', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.ImportRowErrors (
+        ImportRowErrorID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_ImportRowErrors PRIMARY KEY,
+        ImportBatchID BIGINT NOT NULL,
+        RowNumber INT NOT NULL,
+        FieldName NVARCHAR(120) NULL,
+        ErrorMessage NVARCHAR(500) NOT NULL,
+        RawRowJSON NVARCHAR(MAX) NULL,
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_ImportRowErrors_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_core_ImportRowErrors_Batch FOREIGN KEY (ImportBatchID) REFERENCES core.ImportBatches(ImportBatchID)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.ImportPreviewSessions', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.ImportPreviewSessions (
+        PreviewToken NVARCHAR(96) NOT NULL CONSTRAINT PK_core_ImportPreviewSessions PRIMARY KEY,
+        ModuleCode NVARCHAR(60) NOT NULL,
+        FileName NVARCHAR(260) NOT NULL,
+        PayloadJSON NVARCHAR(MAX) NOT NULL,
+        TotalRows INT NOT NULL,
+        ValidRowsCount INT NOT NULL,
+        ErrorRowsCount INT NOT NULL,
+        DuplicateRowsCount INT NOT NULL,
+        IsCommitted BIT NOT NULL CONSTRAINT DF_core_ImportPreviewSessions_IsCommitted DEFAULT (0),
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_ImportPreviewSessions_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        ExpiresAtUtc DATETIME2(0) NOT NULL,
+        CommittedAtUtc DATETIME2(0) NULL,
+        CONSTRAINT CK_core_ImportPreviewSessions_JSON CHECK (ISJSON(PayloadJSON) = 1),
+        CONSTRAINT CK_core_ImportPreviewSessions_Counts CHECK (TotalRows >= 0 AND ValidRowsCount >= 0 AND ErrorRowsCount >= 0 AND DuplicateRowsCount >= 0)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.AirfareClaims', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.AirfareClaims (
+        ClaimID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_AirfareClaims PRIMARY KEY,
+        EmployeeID INT NOT NULL,
+        ClaimDate DATE NOT NULL,
+        SectorCode NVARCHAR(40) NOT NULL,
+        ClaimType NVARCHAR(30) NOT NULL,
+        ClaimAmount DECIMAL(18,3) NOT NULL,
+        AccruedBalance DECIMAL(18,3) NOT NULL,
+        ApprovalStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_AirfareClaims_ApprovalStatus DEFAULT N'Submitted',
+        ApprovedAtUtc DATETIME2(0) NULL,
+        Notes NVARCHAR(400) NULL,
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_AirfareClaims_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_core_AirfareClaims_Employee FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+        CONSTRAINT CK_core_AirfareClaims_Type CHECK (ClaimType IN (N'Ticket', N'CashEncashment', N'DependentTicket')),
+        CONSTRAINT CK_core_AirfareClaims_Status CHECK (ApprovalStatus IN (N'Submitted', N'Approved', N'Rejected', N'Cancelled')),
+        CONSTRAINT CK_core_AirfareClaims_Amounts CHECK (ClaimAmount >= 0 AND AccruedBalance >= 0 AND ClaimAmount <= AccruedBalance)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.AirfareAllocationsV2', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.AirfareAllocationsV2 (
+        AllocationID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_AirfareAllocationsV2 PRIMARY KEY,
+        ClaimID BIGINT NULL,
+        EmployeeID INT NOT NULL,
+        AllocationDate DATE NOT NULL,
+        OriginIATACode CHAR(3) NOT NULL,
+        DestinationIATACode CHAR(3) NOT NULL,
+        TicketNumber NVARCHAR(80) NULL,
+        AirlineName NVARCHAR(160) NULL,
+        TicketAmount DECIMAL(18,3) NOT NULL,
+        EmployeePaidAmount DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_AirfareAllocationsV2_EmployeePaid DEFAULT 0,
+        CompanyPaidAmount DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_AirfareAllocationsV2_CompanyPaid DEFAULT 0,
+        AllocationStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_AirfareAllocationsV2_Status DEFAULT N'Posted',
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_AirfareAllocationsV2_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_core_AirfareAllocationsV2_Claim FOREIGN KEY (ClaimID) REFERENCES core.AirfareClaims(ClaimID),
+        CONSTRAINT FK_core_AirfareAllocationsV2_Employee FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+        CONSTRAINT CK_core_AirfareAllocationsV2_Amounts CHECK (TicketAmount >= 0 AND EmployeePaidAmount >= 0 AND CompanyPaidAmount >= 0),
+        CONSTRAINT CK_core_AirfareAllocationsV2_Status CHECK (AllocationStatus IN (N'Draft', N'Posted', N'Cancelled'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.Loans', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.Loans (
+        LoanID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_Loans PRIMARY KEY,
+        EmployeeID INT NOT NULL,
+        PrincipalAmount DECIMAL(18,3) NOT NULL,
+        TermsMonths INT NOT NULL,
+        AnnualInterestRate DECIMAL(9,3) NOT NULL CONSTRAINT DF_core_Loans_Interest DEFAULT 0,
+        MonthlyInstallment DECIMAL(18,3) NOT NULL,
+        OutstandingAmount DECIMAL(18,3) NOT NULL,
+        DisbursementDate DATE NOT NULL,
+        LoanStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_Loans_Status DEFAULT N'Active',
+        Notes NVARCHAR(400) NULL,
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_Loans_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_core_Loans_Employee FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+        CONSTRAINT CK_core_Loans_Amounts CHECK (PrincipalAmount > 0 AND TermsMonths > 0 AND AnnualInterestRate >= 0 AND MonthlyInstallment >= 0 AND OutstandingAmount >= 0),
+        CONSTRAINT CK_core_Loans_Status CHECK (LoanStatus IN (N'Pending', N'Active', N'Settled', N'TopUp', N'Cancelled'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.LoanSchedules', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.LoanSchedules (
+        LoanScheduleID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_LoanSchedules PRIMARY KEY,
+        LoanID BIGINT NOT NULL,
+        InstallmentNo INT NOT NULL,
+        DueDate DATE NOT NULL,
+        PrincipalComponent DECIMAL(18,3) NOT NULL,
+        InterestComponent DECIMAL(18,3) NOT NULL CONSTRAINT DF_core_LoanSchedules_Interest DEFAULT 0,
+        InstallmentAmount DECIMAL(18,3) NOT NULL,
+        PaymentStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_LoanSchedules_Status DEFAULT N'Pending',
+        PaidAtUtc DATETIME2(0) NULL,
+        CONSTRAINT FK_core_LoanSchedules_Loan FOREIGN KEY (LoanID) REFERENCES core.Loans(LoanID),
+        CONSTRAINT UQ_core_LoanSchedules_LoanInstallment UNIQUE (LoanID, InstallmentNo),
+        CONSTRAINT CK_core_LoanSchedules_Status CHECK (PaymentStatus IN (N'Pending', N'Deducted', N'Skipped', N'Settled'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.SeedEvidence', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.SeedEvidence (
+        SeedID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_SeedEvidence PRIMARY KEY,
+        EmployeeID INT NOT NULL,
+        SeedType NVARCHAR(40) NOT NULL,
+        EffectiveDate DATE NOT NULL,
+        Amount DECIMAL(18,3) NOT NULL,
+        SourceReference NVARCHAR(120) NOT NULL,
+        VerificationChecksum NVARCHAR(64) NOT NULL,
+        ApprovalStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_SeedEvidence_Status DEFAULT N'Pending',
+        ApprovedBy NVARCHAR(120) NULL,
+        ApprovedAtUtc DATETIME2(0) NULL CONSTRAINT DF_core_SeedEvidence_ApprovedAt DEFAULT SYSUTCDATETIME(),
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_SeedEvidence_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_core_SeedEvidence_Employee FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+        CONSTRAINT CK_core_SeedEvidence_Type CHECK (SeedType IN (N'LeaveBalance', N'GratuityAccrual', N'SalaryAdjustment', N'AirfareEntitlement')),
+        CONSTRAINT CK_core_SeedEvidence_Status CHECK (ApprovalStatus IN (N'Pending', N'Approved', N'Rejected', N'Reversed'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.ReportRuns', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.ReportRuns (
+        ReportRunID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_ReportRuns PRIMARY KEY,
+        ReportCode NVARCHAR(60) NOT NULL,
+        DateFrom DATE NULL,
+        DateTo DATE NULL,
+        DepartmentID INT NULL,
+        EmployeeID INT NULL,
+        ExportFormat NVARCHAR(10) NOT NULL CONSTRAINT DF_core_ReportRuns_Format DEFAULT N'json',
+        RunStatus NVARCHAR(30) NOT NULL,
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_ReportRuns_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT CK_core_ReportRuns_Code CHECK (ReportCode IN (N'PayrollSummary', N'DepartmentCosting', N'DocumentExpiry', N'LoanBalances', N'AirfareUtilization')),
+        CONSTRAINT CK_core_ReportRuns_Format CHECK (ExportFormat IN (N'json', N'xlsx', N'pdf')),
+        CONSTRAINT CK_core_ReportRuns_Status CHECK (RunStatus IN (N'Queued', N'Completed', N'Failed'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.SystemSettings', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.SystemSettings (
+        SettingID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_SystemSettings PRIMARY KEY,
+        SettingKey NVARCHAR(120) NOT NULL CONSTRAINT UQ_core_SystemSettings_Key UNIQUE,
+        SettingValue NVARCHAR(4000) NOT NULL,
+        ValueType NVARCHAR(20) NOT NULL,
+        IsSecret BIT NOT NULL CONSTRAINT DF_core_SystemSettings_IsSecret DEFAULT 0,
+        UpdatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_SystemSettings_UpdatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT CK_core_SystemSettings_ValueType CHECK (ValueType IN (N'string', N'number', N'boolean', N'json', N'secret'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.UserRoles', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.UserRoles (
+        UserRoleID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_UserRoles PRIMARY KEY,
+        Username NVARCHAR(120) NOT NULL,
+        RoleCode NVARCHAR(30) NOT NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_core_UserRoles_IsActive DEFAULT 1,
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_UserRoles_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT UQ_core_UserRoles_UserRole UNIQUE (Username, RoleCode),
+        CONSTRAINT CK_core_UserRoles_Role CHECK (RoleCode IN (N'Admin', N'HR', N'Payroll', N'Viewer'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.SelfServiceRequestsV2', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.SelfServiceRequestsV2 (
+        RequestID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_SelfServiceRequestsV2 PRIMARY KEY,
+        EmployeeID INT NOT NULL,
+        RequestType NVARCHAR(40) NOT NULL,
+        RequestedAtUtc DATETIME2(0) NOT NULL,
+        RequestPayloadJSON NVARCHAR(MAX) NOT NULL,
+        RequestStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_SelfServiceRequestsV2_Status DEFAULT N'Submitted',
+        CONSTRAINT FK_core_SelfServiceRequestsV2_Employee FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+        CONSTRAINT CK_core_SelfServiceRequestsV2_Type CHECK (RequestType IN (N'PayslipView', N'LoanRequest', N'AirfareRequest', N'LeaveStatus', N'DocumentStatus', N'ProfileUpdate')),
+        CONSTRAINT CK_core_SelfServiceRequestsV2_Status CHECK (RequestStatus IN (N'Submitted', N'Approved', N'Rejected', N'Cancelled', N'Completed')),
+        CONSTRAINT CK_core_SelfServiceRequestsV2_JSON CHECK (ISJSON(RequestPayloadJSON) = 1)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.DocumentMetadata', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.DocumentMetadata (
+        DocumentID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_DocumentMetadata PRIMARY KEY,
+        EmployeeID INT NULL,
+        DocumentType NVARCHAR(60) NOT NULL,
+        FileName NVARCHAR(260) NOT NULL,
+        StorageProvider NVARCHAR(20) NOT NULL,
+        StoragePath NVARCHAR(600) NOT NULL,
+        MimeType NVARCHAR(120) NOT NULL,
+        FileSizeBytes BIGINT NOT NULL,
+        VerificationStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_core_DocumentMetadata_Status DEFAULT N'Pending',
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_DocumentMetadata_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT FK_core_DocumentMetadata_Employee FOREIGN KEY (EmployeeID) REFERENCES core.Employees(EmployeeID),
+        CONSTRAINT CK_core_DocumentMetadata_Type CHECK (DocumentType IN (N'CivilID', N'Passport', N'Contract', N'LoanAgreement', N'AirfareEvidence', N'Other')),
+        CONSTRAINT CK_core_DocumentMetadata_Storage CHECK (StorageProvider IN (N'local', N's3')),
+        CONSTRAINT CK_core_DocumentMetadata_Size CHECK (FileSizeBytes >= 0 AND FileSizeBytes <= 52428800)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.Airports', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.Airports (
+        AirportID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_Airports PRIMARY KEY,
+        IATACode CHAR(3) NOT NULL CONSTRAINT UQ_core_Airports_IATA UNIQUE,
+        AirportName NVARCHAR(200) NOT NULL,
+        CityName NVARCHAR(120) NOT NULL,
+        CountryCode CHAR(2) NOT NULL,
+        SectorCode NVARCHAR(40) NULL,
+        IsActive BIT NOT NULL CONSTRAINT DF_core_Airports_IsActive DEFAULT 1
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.AuditLogs', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.AuditLogs (
+        AuditLogID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_AuditLogs PRIMARY KEY,
+        Username NVARCHAR(120) NOT NULL,
+        ActionCode NVARCHAR(80) NOT NULL,
+        TableName NVARCHAR(160) NULL,
+        EntityID NVARCHAR(120) NULL,
+        OldValueJSON NVARCHAR(MAX) NULL,
+        NewValueJSON NVARCHAR(MAX) NULL,
+        IpAddress NVARCHAR(64) NULL,
+        CreatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_AuditLogs_CreatedAtUtc DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT CK_core_AuditLogs_OldJSON CHECK (OldValueJSON IS NULL OR ISJSON(OldValueJSON) = 1),
+        CONSTRAINT CK_core_AuditLogs_NewJSON CHECK (NewValueJSON IS NULL OR ISJSON(NewValueJSON) = 1)
+    );
+END;
+GO
+
+IF OBJECT_ID(N'core.BackupJobs', N'U') IS NULL
+BEGIN
+    CREATE TABLE core.BackupJobs (
+        BackupJobID BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_core_BackupJobs PRIMARY KEY,
+        JobType NVARCHAR(40) NOT NULL,
+        JobStatus NVARCHAR(30) NOT NULL,
+        RequestedAtUtc DATETIME2(0) NOT NULL,
+        StartedAtUtc DATETIME2(0) NULL,
+        CompletedAtUtc DATETIME2(0) NULL,
+        BackupPath NVARCHAR(600) NULL,
+        ErrorMessage NVARCHAR(1000) NULL,
+        CONSTRAINT CK_core_BackupJobs_Type CHECK (JobType IN (N'DatabaseBackup', N'RestoreValidation')),
+        CONSTRAINT CK_core_BackupJobs_Status CHECK (JobStatus IN (N'Queued', N'Running', N'Completed', N'Failed'))
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_ImportRowErrors_Batch' AND object_id = OBJECT_ID(N'core.ImportRowErrors'))
+    CREATE INDEX IX_core_ImportRowErrors_Batch ON core.ImportRowErrors(ImportBatchID, RowNumber);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_ImportPreviewSessions_Expiry' AND object_id = OBJECT_ID(N'core.ImportPreviewSessions'))
+    CREATE INDEX IX_core_ImportPreviewSessions_Expiry ON core.ImportPreviewSessions(ExpiresAtUtc, IsCommitted);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_AirfareClaims_EmployeeStatus' AND object_id = OBJECT_ID(N'core.AirfareClaims'))
+    CREATE INDEX IX_core_AirfareClaims_EmployeeStatus ON core.AirfareClaims(EmployeeID, ApprovalStatus, ClaimDate DESC);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Loans_EmployeeStatus' AND object_id = OBJECT_ID(N'core.Loans'))
+    CREATE INDEX IX_core_Loans_EmployeeStatus ON core.Loans(EmployeeID, LoanStatus);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_SeedEvidence_EmployeeType' AND object_id = OBJECT_ID(N'core.SeedEvidence'))
+    CREATE INDEX IX_core_SeedEvidence_EmployeeType ON core.SeedEvidence(EmployeeID, SeedType, EffectiveDate DESC);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Airports_Search' AND object_id = OBJECT_ID(N'core.Airports'))
+    CREATE INDEX IX_core_Airports_Search ON core.Airports(IATACode, CityName) INCLUDE (AirportName, CountryCode, SectorCode);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_AuditLogs_Created' AND object_id = OBJECT_ID(N'core.AuditLogs'))
+    CREATE INDEX IX_core_AuditLogs_Created ON core.AuditLogs(CreatedAtUtc DESC, Username, ActionCode);
+GO
+
+CREATE OR ALTER VIEW core.vw_EmployeeAirfareEntitlement
+AS
+WITH RateSetting AS (
+    SELECT TOP (1) TRY_CONVERT(DECIMAL(18,3), SettingValue) AS MonthlyRate
+    FROM core.SystemSettings
+    WHERE SettingKey = N'airfare.monthly_rate_bhd'
+),
+ApprovedClaims AS (
+    SELECT EmployeeID, SUM(ClaimAmount) AS ClaimedBalance
+    FROM core.AirfareClaims
+    WHERE ApprovalStatus = N'Approved'
+    GROUP BY EmployeeID
+),
+ApprovedSeeds AS (
+    SELECT EmployeeID, SUM(Amount) AS SeedBalance
+    FROM core.SeedEvidence
+    WHERE SeedType = N'AirfareEntitlement' AND ApprovalStatus = N'Approved'
+    GROUP BY EmployeeID
+)
+SELECT
+    e.EmployeeID,
+    e.EmployeeCode,
+    e.FullName,
+    e.JoiningDate,
+    CAST(SYSUTCDATETIME() AS DATE) AS TargetDate,
+    DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) AS ElapsedServiceDays,
+    CAST(COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) AS DECIMAL(18,3)) AS MonthlyRate,
+    CAST(ROUND((CASE WHEN DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) END) * COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) / 30.4375, 3) AS DECIMAL(18,3)) AS AccruedBalance,
+    CAST(COALESCE(s.SeedBalance, 0) AS DECIMAL(18,3)) AS SeedBalance,
+    CAST(COALESCE(c.ClaimedBalance, 0) AS DECIMAL(18,3)) AS ClaimedBalance,
+    CAST(ROUND(((CASE WHEN DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, CAST(SYSUTCDATETIME() AS DATE)) END) * COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) / 30.4375) + COALESCE(s.SeedBalance, 0) - COALESCE(c.ClaimedBalance, 0), 3) AS DECIMAL(18,3)) AS AvailableBalance
+FROM core.Employees e
+LEFT JOIN ApprovedClaims c ON c.EmployeeID = e.EmployeeID
+LEFT JOIN ApprovedSeeds s ON s.EmployeeID = e.EmployeeID
+WHERE e.IsDeleted = 0 AND e.Status = N'Active';
+GO
+
+
+

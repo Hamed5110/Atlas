@@ -1,0 +1,14 @@
+﻿.venv/
+.venv_py314_bad/
+build/
+dist/
+logs/
+__pycache__/
+.disabled*/
+disabled___pycache__/
+*.pyc
+.pytest_cache/
+
+app/routers/reference_module_source.txt
+schema/mssql/001_core.sql
+
