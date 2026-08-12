@@ -268,14 +268,18 @@ SessionDep = Annotated[Session, Depends(get_db)]
 def list_employees(
     session: SessionDep,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+    page_size: Annotated[int | None, Query(ge=1, le=100)] = None,
+    limit: Annotated[int | None, Query(ge=1, le=100)] = None,
     department_id: Annotated[int | None, Query(ge=1)] = None,
+    department: Annotated[int | None, Query(ge=1)] = None,
     status_filter: Annotated[EmployeeStatus | None, Query(alias="status")] = None,
     search: Annotated[str | None, Query(max_length=120)] = None,
 ) -> EmployeeListResponse:
+    resolved_page_size = limit or page_size or 25
+    resolved_department_id = department_id or department
     filters = [Employee.is_deleted == False]  # noqa: E712 - SQLAlchemy SQL Server BIT comparison
-    if department_id is not None:
-        filters.append(Employee.department_id == department_id)
+    if resolved_department_id is not None:
+        filters.append(Employee.department_id == resolved_department_id)
     if status_filter is not None:
         filters.append(Employee.status == status_filter.value)
     if search:
@@ -287,10 +291,10 @@ def list_employees(
         select(Employee)
         .where(and_(*filters))
         .order_by(Employee.employee_code.asc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        .offset((page - 1) * resolved_page_size)
+        .limit(resolved_page_size)
     ).all()
-    return EmployeeListResponse(items=[to_response(row) for row in rows], page=page, page_size=page_size, total=total)
+    return EmployeeListResponse(items=[to_response(row) for row in rows], page=page, page_size=resolved_page_size, total=total)
 
 
 @router.get("/{emp_id}", response_model=EmployeeResponse)
