@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" class="h-full bg-slate-950">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATLAS Port 3356 · Employee Master</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            atlas: {
+              ink: "#0f172a",
+              blue: "#2563eb",
+              cyan: "#06b6d4",
+              mint: "#10b981"
+            }
+          },
+          boxShadow: {
+            glass: "0 24px 80px rgba(15,23,42,.24)"
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="h-full text-slate-100 antialiased">
+  <div class="min-h-full bg-[radial-gradient(circle_at_top_left,#1d4ed8_0,transparent_34%),linear-gradient(135deg,#020617,#0f172a_48%,#111827)]">
+    <header class="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
+      <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4">
+        <div class="flex items-center gap-4">
+          <div class="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-400 font-black text-white shadow-glass">A</div>
+          <div>
+            <p class="text-xs font-black uppercase tracking-[.28em] text-cyan-300">Port 3356 · Clean-room</p>
+            <h1 class="text-2xl font-black tracking-tight text-white">Employee Master</h1>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-cyan-300">Import Excel</button>
+          <button class="rounded-2xl bg-blue-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-blue-500/30 hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-cyan-300">+ New employee</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto grid max-w-7xl gap-6 px-6 py-8">
+      <section class="grid gap-4 md:grid-cols-3">
+        <article class="rounded-[2rem] border border-white/10 bg-white/[.08] p-6 shadow-glass backdrop-blur-xl">
+          <p class="text-xs font-black uppercase tracking-[.22em] text-slate-300">Total active</p>
+          <div class="mt-4 flex items-end justify-between">
+            <strong class="text-5xl font-black tracking-tight text-white">128</strong>
+            <span class="rounded-full bg-emerald-400/15 px-3 py-1 text-sm font-bold text-emerald-200">healthy</span>
+          </div>
+        </article>
+        <article class="rounded-[2rem] border border-white/10 bg-white/[.08] p-6 shadow-glass backdrop-blur-xl">
+          <p class="text-xs font-black uppercase tracking-[.22em] text-slate-300">On probation</p>
+          <div class="mt-4 flex items-end justify-between">
+            <strong class="text-5xl font-black tracking-tight text-white">9</strong>
+            <span class="rounded-full bg-blue-400/15 px-3 py-1 text-sm font-bold text-blue-200">review</span>
+          </div>
+        </article>
+        <article class="rounded-[2rem] border border-white/10 bg-white/[.08] p-6 shadow-glass backdrop-blur-xl">
+          <p class="text-xs font-black uppercase tracking-[.22em] text-slate-300">Expiring documents</p>
+          <div class="mt-4 flex items-end justify-between">
+            <strong class="text-5xl font-black tracking-tight text-white">6</strong>
+            <span class="rounded-full bg-amber-400/15 px-3 py-1 text-sm font-bold text-amber-200">next 60 days</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="rounded-[2rem] border border-white/10 bg-white/[.08] shadow-glass backdrop-blur-xl">
+        <div class="flex flex-col gap-4 border-b border-white/10 p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 class="text-xl font-black text-white">Employee records</h2>
+            <p class="text-sm text-slate-300">Search, filter, sort, and open records without leaving the master module.</p>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-3">
+            <input aria-label="Search employees" class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-300" placeholder="Search code, name, civil ID">
+            <select aria-label="Filter status" class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"><option>All statuses</option><option>Active</option><option>Inactive</option><option>Resigned</option><option>Terminated</option></select>
+            <select aria-label="Filter department" class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"><option>All departments</option><option>Production</option><option>Finance</option><option>HR</option></select>
+          </div>
+        </div>
+        <div class="overflow-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead class="sticky top-[81px] z-20 bg-slate-900/95 text-xs uppercase tracking-[.18em] text-slate-300 backdrop-blur-xl">
+              <tr>
+                <th class="px-5 py-4">Employee</th>
+                <th class="px-5 py-4">Job</th>
+                <th class="px-5 py-4">Identity</th>
+                <th class="px-5 py-4">Documents</th>
+                <th class="px-5 py-4">Payment</th>
+                <th class="px-5 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/10">
+              <tr class="hover:bg-white/[.06]">
+                <td class="px-5 py-4"><strong class="block text-white">EMP-0004 · Harnek Singh</strong><span class="text-slate-400">harnek@atlas.local · +973000000</span></td>
+                <td class="px-5 py-4"><span class="block text-white">Production · Operator</span><span class="text-slate-400">Permanent · Grade B</span></td>
+                <td class="px-5 py-4"><span class="block text-white">CPR 900000000</span><span class="text-slate-400">Passport P123456</span></td>
+                <td class="px-5 py-4"><span class="rounded-full bg-emerald-400/15 px-3 py-1 font-bold text-emerald-200">valid</span></td>
+                <td class="px-5 py-4"><span class="block text-white">Bank / WPS</span><span class="text-slate-400">IBAN ending 0021</span></td>
+                <td class="px-5 py-4 text-right"><button class="rounded-xl border border-white/10 px-3 py-2 font-bold text-cyan-200 hover:bg-white/10">Open</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="rounded-[2rem] border border-white/10 bg-white/[.08] p-6 shadow-glass backdrop-blur-xl">
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <p class="text-xs font-black uppercase tracking-[.22em] text-cyan-300">Create / edit modal blueprint</p>
+            <h2 class="text-2xl font-black text-white">Multi-tab employee form</h2>
+          </div>
+          <span class="rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-slate-200">Personal · Job · Docs · Salary</span>
+        </div>
+        <div class="grid gap-5 lg:grid-cols-[240px_1fr]">
+          <nav class="grid content-start gap-2">
+            <button class="rounded-2xl bg-blue-500 px-4 py-3 text-left font-black text-white">Personal</button>
+            <button class="rounded-2xl bg-white/10 px-4 py-3 text-left font-bold text-slate-200">Job Details</button>
+            <button class="rounded-2xl bg-white/10 px-4 py-3 text-left font-bold text-slate-200">Identity Docs</button>
+            <button class="rounded-2xl bg-white/10 px-4 py-3 text-left font-bold text-slate-200">Salary / Bank</button>
+          </nav>
+          <form class="grid gap-4 md:grid-cols-2">
+            <label class="grid gap-2"><span class="text-sm font-bold text-slate-300">Employee code *</span><input class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"></label>
+            <label class="grid gap-2"><span class="text-sm font-bold text-slate-300">Punch machine ID</span><input class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"></label>
+            <label class="grid gap-2"><span class="text-sm font-bold text-slate-300">Full name *</span><input class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"></label>
+            <label class="grid gap-2"><span class="text-sm font-bold text-slate-300">Passport name</span><input class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"></label>
+            <label class="grid gap-2"><span class="text-sm font-bold text-slate-300">Gender *</span><select class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"><option>Male</option><option>Female</option><option>Other</option><option>Undisclosed</option></select></label>
+            <label class="grid gap-2"><span class="text-sm font-bold text-slate-300">Date of birth *</span><input type="date" class="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-300"></label>
+            <div class="md:col-span-2 flex justify-end gap-3 pt-4">
+              <button type="button" class="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 font-bold text-white hover:bg-white/15">Cancel</button>
+              <button type="submit" class="rounded-2xl bg-blue-500 px-5 py-3 font-black text-white shadow-lg shadow-blue-500/30 hover:bg-blue-400">Save employee</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
