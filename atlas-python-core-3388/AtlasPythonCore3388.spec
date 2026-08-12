@@ -27,6 +27,8 @@ hiddenimports = [
     "app.routers.employee",
     "app.routers.import_engine",
     "app.routers.entitlement",
+    "scripts",
+    "scripts.migrate_and_seed",
 ]
 for package_name in (
     "fastapi",

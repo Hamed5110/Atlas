@@ -14,14 +14,17 @@ const state = {
   editingRowVersion: null,
   importPreviewToken: null,
   importHasErrors: false,
-  lastEntitlement: null
+  lastEntitlement: null,
+  reportRows: [],
+  reportSummary: {}
 };
 
 const navItems = [
   ["employees", "Employee Master", "1"],
   ["import", "Master Import", "2"],
   ["entitlement", "Entitlement + Claims", "3"],
-  ["reconciliation", "Field Matrix", "4"]
+  ["reports", "Reports", "4"],
+  ["reconciliation", "Field Matrix", "5"]
 ];
 
 const employeeSections = [
@@ -527,6 +530,67 @@ async function submitClaim(event) {
   toast(`Claim ${result.claimId} submitted.`);
 }
 
+async function runReport() {
+  const payload = Object.fromEntries(new FormData($("reportForm")).entries());
+  for (const key of ["date_from", "date_to"]) {
+    if (!payload[key]) payload[key] = null;
+  }
+  payload.department_id = null;
+  payload.employee_id = null;
+  const result = await api("/api/v1/reports/run", { method: "POST", body: JSON.stringify(payload) });
+  state.reportRows = result.rows || [];
+  state.reportSummary = result.summary || {};
+  renderReport(result);
+  toast(`Report ${result.reportCode} completed: ${state.reportRows.length} row(s).`);
+}
+
+function renderReport(result) {
+  const summary = result.summary || {};
+  $("reportSummary").innerHTML = Object.entries(summary).map(([key, value]) => metric(titleCase(key), value, "live report total")).join("") || metric("Rows", "0", "no data");
+  const rows = result.rows || [];
+  const keys = reportColumns(result.reportCode, rows);
+  $("reportTableHead").innerHTML = `<tr>${keys.map((key) => `<th>${html(titleCase(key))}</th>`).join("")}</tr>`;
+  $("reportTableBody").innerHTML = rows.length
+    ? rows.map((row) => `<tr>${keys.map((key) => `<td>${html(row[key] ?? "—")}</td>`).join("")}</tr>`).join("")
+    : `<tr><td colspan="${Math.max(keys.length, 1)}">No rows returned for the selected report.</td></tr>`;
+}
+
+function reportColumns(reportCode, rows) {
+  const defaults = {
+    PayrollSummary: ["employeeCode", "fullName", "department", "designation", "status", "paymentMode", "grossFixedPay"],
+    DepartmentCosting: ["department", "employeeCount", "activeCount", "grossFixedPay"],
+    DocumentExpiry: ["employeeCode", "fullName", "passportExpiry", "civilIdExpiry", "visaExpiry", "labourCardExpiry", "status"],
+    LoanBalances: ["employeeCode", "fullName", "loanId", "principalAmount", "monthlyInstallment", "outstandingAmount", "loanStatus"],
+    AirfareUtilization: ["employeeCode", "fullName", "department", "joiningDate", "asOfDate", "elapsedServiceDays", "accruedBalance", "seedBalance", "claimedBalance", "availableBalance", "status"]
+  };
+  return defaults[reportCode] || Object.keys(rows[0] || {});
+}
+
+function exportReportCsv() {
+  if (!state.reportRows.length) {
+    toast("Run a report before exporting CSV.", true);
+    return;
+  }
+  const keys = Object.keys(state.reportRows[0]);
+  const csv = [keys.join(","), ...state.reportRows.map((row) => keys.map((key) => csvCell(row[key])).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `atlas-3388-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function titleCase(value) {
+  return String(value).replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (char) => char.toUpperCase()).trim();
+}
+
 function showScreen(id) {
   state.screen = id;
   document.querySelectorAll(".screen").forEach((node) => node.classList.toggle("active", node.id === `screen-${id}`));
@@ -581,6 +645,8 @@ function bindEvents() {
   $("commitImport").addEventListener("click", () => commitImport().catch((error) => { setProgress(0); toast(error.message, true); }));
   $("computeEntitlement").addEventListener("click", () => computeEntitlement().catch((error) => toast(error.message, true)));
   $("claimForm").addEventListener("submit", (event) => submitClaim(event).catch((error) => toast(error.message, true)));
+  $("runReport").addEventListener("click", () => runReport().catch((error) => toast(error.message, true)));
+  $("exportReportCsv").addEventListener("click", exportReportCsv);
   $("themeToggle").addEventListener("click", () => document.documentElement.classList.toggle("dark"));
   $("openSidebar").addEventListener("click", () => $("sidebar").classList.add("open"));
   document.querySelectorAll("[data-refresh]").forEach((button) => button.addEventListener("click", () => refresh().catch((error) => toast(error.message, true))));
@@ -606,6 +672,7 @@ function setDates() {
   const today = new Date().toISOString().slice(0, 10);
   $("claimTargetDate").value = today;
   $("claimDate").value = today;
+  $("reportDateTo").value = today;
 }
 
 async function refresh() {

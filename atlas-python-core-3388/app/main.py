@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from http import HTTPStatus
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,24 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 
 
+def run_startup_migration() -> None:
+    if os.getenv("ATLAS_SKIP_STARTUP_MIGRATION", "").lower() in {"1", "true", "yes"}:
+        return
+
+    from scripts import migrate_and_seed
+
+    result = migrate_and_seed.main()
+    if result != 0:
+        raise RuntimeError("Port 3388 startup migration failed. Database was not created or schema verification failed.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_startup_migration()
+    app.state.database_ready = assert_database_ready()
+    yield
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="ATLAS Port 3388 Python Core",
@@ -30,6 +49,7 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        lifespan=lifespan,
     )
 
     allowed_origins = [origin.strip() for origin in os.getenv("ATLAS_CORS_ORIGINS", "http://127.0.0.1:3388,http://localhost:3388").split(",") if origin.strip()]

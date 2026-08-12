@@ -245,6 +245,8 @@ def create_seed_evidence(payload: SeedEvidenceCreate, session: SessionDep) -> di
 @router.post("/reports/run")
 def run_report(payload: ReportRequest, session: SessionDep) -> dict[str, Any]:
     params = payload.model_dump()
+    rows = execute_report_query(payload, session)
+    summary = summarize_report_rows(payload.report_code, rows)
     report_id = session.execute(
         text(
             """
@@ -255,8 +257,156 @@ def run_report(payload: ReportRequest, session: SessionDep) -> dict[str, Any]:
         ),
         params,
     ).scalar_one()
+    session.execute(
+        text(
+            """
+            INSERT INTO core.AuditLogs (Username, ActionCode, TableName, EntityID, NewValueJSON, IpAddress)
+            VALUES (N'system', N'REPORT_RUN', N'core.ReportRuns', CONVERT(NVARCHAR(120), :report_id), :payload_json, N'127.0.0.1')
+            """
+        ),
+        {"report_id": int(report_id), "payload_json": json_dumps({"parameters": normalize_json(params), "summary": summary})},
+    )
     session.commit()
-    return {"reportRunId": int(report_id), "status": "Completed", "parameters": params}
+    return {
+        "reportRunId": int(report_id),
+        "status": "Completed",
+        "reportCode": payload.report_code,
+        "parameters": normalize_json(params),
+        "summary": summary,
+        "rows": rows,
+    }
+
+
+def execute_report_query(payload: ReportRequest, session: Session) -> list[dict[str, Any]]:
+    common_filters = "WHERE e.IsDeleted = 0"
+    params: dict[str, Any] = {
+        "employee_id": payload.employee_id,
+        "department_id": payload.department_id,
+        "date_from": payload.date_from,
+        "date_to": payload.date_to,
+    }
+    if payload.employee_id is not None:
+        common_filters += " AND e.EmployeeID = :employee_id"
+    if payload.department_id is not None:
+        common_filters += " AND e.DepartmentID = :department_id"
+
+    if payload.report_code == "PayrollSummary":
+        sql = f"""
+            SELECT TOP (500)
+                e.EmployeeID AS employeeId, e.EmployeeCode AS employeeCode, e.FullName AS fullName,
+                d.DepartmentName AS department, e.Designation AS designation, e.EmploymentType AS employmentType,
+                e.Status AS status, e.PaymentMode AS paymentMode, e.BasicSalary AS basicSalary,
+                e.HousingAllowance AS housingAllowance, e.TransportAllowance AS transportAllowance,
+                e.OtherFixedAllowances AS otherFixedAllowances,
+                CAST(e.BasicSalary + e.HousingAllowance + e.TransportAllowance + e.OtherFixedAllowances AS DECIMAL(18,3)) AS grossFixedPay
+            FROM core.Employees e
+            LEFT JOIN core.Departments d ON d.DepartmentID = e.DepartmentID
+            {common_filters}
+            ORDER BY e.EmployeeCode;
+        """
+    elif payload.report_code == "DepartmentCosting":
+        sql = f"""
+            SELECT TOP (500)
+                COALESCE(d.DepartmentName, N'Unassigned') AS department,
+                COUNT_BIG(*) AS employeeCount,
+                SUM(CASE WHEN e.Status = N'Active' THEN 1 ELSE 0 END) AS activeCount,
+                CAST(SUM(e.BasicSalary + e.HousingAllowance + e.TransportAllowance + e.OtherFixedAllowances) AS DECIMAL(18,3)) AS grossFixedPay
+            FROM core.Employees e
+            LEFT JOIN core.Departments d ON d.DepartmentID = e.DepartmentID
+            {common_filters}
+            GROUP BY COALESCE(d.DepartmentName, N'Unassigned')
+            ORDER BY department;
+        """
+    elif payload.report_code == "DocumentExpiry":
+        date_filter = ""
+        if payload.date_to is not None:
+            date_filter = " AND (e.PassportExpiry <= :date_to OR e.CivilIDExpiry <= :date_to OR e.VisaExpiry <= :date_to OR e.LabourCardExpiry <= :date_to)"
+        sql = f"""
+            SELECT TOP (500)
+                e.EmployeeID AS employeeId, e.EmployeeCode AS employeeCode, e.FullName AS fullName,
+                e.PassportExpiry AS passportExpiry, e.CivilIDExpiry AS civilIdExpiry,
+                e.VisaExpiry AS visaExpiry, e.LabourCardExpiry AS labourCardExpiry,
+                CASE
+                    WHEN e.PassportExpiry <= COALESCE(:date_to, DATEADD(DAY, 60, CAST(GETDATE() AS DATE)))
+                      OR e.CivilIDExpiry <= COALESCE(:date_to, DATEADD(DAY, 60, CAST(GETDATE() AS DATE)))
+                      OR e.VisaExpiry <= COALESCE(:date_to, DATEADD(DAY, 60, CAST(GETDATE() AS DATE)))
+                      OR e.LabourCardExpiry <= COALESCE(:date_to, DATEADD(DAY, 60, CAST(GETDATE() AS DATE)))
+                    THEN N'Review' ELSE N'Clear'
+                END AS status
+            FROM core.Employees e
+            {common_filters}{date_filter}
+            ORDER BY e.EmployeeCode;
+        """
+    elif payload.report_code == "LoanBalances":
+        sql = f"""
+            SELECT TOP (500)
+                e.EmployeeID AS employeeId, e.EmployeeCode AS employeeCode, e.FullName AS fullName,
+                l.LoanID AS loanId, l.PrincipalAmount AS principalAmount, l.MonthlyInstallment AS monthlyInstallment,
+                l.OutstandingAmount AS outstandingAmount, l.LoanStatus AS loanStatus, l.DisbursementDate AS disbursementDate
+            FROM core.Loans l
+            INNER JOIN core.Employees e ON e.EmployeeID = l.EmployeeID
+            {common_filters}
+            ORDER BY e.EmployeeCode, l.LoanID DESC;
+        """
+    elif payload.report_code == "AirfareUtilization":
+        sql = f"""
+            WITH RateSetting AS (
+                SELECT TOP (1) TRY_CONVERT(DECIMAL(18,3), SettingValue) AS MonthlyRate
+                FROM core.SystemSettings
+                WHERE SettingKey = N'airfare.monthly_rate_bhd'
+            ),
+            ApprovedClaims AS (
+                SELECT EmployeeID, SUM(ClaimAmount) AS ClaimedBalance
+                FROM core.AirfareClaims
+                WHERE ApprovalStatus = N'Approved'
+                  AND (:date_to IS NULL OR ClaimDate <= :date_to)
+                  AND (:date_from IS NULL OR ClaimDate >= :date_from)
+                GROUP BY EmployeeID
+            ),
+            ApprovedSeeds AS (
+                SELECT EmployeeID, SUM(Amount) AS SeedBalance
+                FROM core.SeedEvidence
+                WHERE SeedType = N'AirfareEntitlement' AND ApprovalStatus = N'Approved'
+                  AND (:date_to IS NULL OR EffectiveDate <= :date_to)
+                GROUP BY EmployeeID
+            )
+            SELECT TOP (500)
+                e.EmployeeID AS employeeId, e.EmployeeCode AS employeeCode, e.FullName AS fullName,
+                d.DepartmentName AS department, e.Designation AS designation, e.JoiningDate AS joiningDate,
+                COALESCE(:date_to, CAST(GETDATE() AS DATE)) AS asOfDate,
+                CASE WHEN DATEDIFF(DAY, e.JoiningDate, COALESCE(:date_to, CAST(GETDATE() AS DATE))) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, COALESCE(:date_to, CAST(GETDATE() AS DATE))) END AS elapsedServiceDays,
+                CAST(COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) AS DECIMAL(18,3)) AS monthlyRate,
+                CAST(ROUND((CASE WHEN DATEDIFF(DAY, e.JoiningDate, COALESCE(:date_to, CAST(GETDATE() AS DATE))) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, COALESCE(:date_to, CAST(GETDATE() AS DATE))) END) * COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) / 30.4375, 3) AS DECIMAL(18,3)) AS accruedBalance,
+                CAST(COALESCE(s.SeedBalance, 0) AS DECIMAL(18,3)) AS seedBalance,
+                CAST(COALESCE(c.ClaimedBalance, 0) AS DECIMAL(18,3)) AS claimedBalance,
+                CAST(ROUND(((CASE WHEN DATEDIFF(DAY, e.JoiningDate, COALESCE(:date_to, CAST(GETDATE() AS DATE))) < 0 THEN 0 ELSE DATEDIFF(DAY, e.JoiningDate, COALESCE(:date_to, CAST(GETDATE() AS DATE))) END) * COALESCE((SELECT MonthlyRate FROM RateSetting), 150.000) / 30.4375) + COALESCE(s.SeedBalance, 0) - COALESCE(c.ClaimedBalance, 0), 3) AS DECIMAL(18,3)) AS availableBalance,
+                CASE WHEN COALESCE(c.ClaimedBalance, 0) > 0 THEN N'Utilized' ELSE N'Available' END AS status
+            FROM core.Employees e
+            LEFT JOIN core.Departments d ON d.DepartmentID = e.DepartmentID
+            LEFT JOIN ApprovedClaims c ON c.EmployeeID = e.EmployeeID
+            LEFT JOIN ApprovedSeeds s ON s.EmployeeID = e.EmployeeID
+            {common_filters}
+            ORDER BY e.EmployeeCode;
+        """
+    else:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported report_code.")
+
+    result = session.execute(text(sql), params).mappings().all()
+    return [normalize_json(dict(row)) for row in result]
+
+
+def summarize_report_rows(report_code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    numeric_keys = {
+        "PayrollSummary": ["grossFixedPay", "basicSalary", "housingAllowance", "transportAllowance", "otherFixedAllowances"],
+        "DepartmentCosting": ["grossFixedPay", "employeeCount", "activeCount"],
+        "DocumentExpiry": [],
+        "LoanBalances": ["principalAmount", "monthlyInstallment", "outstandingAmount"],
+        "AirfareUtilization": ["accruedBalance", "seedBalance", "claimedBalance", "availableBalance"],
+    }.get(report_code, [])
+    totals: dict[str, Any] = {"rowCount": len(rows)}
+    for key in numeric_keys:
+        totals[key] = str(sum(Decimal(str(row.get(key) or 0)) for row in rows))
+    return totals
 
 
 @router.put("/admin/settings/{setting_key}")
@@ -339,6 +489,18 @@ def request_backup(session: SessionDep) -> dict[str, Any]:
     return {"backupJobId": int(backup_id), "status": "Queued"}
 
 
+
+
+def normalize_json(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): normalize_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [normalize_json(item) for item in value]
+    return value
 
 
 def json_dumps(value: dict[str, Any]) -> str:

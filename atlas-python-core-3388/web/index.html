@@ -263,6 +263,42 @@
           </div>
         </section>
 
+        <section id="screen-reports" class="screen">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Operational Reports Center</h2>
+                <p>Continuous entitlement, payroll, document, loan, and costing reports. Built from live core MSSQL tables, not legacy annual batch output.</p>
+              </div>
+              <div class="actions">
+                <button id="runReport" class="btn primary">Run Report</button>
+                <button id="exportReportCsv" class="btn">Export CSV</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <form id="reportForm" class="grid-form">
+                <label><span>Report</span><select id="reportCode" name="report_code">
+                  <option value="AirfareUtilization">Airfare utilization</option>
+                  <option value="PayrollSummary">Payroll summary</option>
+                  <option value="DepartmentCosting">Department costing</option>
+                  <option value="DocumentExpiry">Document expiry</option>
+                  <option value="LoanBalances">Loan balances</option>
+                </select></label>
+                <label><span>Date from</span><input id="reportDateFrom" name="date_from" type="date"></label>
+                <label><span>Date to / As-of date</span><input id="reportDateTo" name="date_to" type="date"></label>
+                <label><span>Export format</span><select id="reportExportFormat" name="export_format"><option value="json">JSON</option><option value="xlsx">XLSX request</option><option value="pdf">PDF request</option></select></label>
+              </form>
+              <div id="reportSummary" class="metrics" style="margin-top:14px"></div>
+              <div class="table-wrap" style="margin-top:14px">
+                <table>
+                  <thead id="reportTableHead"></thead>
+                  <tbody id="reportTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+
         <section id="screen-reconciliation" class="screen">
           <section class="panel">
             <div class="panel-head">
