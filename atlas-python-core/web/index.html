@@ -1,42 +1,217 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="h-full scroll-smooth">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ATLAS Python Core | Command</title>
-  <link rel="stylesheet" href="/assets/app.css">
+  <meta name="color-scheme" content="light dark">
+  <title>ATLAS Python Core 3356 | Enterprise Command Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "ui-sans-serif", "system-ui", "Segoe UI", "Arial", "sans-serif"]
+          },
+          boxShadow: {
+            soft: "0 18px 60px rgba(15, 23, 42, 0.10)"
+          }
+        }
+      }
+    };
+  </script>
 </head>
-<body data-page="command">
-  <aside class="sidebar">
-    <a class="brand" href="/"><span>A</span><strong>ATLAS Core</strong><small>Python + MSSQL · no old runtime</small></a>
-    <nav>
-      <a class="active" href="/">Command</a>
-      <a href="/employees">Employees</a>
-      <a href="/employee-import">Master Import</a>
-      <a href="/airfare">Airfare Allocation</a>
-      <a href="/loans">Loans / EMI</a>
-      <a href="/reports">Reports</a>
-      <a href="/admin">Admin</a>
-      <a href="/support">Support</a>
-    </nav>
-    <div class="guard">Continuous entitlement only. Opening balances are seed evidence for live calculations.</div>
-  </aside>
-  <main class="shell">
-    <header class="hero">
-      <div><small>GREENFIELD BUILD</small><h1>One clean system. Employee master first.</h1><p>Fresh application logic using the core MSSQL repository. Separate pages with continuous entitlement.</p></div>
-      <button data-refresh>Refresh</button>
-    </header>
-    <section class="panel status-panel">
-      <div class="panel-title"><div><small>SYSTEM STATUS</small><h2>Live service proof</h2></div><span id="serviceHealth" class="pill warn">checking</span></div>
-      <div id="systemStatusRows" class="rows"></div>
+<body data-page="command" class="h-full bg-slate-100 text-slate-950 antialiased dark:bg-slate-950 dark:text-slate-100">
+  <div class="min-h-screen lg:grid lg:grid-cols-[18rem_minmax(0,1fr)]">
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 hidden w-72 border-r border-slate-200 bg-white/95 shadow-soft backdrop-blur lg:flex lg:flex-col dark:border-slate-800 dark:bg-slate-950/95">
+      <div class="flex h-20 shrink-0 items-center gap-3 border-b border-slate-200 px-5 dark:border-slate-800">
+        <div class="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 text-xl font-black text-white shadow-lg">A</div>
+        <div class="min-w-0">
+          <p class="truncate text-sm font-black uppercase tracking-[0.22em] text-blue-600">ATLAS Core</p>
+          <h1 class="truncate text-lg font-black">Python + MSSQL</h1>
+          <p class="truncate text-xs text-slate-500">Port 3356 clean-room runtime</p>
+        </div>
+      </div>
+
+      <div class="shrink-0 border-b border-slate-200 p-4 dark:border-slate-800">
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/70 dark:bg-emerald-950/30">
+          <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Operational Rule</p>
+          <p class="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-300">Continuous entitlement only. No annual reset or legacy close workflow.</p>
+        </div>
+      </div>
+
+      <nav id="moduleNav" class="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="ATLAS modules"></nav>
+
+      <div class="shrink-0 border-t border-slate-200 p-4 dark:border-slate-800">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Isolation</span>
+            <span id="sidebarHealth" class="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">checking</span>
+          </div>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">3356 service is isolated and self-contained.</p>
+        </div>
+      </div>
+    </aside>
+
+    <div id="mobileSidebar" class="fixed inset-0 z-50 hidden bg-slate-950/50 lg:hidden">
+      <div class="h-full w-[86vw] max-w-sm bg-white p-4 shadow-soft dark:bg-slate-950">
+        <div class="mb-4 flex items-center justify-between">
+          <strong>ATLAS Modules</strong>
+          <button id="closeSidebar" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold dark:border-slate-800">Close</button>
+        </div>
+        <nav id="mobileModuleNav" class="space-y-1"></nav>
+      </div>
+    </div>
+
+    <main class="lg:col-start-2">
+      <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur md:px-6 dark:border-slate-800 dark:bg-slate-950/90">
+        <div class="flex flex-wrap items-center gap-3">
+          <button id="openSidebar" class="rounded-2xl border border-slate-200 p-3 lg:hidden dark:border-slate-800" aria-label="Open modules">☰</button>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="apiBadge" class="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800">API checking</span>
+              <span id="sqlBadge" class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600 dark:bg-slate-900 dark:text-slate-300">SQL pending</span>
+            </div>
+            <h2 class="mt-1 truncate text-xl font-black md:text-2xl">Enterprise Command Center</h2>
+          </div>
+          <label class="relative hidden min-w-[18rem] max-w-md flex-1 md:block">
+            <span class="sr-only">Search employees and modules</span>
+            <input id="globalSearch" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pl-11 text-sm outline-none ring-blue-500 transition focus:ring-2 dark:border-slate-800 dark:bg-slate-900" placeholder="Search employees, modules, status..." autocomplete="off">
+            <span class="absolute left-4 top-3 text-slate-400">⌕</span>
+          </label>
+          <button id="themeToggle" class="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black dark:border-slate-800">Theme</button>
+          <a class="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20" href="/docs">API Docs</a>
+          <div class="hidden rounded-2xl border border-slate-200 px-4 py-2 md:block dark:border-slate-800">
+            <p class="text-xs text-slate-500">Signed in</p>
+            <p class="text-sm font-black">System Admin</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="px-4 py-6 md:px-6 xl:px-8">
+        <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <div class="space-y-6">
+            <section class="overflow-hidden rounded-[2rem] border border-blue-200 bg-gradient-to-br from-white via-blue-50 to-cyan-50 p-6 shadow-soft md:p-8 dark:border-blue-900/70 dark:from-slate-900 dark:via-slate-900 dark:to-blue-950">
+              <div class="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+                <div class="max-w-4xl">
+                  <p class="text-xs font-black uppercase tracking-[0.28em] text-blue-600">Greenfield enterprise build</p>
+                  <h1 class="mt-3 text-4xl font-black tracking-tight md:text-6xl">One clean system. Continuous entitlement. No batch reset workflow.</h1>
+                  <p class="mt-4 max-w-3xl text-base leading-8 text-slate-600 md:text-lg dark:text-slate-300">Employee master, import verification, allocations, loans, reports, and admin operations run through isolated FastAPI + MSSQL APIs on port 3356.</p>
+                </div>
+                <button data-refresh class="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-4 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-blue-700 dark:bg-white dark:text-slate-950">Refresh Live Data</button>
+              </div>
+            </section>
+
+            <section id="metricsGrid" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"></section>
+
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+              <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Employee Master</p>
+                  <h3 class="text-2xl font-black">Live records</h3>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <select id="statusFilter" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold dark:border-slate-800 dark:bg-slate-950">
+                    <option value="">All status</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Resigned">Resigned</option>
+                    <option value="Terminated">Terminated</option>
+                    <option value="OnLeave">On Leave</option>
+                  </select>
+                  <button id="openImportModal" class="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">Verify Import</button>
+                </div>
+              </div>
+              <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div class="max-h-[32rem] overflow-auto">
+                  <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
+                    <thead class="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase tracking-[0.14em] text-slate-500 dark:bg-slate-950">
+                      <tr>
+                        <th class="px-4 py-3">Code</th>
+                        <th class="px-4 py-3">Employee</th>
+                        <th class="px-4 py-3">Job</th>
+                        <th class="px-4 py-3">Payment</th>
+                        <th class="px-4 py-3">Status</th>
+                        <th class="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="employeeTable" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="space-y-6">
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Continuous Entitlement</p>
+                  <h3 class="text-2xl font-black">Live calculator</h3>
+                </div>
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">no reset</span>
+              </div>
+              <div class="mt-5 space-y-4">
+                <label class="block">
+                  <span class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Employee</span>
+                  <select id="entitlementEmployee" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold dark:border-slate-800 dark:bg-slate-950"></select>
+                </label>
+                <label class="block">
+                  <span class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Target date</span>
+                  <input id="targetDate" type="date" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold dark:border-slate-800 dark:bg-slate-950">
+                </label>
+                <button id="computeEntitlement" class="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white">Compute Balance</button>
+              </div>
+              <div id="entitlementResult" class="mt-5 grid gap-3"></div>
+            </section>
+
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+              <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Runtime Proof</p>
+              <div id="runtimeProof" class="mt-4 space-y-3"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="importModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4">
+    <section class="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[2rem] bg-white shadow-2xl dark:bg-slate-950">
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800">
+        <div>
+          <p class="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Pre-import verification</p>
+          <h3 class="text-2xl font-black">Inspect before database write</h3>
+        </div>
+        <button id="closeImportModal" class="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black dark:border-slate-800">Close</button>
+      </div>
+      <div class="grid max-h-[calc(92vh-6rem)] gap-5 overflow-auto p-5 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <div class="space-y-4">
+          <input id="importFile" type="file" accept=".csv,.xlsx,.xlsm" class="block w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-900">
+          <button id="verifyImport" class="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white">Verify File</button>
+          <div id="importSummary" class="grid gap-3"></div>
+          <label class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+            <input id="ackImportErrors" type="checkbox" class="mt-1">
+            <span>I reviewed warnings/errors. Commit only validated rows stored by the server token.</span>
+          </label>
+          <button id="commitImport" disabled class="w-full rounded-2xl bg-slate-300 px-4 py-3 text-sm font-black text-slate-600 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-slate-400">Commit Import</button>
+          <div class="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div id="importProgress" class="h-full w-0 bg-blue-600 transition-all"></div></div>
+        </div>
+        <div class="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+          <div class="max-h-[34rem] overflow-auto">
+            <table class="min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-800">
+              <thead class="sticky top-0 bg-slate-50 text-left uppercase tracking-[0.14em] text-slate-500 dark:bg-slate-900">
+                <tr><th class="px-3 py-3">Row</th><th class="px-3 py-3">Status</th><th class="px-3 py-3">Fields</th><th class="px-3 py-3">Errors</th></tr>
+              </thead>
+              <tbody id="importPreviewRows" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
-    <section class="cards" id="commandCards"></section>
-    <section class="panel">
-      <div class="panel-title"><div><small>RUNTIME IDENTITY</small><h2>3356 build proof</h2></div><span id="runtimePill" class="pill warn">checking</span></div>
-      <div id="runtimeRows" class="rows"></div>
-    </section>
-  </main>
-  <div id="toast" role="status"></div>
+  </div>
+
+  <div id="toast" class="fixed bottom-5 right-5 z-[60] hidden max-w-md rounded-2xl px-5 py-4 text-sm font-bold shadow-2xl"></div>
   <script src="/assets/app.js"></script>
 </body>
 </html>

@@ -13,6 +13,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Port = "3356"
+$LogRoot = Join-Path $InstallRoot "logs"
+New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
+$SetupLog = Join-Path $LogRoot ("ATLAS-Python-Core-3356-Setup-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+Start-Transcript -Path $SetupLog -Append | Out-Null
+
+trap {
+    Write-Host "FAIL: ATLAS Python Core 3356 setup failed. Log file: $SetupLog" -ForegroundColor Red
+    try { Stop-Transcript | Out-Null } catch { }
+    throw $_
+}
 
 function Assert-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -138,3 +148,5 @@ if (-not $SkipService) {
 
 powershell -ExecutionPolicy Bypass -File .\scripts\validate_live_3356.ps1
 Write-Host "PASS: ATLAS Python Core 3356 installed and validated."
+Write-Host "Log file: $SetupLog"
+Stop-Transcript | Out-Null

@@ -37,7 +37,7 @@ Name: "{group}\API Documentation"; Filename: "http://127.0.0.1:{code:GetAppPort}
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install_atlas_3356.ps1"" -SourceRoot ""{app}"" -InstallRoot ""{app}"" -DbServer ""{code:GetSqlHost}"" -DbPort ""{code:GetSqlPort}"" -DbName ""{code:GetDbName}"" -DbUser ""{code:GetDbUser}"" -DbPassword ""{code:GetDbPassword}"""; Flags: runhidden waituntilterminated; StatusMsg: "Configuring ATLAS Python Core 3356, database, firewall, and Windows service..."
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install_atlas_3356.ps1"" -SourceRoot ""{app}"" -InstallRoot ""{app}"" -DbServer ""{code:GetSqlHost}"" -DbPort ""{code:GetSqlPort}"" -DbName ""{code:GetDbName}"" -DbUser ""{code:GetDbUser}"" -DbPassword ""{code:GetDbPassword}"""; Flags: waituntilterminated; StatusMsg: "Configuring ATLAS Python Core 3356, database, firewall, and Windows service..."
 
 [Code]
 var
