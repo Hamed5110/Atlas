@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="ATLAS Port 3356 Python Core",
         version=APP_VERSION,
-        description="Clean-room Python + MSSQL API. Zero Year-End process.",
+        description="Clean-room Python + MSSQL API with continuous entitlement only.",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
@@ -52,7 +52,7 @@ def create_app() -> FastAPI:
             "runtime": "FastAPI",
             "database": database,
             "oldRuntimeLinked": False,
-            "yearEndProcess": False,
+            "legacyBatchCloseLinked": False,
             "registeredModules": [
                 "employees",
                 "employee-import",
@@ -82,11 +82,11 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(IntegrityError)
     async def integrity_exception_handler(_: Request, exc: IntegrityError) -> JSONResponse:
-        return JSONResponse(status_code=HTTPStatus.CONFLICT, content={"code": "IntegrityError", "detail": "Database constraint conflict.", "driverMessage": str(exc.orig)})
+        return JSONResponse(status_code=HTTPStatus.CONFLICT, content={"code": "IntegrityError", "detail": "Database constraint conflict."})
 
     @app.exception_handler(OperationalError)
     async def operational_exception_handler(_: Request, exc: OperationalError) -> JSONResponse:
-        return JSONResponse(status_code=HTTPStatus.SERVICE_UNAVAILABLE, content={"code": "OperationalError", "detail": "Database is unavailable.", "driverMessage": str(exc.orig)})
+        return JSONResponse(status_code=HTTPStatus.SERVICE_UNAVAILABLE, content={"code": "OperationalError", "detail": "Database is unavailable."})
 
     @app.exception_handler(SQLAlchemyError)
     async def sqlalchemy_exception_handler(_: Request, exc: SQLAlchemyError) -> JSONResponse:
@@ -94,7 +94,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(_: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, content={"code": exc.__class__.__name__, "detail": str(exc)})
+        return JSONResponse(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, content={"code": exc.__class__.__name__, "detail": "Unhandled server error."})
 
 
 app = create_app()

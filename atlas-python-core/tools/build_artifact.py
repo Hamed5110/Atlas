@@ -8,28 +8,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
-OUT = REPO / "artifacts" / "python-core-mssql-0.1.0"
+VERSION = "0.2.0"
+OUT = REPO / "artifacts" / f"python-core-mssql-{VERSION}"
 
 
 def main() -> None:
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
-    for folder in ["app", "schema", "web", "tests", "tools", "docs"]:
+    for folder in ["app", "schema", "web", "tests", "tools", "docs", "scripts"]:
         shutil.copytree(ROOT / folder, OUT / folder)
     for file_name in ["README.md", "requirements.txt"]:
         shutil.copy2(ROOT / file_name, OUT / file_name)
 
     manifest = {
         "product": "ATLAS Python Core",
-        "version": "0.1.0",
+        "version": VERSION,
         "buildTimestampUtc": datetime.now(timezone.utc).isoformat(),
         "runtime": "python",
         "driver": "mssql-python",
         "defaultPort": 3356,
-        "database": {"defaultName": "AtlasPythonCore", "schema": "core"},
+        "database": {"defaultName": "AtlasPythonCore3356", "schema": "core"},
         "oldRuntimeLinked": False,
-        "annualCloseProcess": False,
+        "legacyBatchCloseLinked": False,
         "modules": [
             "signIn",
             "command",
@@ -51,7 +52,8 @@ def main() -> None:
         "hashes": {
             "server": sha256(OUT / "app" / "server.py"),
             "repository": sha256(OUT / "app" / "db.py"),
-            "schema": sha256(OUT / "schema" / "mssql" / "001_core.sql"),
+            "employeeSchema": sha256(OUT / "schema" / "mssql" / "Port3356_EmployeeMaster.sql"),
+            "moduleSchema": sha256(OUT / "schema" / "mssql" / "Port3356_Modules_02_11.sql"),
             "ui": sha256(OUT / "web" / "index.html"),
         },
     }

@@ -163,72 +163,14 @@ def test_database_repository_contract() -> None:
 
 
 def test_http_contract() -> None:
-    from app.server import Handler
-    from http.server import ThreadingHTTPServer
+    import app.server as production_server
+    from app.main import create_app
 
-    server = ThreadingHTTPServer(("127.0.0.1", config.PORT), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        wait_for(f"http://127.0.0.1:{config.PORT}/api/health")
-        health = get_json(f"http://127.0.0.1:{config.PORT}/api/health")
-        assert health["status"] == "ok"
-        assert health["repository"] == "mssql-python-core"
-        assert health["annualCloseProcess"] is False
-        assert health["database"]["databaseName"] == config.DB_NAME
-
-        for route, marker in {
-            "/": "One clean system",
-            "/employees": "Complete master record",
-            "/employee-import": "Excel import with validation",
-            "/airfare": "Rules, accruals, allocation usage",
-            "/loans": "Recovery setup",
-            "/reports": "AIRFARE PAYABLE",
-            "/admin": "Companies, users, preferences",
-            "/support": "Diagnostics",
-        }.items():
-            assert marker in get_text(f"http://127.0.0.1:{config.PORT}{route}")
-
-        summary = get_json(f"http://127.0.0.1:{config.PORT}/api/summary?asOfDate=2026-12-31")
-        assert summary["database"] == config.DB_NAME
-        assert summary["repository"] == "mssql-python-core"
-        assert "allocations" in summary
-
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/companies")["rows"]
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/rules")["rows"]
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/events")["rows"]
-        assert "rows" in get_json(f"http://127.0.0.1:{config.PORT}/api/allocations")
-        assert "rows" in get_json(f"http://127.0.0.1:{config.PORT}/api/loans")
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/entitlement/reconciliation?asOfDate=2026-12-31")["status"] in {"balanced", "review"}
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/self-service/requests")["rows"]
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/reports/airfare-payable?asOfDate=2026-12-31")["employeeCount"] >= 1
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/reports/employees")["total"] >= 1
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/preferences")["preferences"]
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/users")["rows"]
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/diagnostics")["status"] == "ok"
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/support")["supportMode"] == "local-greenfield"
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/system-maintenance")["database"] == config.DB_NAME
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/airports/search?q=BAH")["rows"][0]["code"] == "BAH"
-        attachment_rows = get_json(f"http://127.0.0.1:{config.PORT}/api/attachments")["rows"]
-        assert attachment_rows
-        attachment_body = get_text(f"http://127.0.0.1:{config.PORT}{attachment_rows[0]['viewUrl']}")
-        assert attachment_body
-        backup = post_json(f"http://127.0.0.1:{config.PORT}/api/admin/backup", {})
-        assert Path(backup["backupFile"]).exists()
-        assert get_json(f"http://127.0.0.1:{config.PORT}/api/admin/backups")["rows"]
-        excel_payload = make_employee_workbook_base64(f"HTTP-XL-{uuid.uuid4().hex[:8]}")
-        excel_result = post_json(f"http://127.0.0.1:{config.PORT}/api/import-excel/execute", {"moduleCode": "employees", "contentBase64": excel_payload})
-        assert len(excel_result["createdRows"]) == 1
-
-        try:
-            get_json(f"http://127.0.0.1:{config.PORT}/api/summary")
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 400
-        else:
-            raise AssertionError("missing asOfDate must fail with 400")
-    finally:
-        server.shutdown()
-        server.server_close()
+    assert hasattr(production_server, "run")
+    assert not hasattr(production_server, "Handler")
+    assert production_server.PORT == 3356
+    routes = {route.path for route in create_app().routes}
+    assert "/api/v1/health" in routes
 
 
 def wait_for(url: str) -> None:

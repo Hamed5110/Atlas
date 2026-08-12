@@ -553,7 +553,7 @@ def reconciliation(as_of_date: str) -> dict[str, Any]:
         "status": "review" if review else "balanced",
         "reviewCount": len(review),
         "rows": balances,
-        "note": "Continuous entitlement reconciliation; not payroll posting and not an annual close batch.",
+        "note": "Continuous entitlement reconciliation; not payroll posting and not a batch reset.",
     }
 
 
@@ -696,7 +696,7 @@ def diagnostics() -> dict[str, Any]:
         "checks": [
             {"name": "MSSQL connection", "status": "ok"},
             {"name": "core schema", "status": "ok" if all(health["objects"].values()) else "review"},
-            {"name": "annual close disabled", "status": "ok"},
+            {"name": "legacy batch reset isolation", "status": "ok"},
             {"name": "continuous entitlement", "status": "ok"},
         ],
     }

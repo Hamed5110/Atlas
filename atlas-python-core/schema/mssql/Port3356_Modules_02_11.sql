@@ -1,6 +1,6 @@
 /*
   ATLAS Port 3356 - Modules 02 through 11 MSSQL DDL
-  Clean-room Python/FastAPI schema. No Year-End close, no yearly rollover, no legacy UI dependencies.
+  Clean-room Python/FastAPI schema. Continuous entitlement only, no rollover jobs, no legacy UI dependencies.
 */
 
 SET XACT_ABORT ON;

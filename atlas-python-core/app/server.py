@@ -1,229 +1,83 @@
 from __future__ import annotations
 
 import json
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+import logging
+import os
+import signal
+import sys
+from typing import Any
 
-from . import config, db
-
-
-ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
-PAGES = {
-    "/": "index.html",
-    "/employees": "employees.html",
-    "/employee-import": "employee-import.html",
-    "/airfare": "airfare.html",
-    "/loans": "loans.html",
-    "/reports": "reports.html",
-    "/admin": "admin.html",
-    "/support": "support.html",
-}
-BOOT_PROOF = db.initialize()
+import uvicorn
 
 
-class Handler(BaseHTTPRequestHandler):
-    server_version = "ATLASPythonCore/0.1.0"
-
-    def do_GET(self) -> None:
-        try:
-            parsed = urlparse(self.path)
-            query = parse_qs(parsed.query)
-            if parsed.path in PAGES:
-                return self.send_file(WEB / PAGES[parsed.path], "text/html; charset=utf-8")
-            if parsed.path == "/assets/app.css":
-                return self.send_file(WEB / "app.css", "text/css; charset=utf-8")
-            if parsed.path == "/assets/app.js":
-                return self.send_file(WEB / "app.js", "application/javascript; charset=utf-8")
-            if parsed.path == "/api/health":
-                return self.send_json({
-                    "status": "ok",
-                    "application": config.APP_NAME,
-                    "version": config.APP_VERSION,
-                    "runtime": "python",
-                    "repository": "mssql-python-core",
-                    "port": config.PORT,
-                    "oldRuntimeLinked": False,
-                    "annualCloseProcess": False,
-                    "database": db.health_probe(),
-                    "startupDatabaseProof": BOOT_PROOF,
-                })
-            if parsed.path == "/api/diagnostics":
-                return self.send_json(db.diagnostics())
-            if parsed.path == "/api/support":
-                return self.send_json(db.support_info())
-            if parsed.path == "/api/system-maintenance":
-                return self.send_json(db.system_maintenance())
-            if parsed.path == "/api/admin/backups":
-                return self.send_json(db.list_backups())
-            if parsed.path == "/api/airports/search":
-                return self.send_json(db.search_airports(required_query_text(query, "q")))
-            if parsed.path == "/api/attachments":
-                return self.send_json({"rows": db.list_attachments()})
-            if parsed.path.startswith("/api/attachments/") and parsed.path.endswith("/view"):
-                attachment_id = parsed.path.split("/")[3]
-                attachment = db.get_attachment_content(attachment_id)
-                return self.send_bytes(attachment["content"], attachment["contentType"], attachment["fileName"])
-            if parsed.path == "/api/summary":
-                return self.send_json(db.summary(required_query(query, "asOfDate")))
-            if parsed.path == "/api/companies":
-                return self.send_json({"rows": db.list_companies()})
-            if parsed.path == "/api/employees":
-                return self.send_json({"rows": db.list_employees()})
-            if parsed.path == "/api/entitlement/rules":
-                return self.send_json({"rows": db.list_entitlement_rules()})
-            if parsed.path == "/api/entitlement/events":
-                return self.send_json({"rows": db.list_entitlement_events()})
-            if parsed.path == "/api/entitlement/balance":
-                return self.send_json({"asOfDate": required_query(query, "asOfDate"), "rows": db.entitlement_balance(required_query(query, "asOfDate"))})
-            if parsed.path == "/api/entitlement/reconciliation":
-                return self.send_json(db.reconciliation(required_query(query, "asOfDate")))
-            if parsed.path == "/api/allocations":
-                return self.send_json({"rows": db.list_allocations()})
-            if parsed.path == "/api/loans":
-                return self.send_json({"rows": db.list_loans()})
-            if parsed.path == "/api/self-service/requests":
-                return self.send_json({"rows": db.list_self_service_requests()})
-            if parsed.path == "/api/reports/airfare-payable":
-                return self.send_json(db.reports_airfare_payable(required_query(query, "asOfDate")))
-            if parsed.path == "/api/reports/employees":
-                return self.send_json(db.reports_employee_summary())
-            if parsed.path == "/api/preferences":
-                return self.send_json(db.get_preferences())
-            if parsed.path == "/api/users":
-                return self.send_json({"rows": db.list_users()})
-            if parsed.path == "/api/export":
-                return self.send_json(db.export_module(required_query_text(query, "module")))
-            return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
-        except Exception as exc:
-            return self.send_error_json(exc)
-
-    def do_POST(self) -> None:
-        try:
-            parsed = urlparse(self.path)
-            if parsed.path == "/api/auth/login":
-                return self.send_json(db.login(self.read_json()))
-            if parsed.path == "/api/companies":
-                return self.send_json({"company": db.create_company(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path == "/api/employees":
-                return self.send_json({"employee": db.create_employee(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path == "/api/entitlement/events":
-                return self.send_json({"event": db.post_entitlement_event(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path == "/api/allocations":
-                return self.send_json({"allocation": db.create_allocation(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path == "/api/loans":
-                return self.send_json({"loan": db.create_loan(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path == "/api/self-service/requests":
-                return self.send_json({"request": db.create_self_service_request(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path.startswith("/api/self-service/requests/") and parsed.path.endswith("/transition"):
-                request_id = parsed.path.split("/")[4]
-                return self.send_json({"request": db.transition_self_service_request(request_id, self.read_json().get("statusCode", ""))})
-            if parsed.path == "/api/import-preview":
-                payload = self.read_json()
-                return self.send_json(db.import_preview(payload.get("moduleCode", ""), payload.get("rows", [])))
-            if parsed.path == "/api/preferences":
-                return self.send_json(db.save_preferences(self.read_json()))
-            if parsed.path == "/api/attachments":
-                return self.send_json({"attachment": db.create_attachment(self.read_json())}, HTTPStatus.CREATED)
-            if parsed.path == "/api/admin/backup":
-                return self.send_json(db.create_backup(), HTTPStatus.CREATED)
-            if parsed.path == "/api/admin/restore":
-                return self.send_json(db.restore_backup(self.read_json()))
-            if parsed.path == "/api/import-excel/preview":
-                return self.send_json(db.excel_import_preview(self.read_json()))
-            if parsed.path == "/api/import-excel/execute":
-                return self.send_json(db.excel_import_execute(self.read_json()))
-            return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
-        except Exception as exc:
-            return self.send_error_json(exc)
-
-    def do_PUT(self) -> None:
-        try:
-            parsed = urlparse(self.path)
-            if parsed.path.startswith("/api/employees/"):
-                employee_id = parsed.path.split("/")[-1]
-                return self.send_json({"employee": db.update_employee(employee_id, self.read_json())})
-            return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
-        except Exception as exc:
-            return self.send_error_json(exc)
-
-    def do_DELETE(self) -> None:
-        try:
-            parsed = urlparse(self.path)
-            if parsed.path.startswith("/api/employees/"):
-                employee_id = parsed.path.split("/")[-1]
-                return self.send_json({"employee": db.delete_employee(employee_id)})
-            return self.send_json({"code": "NOT_FOUND", "error": "Route not found."}, HTTPStatus.NOT_FOUND)
-        except Exception as exc:
-            return self.send_error_json(exc)
-
-    def read_json(self) -> dict:
-        length = int(self.headers.get("Content-Length") or "0")
-        if length == 0:
-            return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
-
-    def send_file(self, path: Path, content_type: str) -> None:
-        body = path.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Atlas-Python-Core", "true")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def send_json(self, body: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
-        raw = json.dumps(body, indent=2, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Atlas-Python-Core", "true")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
-
-    def send_bytes(self, body: bytes, content_type: str, file_name: str) -> None:
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Atlas-Python-Core", "true")
-        self.send_header("Content-Disposition", f'inline; filename="{file_name}"')
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def send_error_json(self, exc: Exception) -> None:
-        message = str(exc) or exc.__class__.__name__
-        status = HTTPStatus.BAD_REQUEST if isinstance(exc, (ValueError, json.JSONDecodeError)) else HTTPStatus.INTERNAL_SERVER_ERROR
-        self.send_json({"code": exc.__class__.__name__, "error": message}, status)
-
-    def log_message(self, fmt: str, *args) -> None:
-        print(f"{self.client_address[0]} - {fmt % args}")
+PORT = int(os.getenv("PORT", "3356"))
+HOST = os.getenv("ATLAS_PYTHON_HOST", "0.0.0.0")
+WORKERS = int(os.getenv("ATLAS_UVICORN_WORKERS", "1"))
 
 
-def required_query(query: dict[str, list[str]], name: str) -> str:
-    value = query.get(name, [""])[0].strip()
-    if not value:
-        raise ValueError(f"{name} is required in YYYY-MM-DD format.")
-    return value
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%SZ"),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, separators=(",", ":"), default=str)
 
 
-def required_query_text(query: dict[str, list[str]], name: str) -> str:
-    value = query.get(name, [""])[0].strip()
-    if not value:
-        raise ValueError(f"{name} is required.")
-    return value
+def configure_logging() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {"json": {"()": JsonFormatter}},
+        "handlers": {
+            "default": {"formatter": "json", "class": "logging.StreamHandler", "stream": "ext://sys.stdout"},
+            "access": {"formatter": "json", "class": "logging.StreamHandler", "stream": "ext://sys.stdout"},
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+            "atlas": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        },
+    }
 
 
-def main() -> None:
-    server = ThreadingHTTPServer(("0.0.0.0", config.PORT), Handler)
-    print(f"ATLAS Python Core listening on http://127.0.0.1:{config.PORT}")
-    print(f"ATLAS Python Core database: {config.DB_SERVER},{config.DB_PORT}/{config.DB_NAME}")
-    server.serve_forever()
+def install_shutdown_handlers() -> None:
+    logger = logging.getLogger("atlas")
+
+    def handle_signal(signum: int, _frame: Any) -> None:
+        logger.info("shutdown-signal-received signal=%s", signum)
+        raise KeyboardInterrupt
+
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, handle_signal)
+    if hasattr(signal, "SIGINT"):
+        signal.signal(signal.SIGINT, handle_signal)
+
+
+def run() -> None:
+    if PORT != 3356:
+        raise RuntimeError(f"Port isolation violation: expected 3356, got {PORT}.")
+    install_shutdown_handlers()
+    uvicorn.run(
+        "app.main:app",
+        host=HOST,
+        port=PORT,
+        workers=WORKERS,
+        log_config=configure_logging(),
+        timeout_graceful_shutdown=30,
+        server_header=False,
+        proxy_headers=True,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        run()
+    except KeyboardInterrupt:
+        logging.getLogger("atlas").info("server-stopped")
+        sys.exit(0)

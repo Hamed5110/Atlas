@@ -1,7 +1,7 @@
 /*
   ATLAS Port 3356 - Module 1 Employee Master
   Clean-room MSSQL schema for Python/FastAPI rebuild.
-  Explicitly excludes Year-End Process, Year-End Closing, and yearly balance rollover logic.
+  Explicitly excludes legacy batch-close and rollover logic.
 */
 
 SET XACT_ABORT ON;
@@ -102,8 +102,6 @@ BEGIN
         UpdatedAtUtc DATETIME2(0) NOT NULL CONSTRAINT DF_core_Employees_UpdatedAtUtc DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT UQ_core_Employees_EmployeeCode UNIQUE (EmployeeCode),
-        CONSTRAINT UQ_core_Employees_CivilID UNIQUE (CivilID),
-        CONSTRAINT UQ_core_Employees_PassportNumber UNIQUE (PassportNumber),
         CONSTRAINT FK_core_Employees_Department FOREIGN KEY (DepartmentID) REFERENCES core.Departments(DepartmentID),
         CONSTRAINT FK_core_Employees_Branch FOREIGN KEY (BranchID) REFERENCES core.Branches(BranchID),
         CONSTRAINT FK_core_Employees_Manager FOREIGN KEY (DirectManagerID) REFERENCES core.Employees(EmployeeID),
@@ -128,6 +126,14 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Employees_EmployeeCode' AND object_id = OBJECT_ID(N'core.Employees'))
     CREATE INDEX IX_core_Employees_EmployeeCode ON core.Employees(EmployeeCode) INCLUDE (FullName, Status, DepartmentID);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_core_Employees_CivilID_NotNull' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE UNIQUE INDEX UX_core_Employees_CivilID_NotNull ON core.Employees(CivilID) WHERE CivilID IS NOT NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_core_Employees_PassportNumber_NotNull' AND object_id = OBJECT_ID(N'core.Employees'))
+    CREATE UNIQUE INDEX UX_core_Employees_PassportNumber_NotNull ON core.Employees(PassportNumber) WHERE PassportNumber IS NOT NULL;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_core_Employees_DepartmentID' AND object_id = OBJECT_ID(N'core.Employees'))

@@ -8,7 +8,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Unicode, UnicodeText, and_, func, or_, select
+from sqlalchemy import Boolean, Date, DateTime, FetchedValue, ForeignKey, Index, Integer, Numeric, String, Unicode, UnicodeText, and_, func, or_, select
+from sqlalchemy.dialects.mssql import ROWVERSION
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
@@ -142,7 +143,7 @@ class Employee(Base):
     reason_for_leaving: Mapped[str | None] = mapped_column("ReasonForLeaving", Unicode(400))
     rehire_eligible: Mapped[bool] = mapped_column("RehireEligible", Boolean, nullable=False, default=True)
 
-    row_version: Mapped[bytes] = mapped_column("RowVersion")
+    row_version: Mapped[bytes] = mapped_column("RowVersion", ROWVERSION, nullable=False, server_default=FetchedValue(), server_onupdate=FetchedValue())
     is_deleted: Mapped[bool] = mapped_column("IsDeleted", Boolean, nullable=False, default=False)
     created_at_utc: Mapped[datetime] = mapped_column("CreatedAtUtc", DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at_utc: Mapped[datetime] = mapped_column("UpdatedAtUtc", DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
@@ -272,7 +273,7 @@ def list_employees(
     status_filter: Annotated[EmployeeStatus | None, Query(alias="status")] = None,
     search: Annotated[str | None, Query(max_length=120)] = None,
 ) -> EmployeeListResponse:
-    filters = [Employee.is_deleted.is_(False)]
+    filters = [Employee.is_deleted == False]  # noqa: E712 - SQLAlchemy SQL Server BIT comparison
     if department_id is not None:
         filters.append(Employee.department_id == department_id)
     if status_filter is not None:
@@ -360,7 +361,7 @@ def ensure_unique_fields(session: Session, payload: EmployeeBase, exclude_employ
         checks.append((Employee.passport_number, payload.passport_number, "passport_number already exists."))
 
     for column, value, message in checks:
-        query = select(Employee.employee_id).where(column == value, Employee.is_deleted.is_(False))
+        query = select(Employee.employee_id).where(column == value, Employee.is_deleted == False)  # noqa: E712
         if exclude_employee_id is not None:
             query = query.where(Employee.employee_id != exclude_employee_id)
         if session.scalar(query) is not None:

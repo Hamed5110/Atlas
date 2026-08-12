@@ -1,6 +1,6 @@
 /*
   ATLAS Python Core Foundation Schema
-  Fresh application schema. Standalone. No legacy annual close/reset tables/jobs.
+  Fresh application schema. Standalone. No legacy batch reset tables/jobs.
 */
 
 SET XACT_ABORT ON;
