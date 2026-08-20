@@ -358,6 +358,69 @@ def _is_mssql(database_url: str) -> bool:
     return database_url.startswith("mssql")
 
 
+def parse_mssql_url(database_url: str) -> dict[str, str | None]:
+    """Extract server/user/password/database from a SQLAlchemy MSSQL URL."""
+    from urllib.parse import unquote, urlparse
+
+    parsed = urlparse(database_url)
+    server = parsed.hostname or "127.0.0.1"
+    if parsed.port:
+        server = f"{server},{parsed.port}"
+    return {
+        "server": server,
+        "user": unquote(parsed.username) if parsed.username else None,
+        "password": unquote(parsed.password) if parsed.password else None,
+        "database": _database_name_from_url(database_url),
+    }
+
+
+def resolve_mssql_login(
+    database_url: str,
+    *,
+    db_user: str | None,
+    db_password: str | None,
+    server: str | None = None,
+) -> tuple[str, str, str, str]:
+    """Prefer explicit AIRFARE_DB_* values, otherwise parse AIRFARE_DATABASE_URL."""
+    parsed = parse_mssql_url(database_url)
+    user = (db_user or parsed["user"] or "").strip()
+    password = db_password if db_password not in (None, "") else (parsed["password"] or "")
+    # Prefer URL host unless an explicit backup login pair is configured.
+    if db_user and server:
+        host = server.strip()
+    else:
+        host = str(parsed["server"] or server or "127.0.0.1").strip()
+    database = str(parsed["database"] or "HCM_Airfare_Management")
+    if not user or password is None or str(password) == "":
+        raise DomainError(
+            "credentials_required",
+            "Native MSSQL backup needs SQL login. Put user:password in AIRFARE_DATABASE_URL "
+            "(the same URL the API uses), or set AIRFARE_DB_USER and AIRFARE_DB_PASSWORD.",
+        )
+    return user, str(password), host, database
+
+
+def _execute_mssql_batches(database_url: str, batches: list[str]) -> None:
+    """Run T-SQL that cannot live in a transaction (BACKUP/RESTORE) via pyodbc autocommit."""
+    from sqlalchemy import create_engine
+
+    # Research: BACKUP/RESTORE require autocommit; same URL the API already uses.
+    engine = create_engine(database_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            raw = connection.connection.dbapi_connection
+            cursor = raw.cursor()
+            try:
+                for batch in batches:
+                    cursor.execute(batch)
+                    while cursor.nextset():
+                        pass
+            finally:
+                cursor.close()
+    finally:
+        engine.dispose()
+
+
 def create_native_mssql_backup(
     *,
     database_url: str,
@@ -366,48 +429,56 @@ def create_native_mssql_backup(
     db_password: str | None,
     server: str = "127.0.0.1",
 ) -> BackupInfo:
-    """Create a native SQL Server .bak via sqlcmd (open-source mssql-tools style)."""
+    """Create a native SQL Server .bak using the app connection (pyodbc) or sqlcmd fallback."""
     if not _is_mssql(database_url):
         raise DomainError(
             "native_unavailable",
             "Native MSSQL backup requires an mssql+pyodbc database URL.",
         )
-    if not db_user or not db_password:
-        raise DomainError(
-            "credentials_required",
-            "Set AIRFARE_DB_USER and AIRFARE_DB_PASSWORD for native MSSQL backup.",
-        )
-    database = _database_name_from_url(database_url)
+    user, password, host, database = resolve_mssql_login(
+        database_url, db_user=db_user, db_password=db_password, server=server or None
+    )
     directory = ensure_backup_root(root)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     path = directory / f"{SAFE_NAME.sub('_', database)}-{stamp}.bak"
     escaped = str(path).replace("'", "''")
-    query = (
+    backup_sql = (
         f"BACKUP DATABASE [{database}] TO DISK = N'{escaped}' "
-        "WITH COPY_ONLY, COMPRESSION, CHECKSUM, INIT, STATS = 10; "
-        f"RESTORE VERIFYONLY FROM DISK = N'{escaped}' WITH CHECKSUM;"
+        "WITH COPY_ONLY, COMPRESSION, CHECKSUM, INIT, STATS = 10"
     )
-    completed = subprocess.run(
-        [
-            "sqlcmd",
-            "-S",
-            server,
-            "-U",
-            db_user,
-            "-P",
-            db_password,
-            "-C",
-            "-b",
-            "-Q",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0 or not path.is_file():
-        detail = (completed.stderr or completed.stdout or "sqlcmd failed").strip()
-        raise DomainError("backup_failed", f"Native MSSQL backup failed: {detail[:400]}")
+    verify_sql = f"RESTORE VERIFYONLY FROM DISK = N'{escaped}' WITH CHECKSUM"
+    try:
+        _execute_mssql_batches(database_url, [backup_sql, verify_sql])
+    except Exception as pyodbc_error:  # noqa: BLE001 - fall back to sqlcmd
+        completed = subprocess.run(
+            [
+                "sqlcmd",
+                "-S",
+                host,
+                "-U",
+                user,
+                "-P",
+                password,
+                "-C",
+                "-b",
+                "-Q",
+                f"{backup_sql}; {verify_sql};",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0 or not path.is_file():
+            detail = (
+                completed.stderr or completed.stdout or str(pyodbc_error) or "backup failed"
+            ).strip()
+            raise DomainError("backup_failed", f"Native MSSQL backup failed: {detail[:400]}") from pyodbc_error
+    if not path.is_file():
+        raise DomainError(
+            "backup_failed",
+            "Native backup finished without creating a .bak file. "
+            "Check that the SQL Server service account can write to the backup folder.",
+        )
     return BackupInfo(
         file_name=path.name,
         path=str(path),
@@ -431,39 +502,42 @@ def restore_native_mssql(
         raise DomainError("native_unavailable", "Native restore requires MSSQL.")
     if backup_path.suffix.lower() != ".bak":
         raise DomainError("invalid_backup", "Native restore requires a .bak file.")
-    if not db_user or not db_password:
-        raise DomainError(
-            "credentials_required",
-            "Set AIRFARE_DB_USER and AIRFARE_DB_PASSWORD for native MSSQL restore.",
-        )
-    database = _database_name_from_url(database_url)
-    escaped = str(backup_path).replace("'", "''")
-    query = f"""
-ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-RESTORE DATABASE [{database}] FROM DISK = N'{escaped}' WITH REPLACE, CHECKSUM;
-ALTER DATABASE [{database}] SET MULTI_USER;
-"""
-    completed = subprocess.run(
-        [
-            "sqlcmd",
-            "-S",
-            server,
-            "-U",
-            db_user,
-            "-P",
-            db_password,
-            "-C",
-            "-b",
-            "-Q",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+    user, password, host, database = resolve_mssql_login(
+        database_url, db_user=db_user, db_password=db_password, server=server or None
     )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "sqlcmd failed").strip()
-        raise DomainError("restore_failed", f"Native MSSQL restore failed: {detail[:400]}")
+    escaped = str(backup_path).replace("'", "''")
+    batches = [
+        f"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
+        f"RESTORE DATABASE [{database}] FROM DISK = N'{escaped}' WITH REPLACE, CHECKSUM",
+        f"ALTER DATABASE [{database}] SET MULTI_USER",
+    ]
+    try:
+        _execute_mssql_batches(database_url, batches)
+    except Exception as pyodbc_error:  # noqa: BLE001
+        query = ";\n".join(batches) + ";"
+        completed = subprocess.run(
+            [
+                "sqlcmd",
+                "-S",
+                host,
+                "-U",
+                user,
+                "-P",
+                password,
+                "-C",
+                "-b",
+                "-Q",
+                query,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = (
+                completed.stderr or completed.stdout or str(pyodbc_error) or "restore failed"
+            ).strip()
+            raise DomainError("restore_failed", f"Native MSSQL restore failed: {detail[:400]}") from pyodbc_error
     return {
         "status": "restored",
         "kind": "mssql",

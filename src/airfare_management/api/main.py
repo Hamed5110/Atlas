@@ -48,6 +48,7 @@ from airfare_management.infrastructure.backup import (
     list_backups,
     prune_backups,
     resolve_backup_file,
+    resolve_mssql_login,
     restore_logical_backup,
     restore_native_mssql,
 )
@@ -3530,10 +3531,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _: Annotated[Claims, Depends(authorized("admin"))],
     ) -> dict[str, Any]:
         rows = list_backups(config.backup_root)
+        native = str(config.database_url).startswith("mssql")
+        credentials_ready = False
+        credential_hint = ""
+        if native:
+            try:
+                resolve_mssql_login(
+                    config.database_url,
+                    db_user=config.db_user,
+                    db_password=config.db_password,
+                    server=config.db_server,
+                )
+                credentials_ready = True
+            except DomainError as error:
+                credential_hint = str(error)
         return {
             "backup_root": str(Path(config.backup_root).resolve()),
             "retention_days": config.backup_retention_days,
-            "native_mssql_available": str(config.database_url).startswith("mssql"),
+            "native_mssql_available": native,
+            "native_credentials_ready": credentials_ready,
+            "native_credential_hint": credential_hint,
             "count": len(rows),
             "backups": [
                 {

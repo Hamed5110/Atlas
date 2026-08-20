@@ -190,6 +190,11 @@ function el(tag, options = {}, ...children) {
       Object.entries(value).forEach(([event, handler]) => node.addEventListener(event, handler));
     } else if (key === "dataset") {
       Object.assign(node.dataset, value);
+    } else if (typeof value === "boolean") {
+      // HTML treats attribute presence as true; disabled="false" would still disable.
+      if (key in node) node[key] = value;
+      if (value) node.setAttribute(key, "");
+      else node.removeAttribute(key);
     } else if (value !== undefined && value !== null) {
       node.setAttribute(key, String(value));
     }
@@ -1971,7 +1976,7 @@ async function renderBackupRestore(content) {
     el("p", { className: "pref-help", text:
       "The original enterprise build required backup/restore. HCM previously only had start-backup.ps1. This screen catalogs files under the backup folder, computes SHA-256 checksums, and supports restore with an explicit confirmation." }),
     el("p", { className: "muted", text:
-      `Folder: ${catalog.backup_root} · Retention: ${catalog.retention_days} days · Native MSSQL: ${catalog.native_mssql_available ? "available" : "not configured"}` })));
+      `Folder: ${catalog.backup_root} · Retention: ${catalog.retention_days} days · Native MSSQL: ${catalog.native_mssql_available ? (catalog.native_credentials_ready ? "ready" : "needs SQL login in DATABASE_URL") : "not configured"}` })));
 
   const createLogical = el("button", {
     className: "primary", type: "button", text: "Create logical backup",
@@ -1991,6 +1996,10 @@ async function renderBackupRestore(content) {
   });
   const createNative = el("button", {
     className: "secondary", type: "button", text: "Create MSSQL .bak",
+    disabled: !(catalog.native_mssql_available && catalog.native_credentials_ready),
+    title: catalog.native_credentials_ready
+      ? "Create a native SQL Server .bak using the API database login"
+      : (catalog.native_credential_hint || "Configure SQL login in AIRFARE_DATABASE_URL first"),
     on: {
       click: async () => {
         try {
@@ -2007,8 +2016,11 @@ async function renderBackupRestore(content) {
   });
   content.append(el("section", { className: "panel form-panel" },
     el("div", { className: "panel-title", text: "Create backup" }),
-    el("p", { className: "muted", text: "Logical = portable JSON of employees, balances, tickets, loans, and rates. MSSQL = native BACKUP DATABASE + RESTORE VERIFYONLY." }),
+    el("p", { className: "muted", text: "Logical = portable JSON (works always). MSSQL .bak = native BACKUP DATABASE using the same login as AIRFARE_DATABASE_URL (or AIRFARE_DB_USER / AIRFARE_DB_PASSWORD)." }),
     el("div", { className: "form-actions" }, createLogical, createNative),
+    (!catalog.native_credentials_ready && catalog.native_mssql_available)
+      ? el("p", { className: "muted", text: catalog.native_credential_hint || "MSSQL .bak is disabled until SQL login is available in DATABASE_URL." })
+      : null,
     notice));
 
   const restoreSelect = el("select", {},
@@ -2053,7 +2065,7 @@ async function renderBackupRestore(content) {
   });
   content.append(el("section", { className: "panel form-panel danger-zone" },
     el("div", { className: "panel-title", text: "Restore" }),
-    el("p", { className: "muted", text: "Logical restore clears operational rows then reloads the JSON. Native .bak uses RESTORE DATABASE WITH REPLACE (requires AIRFARE_DB_USER / AIRFARE_DB_PASSWORD)." }),
+    el("p", { className: "muted", text: "Logical restore clears operational rows then reloads the JSON. Native .bak uses RESTORE DATABASE WITH REPLACE via the same SQL login as the API." }),
     el("div", { className: "field" }, el("label", { text: "Backup file" }), restoreSelect),
     el("div", { className: "field" }, el("label", { text: "Confirmation" }), restoreConfirm),
     restoreNotice,

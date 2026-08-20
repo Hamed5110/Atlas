@@ -53,6 +53,8 @@ def test_web_application_is_served_from_root() -> None:
     assert "Airfare Allocation" in script.text
     assert "Backup & Restore" in script.text
     assert "/admin/backups" in script.text
+    assert "native_credentials_ready" in script.text
+    assert "typeof value === \"boolean\"" in script.text
     assert "Airfare amount policies" in script.text
     assert "ERASE_ALL_DATA" in script.text
     assert "function renderEntitlement" not in script.text

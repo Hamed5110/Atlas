@@ -81,3 +81,24 @@ def test_mssql_backup_rejected_on_sqlite(tmp_path: Path) -> None:
         json={"kind": "mssql"},
     )
     assert response.status_code == 422
+
+
+def test_resolve_login_from_database_url() -> None:
+    from airfare_management.infrastructure.backup import parse_mssql_url, resolve_mssql_login
+
+    url = (
+        "mssql+pyodbc://sa:Secret%40Pass@sqlhost/HCM_Airfare_Management"
+        "?driver=ODBC+Driver+18+for+SQL+Server"
+    )
+    parsed = parse_mssql_url(url)
+    assert parsed["user"] == "sa"
+    assert parsed["password"] == "Secret@Pass"
+    assert parsed["server"] == "sqlhost"
+    assert parsed["database"] == "HCM_Airfare_Management"
+    user, password, host, database = resolve_mssql_login(
+        url, db_user=None, db_password=None, server="127.0.0.1"
+    )
+    assert user == "sa"
+    assert password == "Secret@Pass"
+    assert host == "sqlhost"
+    assert database == "HCM_Airfare_Management"

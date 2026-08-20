@@ -372,15 +372,48 @@ def main() -> int:
             "Excel template",
             "/reports/detail/",
             "/admin/erase-data",
+            "/admin/backups",
+            "Backup & Restore",
+            "native_credentials_ready",
             "Run EMI",
             "Make loan",
             "loan-statement",
             "Ticket amount",
+            "Airfare amount policies",
         ):
             if marker in js.text:
                 results.ok(f"UI contains {marker}")
             else:
                 results.fail("UI script", f"missing {marker}")
+
+        backups = client.get("/v1/admin/backups", headers=headers)
+        if backups.status_code == 200 and backups.json().get("native_mssql_available") is True:
+            body = backups.json()
+            results.ok(
+                "GET /v1/admin/backups",
+                f"ready={body.get('native_credentials_ready')} count={body.get('count')}",
+            )
+            logical = client.post(
+                "/v1/admin/backups",
+                headers=headers,
+                json={"kind": "logical"},
+            )
+            if logical.status_code == 201 and logical.json().get("kind") == "logical":
+                results.ok("POST /v1/admin/backups logical", logical.json().get("file_name"))
+            else:
+                results.fail("Logical backup", f"{logical.status_code} {logical.text[:200]}")
+            if body.get("native_credentials_ready"):
+                native = client.post(
+                    "/v1/admin/backups",
+                    headers=headers,
+                    json={"kind": "mssql"},
+                )
+                if native.status_code == 201 and native.json().get("kind") == "mssql":
+                    results.ok("POST /v1/admin/backups mssql", native.json().get("file_name"))
+                else:
+                    results.fail("Native MSSQL backup", f"{native.status_code} {native.text[:300]}")
+        else:
+            results.fail("Backup catalog", f"{backups.status_code} {backups.text[:200]}")
 
     return _report(results)
 
