@@ -11,9 +11,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDateEdit,
+    QDialog,
     QFormLayout,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -28,7 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from airfare_management.desktop.allocation import AllocationEngineScreen
+from airfare_management.desktop.ess_portal import EssPortalScreen
+from airfare_management.desktop.login import LoginDialog, primary_role_label
 from airfare_management.desktop.loans_tools import LoanToolsScreen
+from airfare_management.desktop.lookups_admin import LookupsAdminScreen
 from airfare_management.desktop.reports_tools import ReportsToolsScreen
 
 EMPTY_INDEX = QModelIndex()
@@ -352,20 +355,23 @@ class MainWindow(QMainWindow):
         api = ApiClient()
         username = os.environ.get("AIRFARE_USERNAME", "").strip()
         password = os.environ.get("AIRFARE_PASSWORD", "")
-        if not username or not password:
-            username, accepted = QInputDialog.getText(self, "Sign in", "Username:", text="admin")
-            if not accepted:
+        profile: dict[str, object] = {}
+        if username and password:
+            try:
+                api.login(username, password)
+                profile = api.get_object("/v1/auth/me")
+            except httpx.HTTPError as exc:
+                QMessageBox.critical(self, "Sign in failed", str(exc))
+                raise SystemExit(1) from exc
+        else:
+            dialog = LoginDialog(api, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 raise SystemExit(0)
-            password, accepted = QInputDialog.getText(
-                self, "Sign in", "Password:", QLineEdit.EchoMode.Password
-            )
-            if not accepted:
-                raise SystemExit(0)
-        try:
-            api.login(username, password)
-        except httpx.HTTPError as exc:
-            QMessageBox.critical(self, "Sign in failed", str(exc))
-            raise SystemExit(1) from exc
+            profile = dialog.profile
+        role = primary_role_label(list(profile.get("roles") or []))  # type: ignore[arg-type]
+        self.setWindowTitle(
+            f"ATLAS Airfare Management · {profile.get('username')} ({role})"
+        )
         navigation = QListWidget()
         stack = QStackedWidget()
         screens: list[tuple[str, QWidget]] = [
@@ -374,10 +380,10 @@ class MainWindow(QMainWindow):
                 "Employees & Import",
                 ModuleTableScreen(
                     "Employees",
-                    ["Code", "Name", "Company"],
+                    ["Code", "Name", "Department", "Pay Group", "Designation"],
                     api,
                     "/v1/employees",
-                    ["code", "full_name", "company_id"],
+                    ["code", "full_name", "department", "pay_group", "designation"],
                 ),
             ),
             (
@@ -424,26 +430,8 @@ class MainWindow(QMainWindow):
                     ["scope_type", "amount", "effective_from"],
                 ),
             ),
-            (
-                "ESS & Workflows",
-                ModuleTableScreen(
-                    "Self Service",
-                    ["Type", "Travel Date", "Route", "Status"],
-                    api,
-                    "/v1/ess/requests",
-                    ["request_type", "travel_date", "origin_code", "status"],
-                ),
-            ),
-            (
-                "Administration",
-                ModuleTableScreen(
-                    "Departments",
-                    ["Code", "Name", "Active"],
-                    api,
-                    "/v1/lookups/departments",
-                    ["code", "name", "active"],
-                ),
-            ),
+            ("ESS Portal", EssPortalScreen(api)),
+            ("Lookups (MSSQL)", LookupsAdminScreen(api)),
         ]
         for name, screen in screens:
             navigation.addItem(name)

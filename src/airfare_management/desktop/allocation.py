@@ -53,6 +53,7 @@ class AllocationEngineScreen(QWidget):
         self._thread: QThread | None = None
         self._worker: AllocationPreviewWorker | None = None
         self._latest: dict[str, object] | None = None
+        self._preview_generation = 0
 
         self.employee = QComboBox()
         self.employee.setEditable(False)
@@ -65,8 +66,10 @@ class AllocationEngineScreen(QWidget):
         self.tenure = QSpinBox()
         self.tenure.setRange(1, 60)
         self.tenure.setValue(6)
-        self.origin = QLineEdit("ORG")
-        self.destination = QLineEdit("DST")
+        self.origin = QLineEdit("")
+        self.origin.setPlaceholderText("Origin airport")
+        self.destination = QLineEdit("")
+        self.destination.setPlaceholderText("Destination airport")
 
         self.lbl_scenario = QLabel("—")
         self.lbl_rate = QLabel("—")
@@ -75,10 +78,13 @@ class AllocationEngineScreen(QWidget):
         self.lbl_days = QLabel("—")
         self.lbl_entitlement = QLabel("—")
         self.lbl_excess = QLabel("—")
+        self.lbl_emi = QLabel("—")
         self.lbl_join = QLabel("—")
         self.lbl_last_ticket = QLabel("—")
         self.lbl_opening = QLabel("—")
-        self.lbl_status = QLabel("Select an employee to load MSSQL entitlement (ATLAS MaxPayout ÷ 60).")
+        self.lbl_status = QLabel(
+            "Select an employee to load MSSQL entitlement (ATLAS MaxPayout ÷ 60)."
+        )
         self.lbl_status.setWordWrap(True)
 
         for label in (
@@ -89,20 +95,24 @@ class AllocationEngineScreen(QWidget):
             self.lbl_days,
             self.lbl_entitlement,
             self.lbl_excess,
+            self.lbl_emi,
             self.lbl_join,
             self.lbl_last_ticket,
             self.lbl_opening,
         ):
-            label.setStyleSheet("QLabel { background:#edf5fc; border:1px solid #d2e4f3; padding:6px; }")
+            label.setStyleSheet(
+                "QLabel { background:#edf5fc; border:1px solid #d2e4f3; padding:6px; }"
+            )
 
         review = QFormLayout()
         review.addRow("Detected scenario", self.lbl_scenario)
-        review.addRow("Applied airfare rate", self.lbl_rate)
-        review.addRow("Rate level", self.lbl_rate_source)
-        review.addRow("Daily rate (÷ 60)", self.lbl_daily)
+        review.addRow("Applied MaxPayout", self.lbl_rate)
+        review.addRow("Rate source", self.lbl_rate_source)
+        review.addRow("Accrual factor (÷ 60)", self.lbl_daily)
         review.addRow("Accrued / days left", self.lbl_days)
         review.addRow("Final entitlement", self.lbl_entitlement)
         review.addRow("Excess cost", self.lbl_excess)
+        review.addRow("EMI breakdown", self.lbl_emi)
         review.addRow("Join date", self.lbl_join)
         review.addRow("Last ticket", self.lbl_last_ticket)
         review.addRow("Opening BHD / days", self.lbl_opening)
@@ -192,23 +202,36 @@ class AllocationEngineScreen(QWidget):
         return payload
 
     def schedule_preview(self) -> None:
-        """Debounce-free auto preview on employee / date / ticket changes."""
+        """Auto preview on employee / date / ticket changes with generation guard."""
         payload = self._preview_payload()
         if payload is None:
             self._clear_review()
             self.lbl_status.setText("Select an employee to load MSSQL entitlement.")
             return
+        self._preview_generation += 1
+        generation = self._preview_generation
         if self._thread is not None and self._thread.isRunning():
             self._thread.requestInterruption()
             self._thread.quit()
-            self._thread.wait(100)
+            self._thread.wait(150)
         self.lbl_status.setText("Calculating entitlement from MSSQL…")
         self._thread = QThread(self)
         self._worker = AllocationPreviewWorker(self.api, payload)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(self._on_preview)
-        self._worker.failed.connect(self._on_preview_failed)
+
+        def _on_ok(result: dict) -> None:
+            if generation != self._preview_generation:
+                return
+            self._on_preview(result)
+
+        def _on_err(message: str) -> None:
+            if generation != self._preview_generation:
+                return
+            self._on_preview_failed(message)
+
+        self._worker.finished.connect(_on_ok)
+        self._worker.failed.connect(_on_err)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.start()
@@ -223,6 +246,7 @@ class AllocationEngineScreen(QWidget):
             self.lbl_days,
             self.lbl_entitlement,
             self.lbl_excess,
+            self.lbl_emi,
             self.lbl_join,
             self.lbl_last_ticket,
             self.lbl_opening,
@@ -233,7 +257,9 @@ class AllocationEngineScreen(QWidget):
     def _on_preview(self, result: dict) -> None:
         self._latest = result
         scenario = str(result.get("scenario") or "—").replace("_", " ")
-        self.lbl_scenario.setText(scenario)
+        join = result.get("join_date") or result.get("date_of_joining") or "—"
+        last = result.get("last_ticket_date") or "none"
+        self.lbl_scenario.setText(f"{scenario} · join {join} · last ticket {last}")
         self.lbl_rate.setText(str(result.get("airfare_rate") or result.get("maximum_payout") or "—"))
         self.lbl_rate_source.setText(str(result.get("rate_source") or "—"))
         self.lbl_daily.setText(str(result.get("daily_rate") or result.get("per_day_rate") or "—"))
@@ -243,13 +269,24 @@ class AllocationEngineScreen(QWidget):
         self.lbl_entitlement.setText(
             str(result.get("final_entitlement_amount") or result.get("airfare_entitlement_amount") or "—")
         )
-        self.lbl_excess.setText(str(result.get("excess_cost") or "0"))
-        self.lbl_join.setText(str(result.get("join_date") or result.get("date_of_joining") or "—"))
+        excess = result.get("excess_cost") or "0"
+        self.lbl_excess.setText(str(excess))
+        emi = result.get("emi") or result.get("monthly_installment")
+        tenure = result.get("tenure_months") or self.tenure.value()
+        if emi:
+            self.lbl_emi.setText(f"{emi} × {tenure} months")
+        elif Decimal(str(excess)) > 0 and self.excess_option.currentText() == "LOAN":
+            principal = Decimal(str(excess))
+            months = max(1, int(self.tenure.value()))
+            self.lbl_emi.setText(f"{(principal / months).quantize(Decimal('0.0001'))} × {months} months")
+        else:
+            self.lbl_emi.setText("—")
+        self.lbl_join.setText(str(join))
         self.lbl_last_ticket.setText(str(result.get("last_ticket_date") or "—"))
         opening_amt = result.get("opening_balance_amount") or "0"
         opening_days = result.get("opening_balance_days") or "0"
         self.lbl_opening.setText(f"{opening_amt} BHD · {opening_days} days")
-        self.lbl_status.setText("Entitlement auto-loaded from MSSQL (ATLAS 30/360).")
+        self.lbl_status.setText("Entitlement auto-loaded from MSSQL (MaxPayout ÷ 60 · 30/360).")
 
     @Slot(str)
     def _on_preview_failed(self, message: str) -> None:

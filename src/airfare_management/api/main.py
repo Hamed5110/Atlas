@@ -446,6 +446,22 @@ class EssRequestCreate(ApiModel):
     notes: str = Field(default="", max_length=4000)
 
 
+class ExpenseAnomalyRequest(ApiModel):
+    """Pay-group expense anomaly check."""
+
+    claim_amount: Decimal = Field(gt=0)
+    pay_group: str = Field(default="", max_length=100)
+
+
+class EmiRiskRequest(ApiModel):
+    """EMI default-risk scoring before loan approval."""
+
+    principal: Decimal = Field(gt=0)
+    tenure_months: int = Field(gt=0, le=600)
+    employee_id: UUID | None = None
+    entitlement: Decimal | None = Field(default=None, ge=0)
+
+
 class EmployeeImportCommitRow(ApiModel):
     """One employee row selected for import."""
 
@@ -3485,26 +3501,136 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def ess_dashboard(
         session: Annotated[Session, Depends(database)],
         claims: Annotated[Claims, Depends(authenticated)],
+        employee_id: Annotated[UUID | None, Query()] = None,
     ) -> dict[str, Any]:
-        employee_id = scoped_employee_id(session, claims)
-        if employee_id is None:
-            return {"employee_id": None, "requests": 0, "open_requests": 0}
+        scope = scoped_employee_id(session, claims)
+        target = scope or employee_id
+        if target is None:
+            return {
+                "employee_id": None,
+                "requests": 0,
+                "open_requests": 0,
+                "last_ticket_date": None,
+                "active_loans": [],
+                "opening_balance_amount": "0",
+                "opening_balance_days": "0",
+            }
+        if scope is not None and employee_id is not None and employee_id != scope:
+            raise DomainError("forbidden", "Employees may only view their own ESS dashboard.")
         base = (
             select(func.count())
             .select_from(EssRequestRow)
             .where(
-                EssRequestRow.employee_id == employee_id,
+                EssRequestRow.employee_id == target,
                 EssRequestRow.deleted_at.is_(None),
             )
         )
+        last_ticket = session.scalar(
+            select(TicketRow.travel_date)
+            .where(
+                TicketRow.employee_id == target,
+                TicketRow.deleted_at.is_(None),
+                TicketRow.status.in_(["issued", "approved", "paid", "closed", "active"]),
+            )
+            .order_by(TicketRow.travel_date.desc())
+            .limit(1)
+        )
+        loans = [
+            {
+                "id": str(loan.id),
+                "loan_code": getattr(loan, "loan_number", None),
+                "outstanding": str(loan.outstanding),
+                "monthly_installment": str(loan.monthly_installment),
+                "status": loan.status,
+            }
+            for loan in session.scalars(
+                select(LoanRow).where(
+                    LoanRow.employee_id == target,
+                    LoanRow.deleted_at.is_(None),
+                    LoanRow.status.in_(["active", "deferred"]),
+                )
+            )
+        ]
+        opening = session.scalar(
+            select(OpeningBalanceRow)
+            .where(
+                OpeningBalanceRow.employee_id == target,
+                OpeningBalanceRow.deleted_at.is_(None),
+                OpeningBalanceRow.balance_year == date.today().year,
+            )
+            .limit(1)
+        )
         return {
-            "employee_id": str(employee_id),
+            "employee_id": str(target),
             "requests": session.scalar(base) or 0,
             "open_requests": session.scalar(
                 base.where(EssRequestRow.status.in_(["submitted", "approved"]))
             )
             or 0,
+            "last_ticket_date": last_ticket.isoformat() if last_ticket else None,
+            "active_loans": loans,
+            "opening_balance_amount": str(opening.opening_amount if opening else Decimal("0")),
+            "opening_balance_days": str(opening.opening_days if opening else Decimal("0")),
         }
+
+    @app.post("/v1/ai/expense-anomaly")
+    def ai_expense_anomaly(
+        payload: ExpenseAnomalyRequest,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.ai_agent.travel_intelligence import detect_expense_anomaly
+
+        peers_query = select(TicketRow.ticket_cost).where(TicketRow.deleted_at.is_(None))
+        if payload.pay_group:
+            peer_employees = select(EmployeeRow.id).where(
+                EmployeeRow.pay_group == payload.pay_group,
+                EmployeeRow.deleted_at.is_(None),
+            )
+            peers_query = peers_query.where(TicketRow.employee_id.in_(peer_employees))
+        peers = list(session.scalars(peers_query.limit(500)))
+        return detect_expense_anomaly(payload.claim_amount, peers).as_dict()
+
+    @app.post("/v1/ai/emi-risk")
+    def ai_emi_risk(
+        payload: EmiRiskRequest,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.ai_agent.travel_intelligence import score_emi_default_risk
+
+        outstanding = Decimal("0")
+        prior_defaults = 0
+        entitlement = payload.entitlement
+        if payload.employee_id is not None:
+            outstanding = session.scalar(
+                select(func.coalesce(func.sum(LoanRow.outstanding), 0)).where(
+                    LoanRow.employee_id == payload.employee_id,
+                    LoanRow.deleted_at.is_(None),
+                    LoanRow.status.in_(["active", "deferred"]),
+                )
+            ) or Decimal("0")
+            prior_defaults = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(LoanRow)
+                    .where(
+                        LoanRow.employee_id == payload.employee_id,
+                        LoanRow.status == "defaulted",
+                    )
+                )
+                or 0
+            )
+            employee = session.get(EmployeeRow, payload.employee_id)
+            if employee is not None and entitlement is None:
+                entitlement = employee.max_entitlement_cap_rate or employee.custom_airfare_rate
+        return score_emi_default_risk(
+            principal=payload.principal,
+            tenure_months=payload.tenure_months,
+            outstanding_loans=outstanding,
+            prior_defaults=prior_defaults,
+            entitlement=entitlement,
+        ).as_dict()
 
     @app.get("/v1/ess/requests")
     def ess_requests(

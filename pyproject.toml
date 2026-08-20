@@ -36,6 +36,11 @@ dev = [
   "types-openpyxl",
   "types-reportlab",
 ]
+ml = [
+  "pandas>=2.2",
+  "scikit-learn>=1.5",
+  "numpy>=2.0",
+]
 
 [project.scripts]
 airfare-api = "airfare_management.api.main:run"
