@@ -57,13 +57,13 @@ columnstore for aggregate historical analysis [4][5]. This design uses `(ValidTo
 ValidFrom, Id)` rowstore indexes and proposes monthly partitioning only after history
 volume justifies its operational cost. Temporal period columns are `datetime2` and hidden.
 
-Backups are operational controls, not application endpoints: encrypted weekly full,
-daily differential, and 5–15 minute log backups according to RPO; checksum, retention,
-off-host immutable copies, and scheduled restore verification are mandatory. `DBCC
-CHECKDB`, index/statistics maintenance based on measured fragmentation, least-privilege
-service identities, and Query Store monitoring are deployment runbook requirements.
-Partition switching is reserved for high-volume audit/history retention; Microsoft
-documents partition-based sliding-window retention for temporal history [6].
+Backups are available from the admin **Backup & Restore** screen (`/v1/admin/backups`):
+logical JSON exports (portable) and optional native MSSQL `.bak` via open-source `sqlcmd`.
+Checksum, retention, off-host immutable copies, and scheduled restore verification remain
+mandatory. `DBCC CHECKDB`, index/statistics maintenance based on measured fragmentation,
+least-privilege service identities, and Query Store monitoring are deployment runbook
+requirements. Partition switching is reserved for high-volume audit/history retention;
+Microsoft documents partition-based sliding-window retention for temporal history [6].
 
 ## Security and operations
 
