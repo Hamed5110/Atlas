@@ -1,0 +1,723 @@
+"""Operational backup catalog and logical/native restore helpers.
+
+Inspired by open-source DBManager patterns (list + SHA-256 + confirm restore)
+and ATLAS Companies backup/restore UX, adapted for HCM Airfare.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import subprocess
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from airfare_management.domain.models import DomainError
+from airfare_management.infrastructure.database import EmployeeRow
+from airfare_management.infrastructure.schema import (
+    CompanyRow,
+    EntitlementRateRow,
+    EssRequestRow,
+    LoanInstallmentRow,
+    LoanPaymentRow,
+    LoanRow,
+    LookupRow,
+    OpeningBalanceRow,
+    PreferenceRow,
+    TicketRow,
+    UserRow,
+)
+
+LOGICAL_FORMAT = "hcm-airfare-logical-v1"
+SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+@dataclass(frozen=True, slots=True)
+class BackupInfo:
+    """One backup file in the catalog."""
+
+    file_name: str
+    path: str
+    kind: str
+    size_bytes: int
+    created_at: str
+    sha256: str
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    raise TypeError(f"Cannot serialize {type(value)!r}")
+
+
+def ensure_backup_root(root: str | Path) -> Path:
+    """Create the backup directory if missing and return it."""
+    path = Path(root).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def sha256_file(path: Path) -> str:
+    """Return the hex SHA-256 digest of a file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _kind_for(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return "logical"
+    if suffix == ".bak":
+        return "mssql"
+    return "other"
+
+
+def list_backups(root: str | Path) -> list[BackupInfo]:
+    """List .json and .bak backups newest first."""
+    directory = ensure_backup_root(root)
+    rows: list[BackupInfo] = []
+    for path in directory.iterdir():
+        if not path.is_file() or path.suffix.lower() not in {".json", ".bak"}:
+            continue
+        created = datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+        rows.append(
+            BackupInfo(
+                file_name=path.name,
+                path=str(path),
+                kind=_kind_for(path),
+                size_bytes=path.stat().st_size,
+                created_at=created,
+                sha256=sha256_file(path),
+            )
+        )
+    return sorted(rows, key=lambda item: item.created_at, reverse=True)
+
+
+def resolve_backup_file(root: str | Path, file_name: str) -> Path:
+    """Resolve a backup file name under the root, rejecting path traversal."""
+    safe = Path(file_name).name
+    if safe != file_name or ".." in file_name:
+        raise DomainError("invalid_backup", "Backup file name is invalid.")
+    path = (ensure_backup_root(root) / safe).resolve()
+    root_path = ensure_backup_root(root)
+    if not str(path).startswith(str(root_path)) or not path.is_file():
+        raise DomainError("not_found", "Backup file not found.")
+    return path
+
+
+def _row_dict(item: object, fields: tuple[str, ...]) -> dict[str, Any]:
+    return {name: getattr(item, name) for name in fields}
+
+
+def export_logical_payload(session: Session) -> dict[str, Any]:
+    """Serialize operational tables into a portable JSON document."""
+    return {
+        "format": LOGICAL_FORMAT,
+        "created_at": datetime.now(UTC).isoformat(),
+        "tables": {
+            "companies": [
+                _row_dict(item, ("id", "code", "name", "currency", "active"))
+                for item in session.scalars(select(CompanyRow).order_by(CompanyRow.code))
+            ],
+            "lookups": [
+                _row_dict(
+                    item, ("id", "lookup_type", "code", "name", "active", "version")
+                )
+                for item in session.scalars(
+                    select(LookupRow).where(LookupRow.deleted_at.is_(None)).order_by(
+                        LookupRow.lookup_type, LookupRow.code
+                    )
+                )
+            ],
+            "employees": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "company_id",
+                        "code",
+                        "full_name",
+                        "join_date",
+                        "department",
+                        "branch",
+                        "pay_group",
+                        "repair_center",
+                        "email",
+                        "custom_airfare_rate",
+                        "max_entitlement_cap_rate",
+                        "active",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(EmployeeRow).where(EmployeeRow.deleted_at.is_(None)).order_by(
+                        EmployeeRow.code
+                    )
+                )
+            ],
+            "opening_balances": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "employee_id",
+                        "balance_year",
+                        "opening_days",
+                        "paid_days",
+                        "opening_amount",
+                        "maximum_payout",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(OpeningBalanceRow).where(OpeningBalanceRow.deleted_at.is_(None))
+                )
+            ],
+            "entitlement_rates": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "scope_type",
+                        "scope_id",
+                        "amount",
+                        "effective_from",
+                        "effective_to",
+                        "cap_amount",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(EntitlementRateRow).where(EntitlementRateRow.deleted_at.is_(None))
+                )
+            ],
+            "preferences": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "scope_type",
+                        "scope_id",
+                        "preference_key",
+                        "value",
+                        "is_locked",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(PreferenceRow).where(PreferenceRow.deleted_at.is_(None))
+                )
+            ],
+            "tickets": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "employee_id",
+                        "travel_date",
+                        "origin_code",
+                        "destination_code",
+                        "ticket_cost",
+                        "entitlement",
+                        "company_paid",
+                        "excess_handling",
+                        "status",
+                        "notes",
+                        "ticket_number",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(TicketRow).where(TicketRow.deleted_at.is_(None))
+                )
+            ],
+            "loans": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "employee_id",
+                        "source_ticket_id",
+                        "principal",
+                        "annual_rate",
+                        "installments",
+                        "monthly_installment",
+                        "outstanding",
+                        "status",
+                        "deferred_until",
+                        "first_due_date",
+                        "loan_number",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(select(LoanRow).where(LoanRow.deleted_at.is_(None)))
+            ],
+            "loan_payments": [
+                _row_dict(item, ("id", "loan_id", "amount", "paid_on", "reference", "version"))
+                for item in session.scalars(
+                    select(LoanPaymentRow).where(LoanPaymentRow.deleted_at.is_(None))
+                )
+            ],
+            "loan_installments": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "loan_id",
+                        "number",
+                        "due_date",
+                        "opening_balance",
+                        "principal",
+                        "interest",
+                        "payment",
+                        "closing_balance",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(LoanInstallmentRow).where(LoanInstallmentRow.deleted_at.is_(None))
+                )
+            ],
+            "ess_requests": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "employee_id",
+                        "request_type",
+                        "travel_date",
+                        "origin_code",
+                        "destination_code",
+                        "status",
+                        "notes",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(EssRequestRow).where(EssRequestRow.deleted_at.is_(None))
+                )
+            ],
+        },
+    }
+
+
+def create_logical_backup(session: Session, root: str | Path, label: str = "HCM") -> BackupInfo:
+    """Write a logical JSON backup and return catalog metadata."""
+    directory = ensure_backup_root(root)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    safe_label = SAFE_NAME.sub("_", label) or "HCM"
+    path = directory / f"{safe_label}-logical-{stamp}.json"
+    payload = export_logical_payload(session)
+    path.write_text(json.dumps(payload, default=_json_default, indent=2), encoding="utf-8")
+    return BackupInfo(
+        file_name=path.name,
+        path=str(path),
+        kind="logical",
+        size_bytes=path.stat().st_size,
+        created_at=datetime.now(UTC).isoformat(),
+        sha256=sha256_file(path),
+    )
+
+
+def prune_backups(root: str | Path, retention_days: int) -> int:
+    """Delete backup files older than retention_days. Returns deleted count."""
+    if retention_days <= 0:
+        return 0
+    cutoff = datetime.now(UTC).timestamp() - retention_days * 86400
+    deleted = 0
+    for path in ensure_backup_root(root).iterdir():
+        if path.is_file() and path.suffix.lower() in {".json", ".bak"} and path.stat().st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+            deleted += 1
+    return deleted
+
+
+def _database_name_from_url(database_url: str) -> str:
+    match = re.search(r"/([^/?]+)(?:\?|$)", database_url.split("@")[-1])
+    return match.group(1) if match else "HCM_Airfare_Management"
+
+
+def _is_mssql(database_url: str) -> bool:
+    return database_url.startswith("mssql")
+
+
+def create_native_mssql_backup(
+    *,
+    database_url: str,
+    root: str | Path,
+    db_user: str | None,
+    db_password: str | None,
+    server: str = "127.0.0.1",
+) -> BackupInfo:
+    """Create a native SQL Server .bak via sqlcmd (open-source mssql-tools style)."""
+    if not _is_mssql(database_url):
+        raise DomainError(
+            "native_unavailable",
+            "Native MSSQL backup requires an mssql+pyodbc database URL.",
+        )
+    if not db_user or not db_password:
+        raise DomainError(
+            "credentials_required",
+            "Set AIRFARE_DB_USER and AIRFARE_DB_PASSWORD for native MSSQL backup.",
+        )
+    database = _database_name_from_url(database_url)
+    directory = ensure_backup_root(root)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    path = directory / f"{SAFE_NAME.sub('_', database)}-{stamp}.bak"
+    escaped = str(path).replace("'", "''")
+    query = (
+        f"BACKUP DATABASE [{database}] TO DISK = N'{escaped}' "
+        "WITH COPY_ONLY, COMPRESSION, CHECKSUM, INIT, STATS = 10; "
+        f"RESTORE VERIFYONLY FROM DISK = N'{escaped}' WITH CHECKSUM;"
+    )
+    completed = subprocess.run(
+        [
+            "sqlcmd",
+            "-S",
+            server,
+            "-U",
+            db_user,
+            "-P",
+            db_password,
+            "-C",
+            "-b",
+            "-Q",
+            query,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not path.is_file():
+        detail = (completed.stderr or completed.stdout or "sqlcmd failed").strip()
+        raise DomainError("backup_failed", f"Native MSSQL backup failed: {detail[:400]}")
+    return BackupInfo(
+        file_name=path.name,
+        path=str(path),
+        kind="mssql",
+        size_bytes=path.stat().st_size,
+        created_at=datetime.now(UTC).isoformat(),
+        sha256=sha256_file(path),
+    )
+
+
+def restore_native_mssql(
+    *,
+    database_url: str,
+    backup_path: Path,
+    db_user: str | None,
+    db_password: str | None,
+    server: str = "127.0.0.1",
+) -> dict[str, Any]:
+    """Restore a native .bak after exclusive access (WITH REPLACE)."""
+    if not _is_mssql(database_url):
+        raise DomainError("native_unavailable", "Native restore requires MSSQL.")
+    if backup_path.suffix.lower() != ".bak":
+        raise DomainError("invalid_backup", "Native restore requires a .bak file.")
+    if not db_user or not db_password:
+        raise DomainError(
+            "credentials_required",
+            "Set AIRFARE_DB_USER and AIRFARE_DB_PASSWORD for native MSSQL restore.",
+        )
+    database = _database_name_from_url(database_url)
+    escaped = str(backup_path).replace("'", "''")
+    query = f"""
+ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+RESTORE DATABASE [{database}] FROM DISK = N'{escaped}' WITH REPLACE, CHECKSUM;
+ALTER DATABASE [{database}] SET MULTI_USER;
+"""
+    completed = subprocess.run(
+        [
+            "sqlcmd",
+            "-S",
+            server,
+            "-U",
+            db_user,
+            "-P",
+            db_password,
+            "-C",
+            "-b",
+            "-Q",
+            query,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "sqlcmd failed").strip()
+        raise DomainError("restore_failed", f"Native MSSQL restore failed: {detail[:400]}")
+    return {
+        "status": "restored",
+        "kind": "mssql",
+        "database": database,
+        "file_name": backup_path.name,
+    }
+
+
+def restore_logical_backup(
+    session: Session,
+    backup_path: Path,
+    *,
+    erase_fn: Any,
+    seed_preferences_fn: Any,
+) -> dict[str, Any]:
+    """Replace operational data from a logical JSON backup."""
+    if backup_path.suffix.lower() != ".json":
+        raise DomainError("invalid_backup", "Logical restore requires a .json backup.")
+    payload = json.loads(backup_path.read_text(encoding="utf-8"))
+    if payload.get("format") != LOGICAL_FORMAT:
+        raise DomainError("invalid_backup", "Unsupported logical backup format.")
+    tables = payload.get("tables") or {}
+    erased = erase_fn(session)
+    restored_counts: dict[str, int] = {}
+
+    def _load(model: type, rows: list[dict[str, Any]], transform: Any | None = None) -> None:
+        count = 0
+        for raw in rows:
+            data = transform(raw) if transform else dict(raw)
+            session.add(model(**data))
+            count += 1
+        restored_counts[model.__tablename__] = count
+
+    # Keep existing companies/users; re-seed companies only when empty.
+    if session.scalar(select(CompanyRow).limit(1)) is None:
+        _load(CompanyRow, tables.get("companies") or [])
+    if session.scalar(select(LookupRow).where(LookupRow.deleted_at.is_(None)).limit(1)) is None:
+        now = datetime.now(UTC)
+        for raw in tables.get("lookups") or []:
+            session.add(
+                LookupRow(
+                    id=str(raw["id"]),
+                    lookup_type=raw["lookup_type"],
+                    code=raw["code"],
+                    name=raw["name"],
+                    active=bool(raw.get("active", True)),
+                    version=int(raw.get("version") or 1),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        restored_counts["lookups"] = len(tables.get("lookups") or [])
+
+    from datetime import date as date_cls
+
+    def _employee(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": UUID(str(raw["id"])),
+            "company_id": str(raw["company_id"]),
+            "code": raw["code"],
+            "full_name": raw["full_name"],
+            "join_date": date_cls.fromisoformat(str(raw["join_date"])),
+            "department": raw.get("department") or "",
+            "branch": raw.get("branch") or "",
+            "pay_group": raw.get("pay_group") or "",
+            "repair_center": raw.get("repair_center") or "",
+            "email": raw.get("email"),
+            "custom_airfare_rate": (
+                Decimal(str(raw["custom_airfare_rate"]))
+                if raw.get("custom_airfare_rate") is not None
+                else None
+            ),
+            "max_entitlement_cap_rate": (
+                Decimal(str(raw["max_entitlement_cap_rate"]))
+                if raw.get("max_entitlement_cap_rate") is not None
+                else None
+            ),
+            "active": bool(raw.get("active", True)),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(EmployeeRow, tables.get("employees") or [], _employee)
+
+    def _balance(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "employee_id": UUID(str(raw["employee_id"])),
+            "balance_year": int(raw["balance_year"]),
+            "opening_days": Decimal(str(raw["opening_days"])),
+            "paid_days": Decimal(str(raw.get("paid_days") or 0)),
+            "opening_amount": Decimal(str(raw["opening_amount"])),
+            "maximum_payout": Decimal(str(raw.get("maximum_payout") or 0)),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(OpeningBalanceRow, tables.get("opening_balances") or [], _balance)
+
+    def _rate(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "scope_type": raw["scope_type"],
+            "scope_id": raw.get("scope_id") or "",
+            "amount": Decimal(str(raw["amount"])),
+            "effective_from": date_cls.fromisoformat(str(raw["effective_from"])),
+            "effective_to": (
+                date_cls.fromisoformat(str(raw["effective_to"]))
+                if raw.get("effective_to")
+                else None
+            ),
+            "cap_amount": (
+                Decimal(str(raw["cap_amount"])) if raw.get("cap_amount") is not None else None
+            ),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(EntitlementRateRow, tables.get("entitlement_rates") or [], _rate)
+
+    for raw in tables.get("preferences") or []:
+        session.add(
+            PreferenceRow(
+                id=str(raw["id"]),
+                scope_type=raw["scope_type"],
+                scope_id=raw.get("scope_id") or "",
+                preference_key=raw["preference_key"],
+                value=raw.get("value"),
+                is_locked=bool(raw.get("is_locked", False)),
+                version=int(raw.get("version") or 1),
+            )
+        )
+    restored_counts["preferences"] = len(tables.get("preferences") or [])
+
+    def _ticket(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "employee_id": UUID(str(raw["employee_id"])),
+            "travel_date": date_cls.fromisoformat(str(raw["travel_date"])),
+            "origin_code": raw["origin_code"],
+            "destination_code": raw["destination_code"],
+            "ticket_cost": Decimal(str(raw["ticket_cost"])),
+            "entitlement": Decimal(str(raw["entitlement"])),
+            "company_paid": Decimal(str(raw["company_paid"])),
+            "excess_handling": raw.get("excess_handling") or "SELF_PAID",
+            "status": raw.get("status") or "draft",
+            "notes": raw.get("notes") or "",
+            "ticket_number": raw.get("ticket_number"),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(TicketRow, tables.get("tickets") or [], _ticket)
+
+    def _loan(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "employee_id": UUID(str(raw["employee_id"])),
+            "source_ticket_id": raw.get("source_ticket_id"),
+            "principal": Decimal(str(raw["principal"])),
+            "annual_rate": Decimal(str(raw["annual_rate"])),
+            "installments": int(raw["installments"]),
+            "monthly_installment": Decimal(str(raw["monthly_installment"])),
+            "outstanding": Decimal(str(raw["outstanding"])),
+            "status": raw.get("status") or "active",
+            "deferred_until": (
+                date_cls.fromisoformat(str(raw["deferred_until"]))
+                if raw.get("deferred_until")
+                else None
+            ),
+            "first_due_date": date_cls.fromisoformat(str(raw["first_due_date"])),
+            "loan_number": raw.get("loan_number"),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(LoanRow, tables.get("loans") or [], _loan)
+
+    def _payment(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "loan_id": str(raw["loan_id"]),
+            "amount": Decimal(str(raw["amount"])),
+            "paid_on": date_cls.fromisoformat(str(raw["paid_on"])),
+            "reference": raw.get("reference") or "",
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(LoanPaymentRow, tables.get("loan_payments") or [], _payment)
+
+    def _installment(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "loan_id": str(raw["loan_id"]),
+            "number": int(raw["number"]),
+            "due_date": date_cls.fromisoformat(str(raw["due_date"])),
+            "opening_balance": Decimal(str(raw["opening_balance"])),
+            "principal": Decimal(str(raw["principal"])),
+            "interest": Decimal(str(raw["interest"])),
+            "payment": Decimal(str(raw["payment"])),
+            "closing_balance": Decimal(str(raw["closing_balance"])),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(LoanInstallmentRow, tables.get("loan_installments") or [], _installment)
+
+    def _ess(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        return {
+            "id": str(raw["id"]),
+            "employee_id": UUID(str(raw["employee_id"])),
+            "request_type": raw["request_type"],
+            "travel_date": date_cls.fromisoformat(str(raw["travel_date"])),
+            "origin_code": raw["origin_code"],
+            "destination_code": raw["destination_code"],
+            "status": raw.get("status") or "submitted",
+            "notes": raw.get("notes") or "",
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(EssRequestRow, tables.get("ess_requests") or [], _ess)
+    seed_preferences_fn(session)
+    session.flush()
+    return {
+        "status": "restored",
+        "kind": "logical",
+        "file_name": backup_path.name,
+        "erased": erased,
+        "restored": restored_counts,
+    }
+
+
+def unlink_users_from_employees(session: Session) -> int:
+    """Clear user→employee links before deleting employees."""
+    count = 0
+    for user in session.scalars(select(UserRow).where(UserRow.employee_id.is_not(None))):
+        user.employee_id = None
+        count += 1
+    return count

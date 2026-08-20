@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "airfare-management"
+version = "0.1.0"
+description = "Enterprise employee leave-travel airfare management platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.14",
+  "bcrypt>=4.2",
+  "celery[redis]>=5.5",
+  "email-validator>=2.2",
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "openpyxl>=3.1",
+  "pydantic-settings>=2.7",
+  "PyJWT>=2.10",
+  "PySide6>=6.8",
+  "pyodbc>=5.2",
+  "python-multipart>=0.0.20",
+  "reportlab>=4.2",
+  "redis>=6.0",
+  "sqlalchemy>=2.0",
+  "uvicorn[standard]>=0.34",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.14",
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "ruff>=0.9",
+  "types-openpyxl",
+  "types-reportlab",
+]
+
+[project.scripts]
+airfare-api = "airfare_management.api.main:run"
+airfare-desktop = "airfare_management.desktop.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/airfare_management"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ANN", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+packages = ["airfare_management"]
+
+[tool.coverage.run]
+branch = true
+source = ["airfare_management"]
+omit = [
+  "*/airfare_management/desktop/*",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise SystemExit",
+]

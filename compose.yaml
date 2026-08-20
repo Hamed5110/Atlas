@@ -1,0 +1,106 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    ports:
+      - "127.0.0.1:1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+      - sqlserver-backups:/var/opt/mssql/backups
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    command:
+      - /bin/bash
+      - -c
+      - /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "IF DB_ID('HCM_Airfare_Management') IS NULL CREATE DATABASE HCM_Airfare_Management"
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      AIRFARE_ENVIRONMENT: production
+      AIRFARE_DATABASE_URL: mssql+pyodbc://sa:${MSSQL_SA_PASSWORD_URLENCODED}@sqlserver/HCM_Airfare_Management?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes
+      AIRFARE_JWT_SECRET: ${AIRFARE_JWT_SECRET}
+      AIRFARE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      AIRFARE_CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      AIRFARE_CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      AIRFARE_PORT: 3388
+      AIRFARE_HOST: 0.0.0.0
+      AIRFARE_BOOTSTRAP_ADMIN_USERNAME: ${AIRFARE_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      AIRFARE_BOOTSTRAP_ADMIN_PASSWORD: ${AIRFARE_BOOTSTRAP_ADMIN_PASSWORD}
+      AIRFARE_CORS_ORIGINS: ${AIRFARE_CORS_ORIGINS:-[]}
+    ports:
+      - "127.0.0.1:3388:3388"
+    volumes:
+      - attachments:/app/var/attachments
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    build: .
+    command: ["celery", "-A", "airfare_management.infrastructure.tasks:celery_app", "worker", "--loglevel=INFO"]
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      AIRFARE_ENVIRONMENT: production
+      AIRFARE_DATABASE_URL: mssql+pyodbc://sa:${MSSQL_SA_PASSWORD_URLENCODED}@sqlserver/HCM_Airfare_Management?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes
+      AIRFARE_JWT_SECRET: ${AIRFARE_JWT_SECRET}
+      AIRFARE_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      AIRFARE_CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      AIRFARE_CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  attachments:
+  redis-data:
+  sqlserver-data:
+  sqlserver-backups:
