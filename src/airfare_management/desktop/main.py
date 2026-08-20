@@ -27,6 +27,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from airfare_management.desktop.allocation import AllocationEngineScreen
+from airfare_management.desktop.loans_tools import LoanToolsScreen
+from airfare_management.desktop.reports_tools import ReportsToolsScreen
+
 EMPTY_INDEX = QModelIndex()
 
 
@@ -95,9 +99,9 @@ class ApiClient:
         url: str = (
             base_url
             if base_url is not None
-            else os.environ.get("AIRFARE_API_BASE_URL", "http://127.0.0.1:3388")
+            else os.environ.get("AIRFARE_API_BASE_URL", "http://127.0.0.1:3389")
         )
-        self._client = httpx.Client(base_url=url, timeout=20.0)
+        self._client = httpx.Client(base_url=url, timeout=30.0)
         self.token = ""
 
     def login(self, username: str, password: str) -> None:
@@ -112,7 +116,12 @@ class ApiClient:
         """Fetch a list endpoint with the current identity."""
         response = self._client.get(path, headers={"Authorization": f"Bearer {self.token}"})
         response.raise_for_status()
-        return list(response.json())
+        payload = response.json()
+        if isinstance(payload, list):
+            return list(payload)
+        if isinstance(payload, dict) and "items" in payload:
+            return list(payload["items"])
+        return [dict(payload)]
 
     def get_object(self, path: str) -> dict[str, object]:
         """Fetch an object endpoint with the current identity."""
@@ -130,15 +139,24 @@ class ApiClient:
         response.raise_for_status()
         return dict(response.json())
 
+    def post_with_match(
+        self, path: str, payload: dict[str, object], *, if_match: int
+    ) -> dict[str, object]:
+        """POST with optimistic concurrency If-Match header."""
+        response = self._client.post(
+            path,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "If-Match": str(if_match),
+            },
+        )
+        response.raise_for_status()
+        body = response.json()
+        return dict(body) if isinstance(body, dict) else {"ok": True}
+
     def preview_entitlement(self, payload: dict[str, str | int]) -> dict[str, object]:
-        """Request an entitlement preview.
-
-        Args:
-            payload: Validated screen values.
-
-        Returns:
-            JSON result.
-        """
+        """Request a legacy entitlement preview (what-if calculator)."""
         response = self._client.post(
             "/v1/entitlements/preview",
             json=payload,
@@ -146,162 +164,6 @@ class ApiClient:
         )
         response.raise_for_status()
         return dict(response.json())
-
-
-class AllocationEngineScreen(QWidget):
-    """Native allocation engine screen with preview and ticket issue."""
-
-    def __init__(self, api: ApiClient) -> None:
-        """Build allocation engine controls."""
-        super().__init__()
-        self.api = api
-        self.employee_id = QLineEdit()
-        self.as_of = QDateEdit(QDate.currentDate())
-        self.as_of.setCalendarPopup(True)
-        self.ticket_amount = QLineEdit("0")
-        self.custom_rate = QLineEdit()
-        self.pay_group_rate = QLineEdit()
-        self.global_rate = QLineEdit("150")
-        self.cap_rate = QLineEdit()
-        self.join_date = QDateEdit(QDate(2024, 1, 1))
-        self.join_date.setCalendarPopup(True)
-        self.last_ticket = QLineEdit()
-        self.opening_days = QLineEdit("0")
-        self.opening_amount = QLineEdit("0")
-        self.excess_option = QComboBox()
-        self.excess_option.addItems(["LOAN", "COMPANY_PAID", "SELF_PAID"])
-        self.tenure = QSpinBox()
-        self.tenure.setRange(1, 120)
-        self.tenure.setValue(6)
-        self.origin = QLineEdit("ORG")
-        self.destination = QLineEdit("DST")
-        self.result = QLabel("Enter values, then preview or issue.")
-        self.result.setWordWrap(True)
-        form = QFormLayout()
-        form.addRow("Employee ID", self.employee_id)
-        form.addRow("As of date", self.as_of)
-        form.addRow("Date of joining", self.join_date)
-        form.addRow("Last ticket date", self.last_ticket)
-        form.addRow("Opening balance days", self.opening_days)
-        form.addRow("Opening balance amount", self.opening_amount)
-        form.addRow("Employee custom rate", self.custom_rate)
-        form.addRow("Pay group rate", self.pay_group_rate)
-        form.addRow("Global company rate", self.global_rate)
-        form.addRow("Max entitlement cap", self.cap_rate)
-        form.addRow("Requested ticket amount", self.ticket_amount)
-        form.addRow("Excess option", self.excess_option)
-        form.addRow("Loan tenure months", self.tenure)
-        form.addRow("Origin", self.origin)
-        form.addRow("Destination", self.destination)
-        preview = QPushButton("Preview entitlement")
-        preview.clicked.connect(self.preview)
-        issue = QPushButton("Issue ticket")
-        issue.clicked.connect(self.issue)
-        buttons = QHBoxLayout()
-        buttons.addWidget(preview)
-        buttons.addWidget(issue)
-        layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addLayout(buttons)
-        layout.addWidget(self.result)
-        layout.addStretch()
-
-    def _optional_text(self, widget: QLineEdit) -> str | None:
-        """Return stripped text or None when blank."""
-        text = widget.text().strip()
-        return text or None
-
-    def _preview_payload(self) -> dict[str, object]:
-        """Build a preview JSON payload from the form."""
-        payload: dict[str, object] = {
-            "as_of_date": self.as_of.date().toString("yyyy-MM-dd"),
-            "requested_ticket_amount": self.ticket_amount.text().strip() or "0",
-            "excess_option": self.excess_option.currentText(),
-        }
-        if self.excess_option.currentText() == "LOAN":
-            payload["tenure_months"] = int(self.tenure.value())
-        employee_id = self._optional_text(self.employee_id)
-        if employee_id is not None:
-            payload["employee_id"] = employee_id
-        else:
-            payload.update(
-                {
-                    "date_of_joining": self.join_date.date().toString("yyyy-MM-dd"),
-                    "opening_balance_days": self.opening_days.text().strip() or "0",
-                    "opening_balance_amount": self.opening_amount.text().strip() or "0",
-                }
-            )
-            last_ticket = self._optional_text(self.last_ticket)
-            if last_ticket is not None:
-                payload["last_ticket_date"] = last_ticket
-            custom_rate = self._optional_text(self.custom_rate)
-            if custom_rate is not None:
-                payload["employee_custom_rate"] = custom_rate
-            pay_group_rate = self._optional_text(self.pay_group_rate)
-            if pay_group_rate is not None:
-                payload["pay_group_rate"] = pay_group_rate
-            global_rate = self._optional_text(self.global_rate)
-            if global_rate is not None:
-                payload["global_company_preference_rate"] = global_rate
-            cap_rate = self._optional_text(self.cap_rate)
-            if cap_rate is not None:
-                payload["max_entitlement_cap_rate"] = cap_rate
-        return payload
-
-    def preview(self) -> None:
-        """Call the allocation preview API."""
-        try:
-            result = self.api.post("/v1/allocations/preview", self._preview_payload())
-            self.result.setText(
-                "Scenario {scenario}  Days {accrued_days}  Rate {airfare_rate} "
-                "({rate_source})  Daily {daily_rate}  Calculated "
-                "{calculated_entitlement_amount}  Final {final_entitlement_amount}  "
-                "Excess {excess_cost}  Company {company_payout}  "
-                "Employee {employee_payable}  EMI {emi}".format(
-                    scenario=result.get("scenario"),
-                    accrued_days=result.get("accrued_days"),
-                    airfare_rate=result.get("airfare_rate"),
-                    rate_source=result.get("rate_source"),
-                    daily_rate=result.get("daily_rate"),
-                    calculated_entitlement_amount=result.get("calculated_entitlement_amount"),
-                    final_entitlement_amount=result.get("final_entitlement_amount"),
-                    excess_cost=result.get("excess_cost"),
-                    company_payout=result.get("company_payout"),
-                    employee_payable=result.get("employee_payable"),
-                    emi=result.get("emi"),
-                )
-            )
-        except (ValueError, httpx.HTTPError, KeyError) as exc:
-            QMessageBox.critical(self, "Allocation preview failed", str(exc))
-
-    def issue(self) -> None:
-        """Issue a ticket through the allocation engine API."""
-        employee_id = self._optional_text(self.employee_id)
-        if employee_id is None:
-            QMessageBox.critical(self, "Issue failed", "Employee ID is required to issue a ticket.")
-            return
-        payload: dict[str, object] = {
-            "employee_id": employee_id,
-            "as_of_date": self.as_of.date().toString("yyyy-MM-dd"),
-            "requested_ticket_amount": self.ticket_amount.text().strip() or "0",
-            "excess_option": self.excess_option.currentText(),
-            "origin_code": self.origin.text().strip() or "ORG",
-            "destination_code": self.destination.text().strip() or "DST",
-        }
-        if self.excess_option.currentText() == "LOAN":
-            payload["tenure_months"] = int(self.tenure.value())
-        try:
-            result = self.api.post("/v1/allocations/issue", payload)
-            self.result.setText(
-                f"Issued ticket {result.get('ticket_id')}  "
-                f"Scenario {result.get('scenario')}  "
-                f"Final {result.get('final_entitlement_amount')}  "
-                f"Company {result.get('company_payout')}  "
-                f"Employee {result.get('employee_payable')}  "
-                f"Loan {result.get('loan_id')}"
-            )
-        except (ValueError, httpx.HTTPError, KeyError) as exc:
-            QMessageBox.critical(self, "Allocation issue failed", str(exc))
 
 
 class EntitlementScreen(QWidget):
@@ -528,8 +390,9 @@ class MainWindow(QMainWindow):
                     ["employee_id", "balance_year", "opening_days", "opening_amount"],
                 ),
             ),
-            ("Airfare Entitlement", EntitlementScreen(api)),
             ("Airfare Allocation Engine", AllocationEngineScreen(api)),
+            ("Loans · Defer & Batch Settle", LoanToolsScreen(api)),
+            ("Analytics · Export", ReportsToolsScreen(api)),
             (
                 "Tickets & Excess",
                 ModuleTableScreen(
@@ -552,7 +415,7 @@ class MainWindow(QMainWindow):
             ),
             ("Preferences", PreferenceScreen(api)),
             (
-                "Reports & Export",
+                "Reports & Rates",
                 ModuleTableScreen(
                     "Entitlement Rates",
                     ["Scope", "Amount", "Effective From"],

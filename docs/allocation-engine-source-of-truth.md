@@ -139,7 +139,7 @@ same formulas so allocation results match port 3355:
 
 HCM persists results in `HCM_Airfare_Management` (from `.env` `AIRFARE_DATABASE_URL`).
 
-## HCM implementation (port 3388)
+## HCM implementation (port 3389)
 
 Canonical engine: `airfare_management.domain.services`.
 
@@ -154,4 +154,17 @@ API:
 - `POST /v1/allocations/preview`
 - `POST /v1/allocations/issue`
 
-Desktop: PySide6 **Airfare Allocation Engine** screen (no new HTML).
+Desktop: PySide6 **Airfare Allocation Engine** screen (auto-preview on employee /
+as-of change via QThread). Web SPA remains an API client; primary native UI is PySide6.
+
+## Explicit rejection of calendar `/365` mandates
+
+Product requests that set `Daily_Rate = Resolved_Airfare_Rate / 365.0` and pure
+calendar-day accrual are **rejected** for production. They disagree with:
+
+1. Live ATLAS MSSQL (`sp_ATLAS_CalcPolicyEntitlement`, `fn_ATLAS_AirfareAmount`)
+2. Verified 3355 entitlement amounts (e.g. employee samples on `Atlasairfare010`)
+3. Existing HCM pytest suite (`tests/test_allocation_logic.py`)
+
+Scenarios still label as previous ticket / new joiner / opening-balance accrual for
+UI clarity; math stays ATLAS MaxPayout÷60 + 30/360.

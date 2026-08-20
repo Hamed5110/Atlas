@@ -37,12 +37,19 @@ const tableModules = {
     fields: [
       ["code", "Code", "text"], ["full_name", "Full name", "text"],
       ["company_id", "Company", "company"], ["join_date", "Join date", "date"],
-      ["department", "Department", "text"], ["branch", "Branch", "text"],
-      ["pay_group", "Pay group", "text"], ["email", "Email", "email"],
+      ["department", "Department", "lookup:departments"],
+      ["branch", "Branch / Repair center", "lookup:repair_centers"],
+      ["pay_group", "Pay group", "lookup:pay_groups"],
+      ["designation", "Designation", "lookup:designations"],
+      ["sub_section", "Sub section", "lookup:sub_sections"],
+      ["nationality", "Nationality", "lookup:nationalities"],
+      ["reporting_officer_id", "Reporting officer", "employee_optional"],
+      ["email", "Email", "email"],
       ["custom_airfare_rate", "Custom airfare rate", "number"],
       ["max_entitlement_cap_rate", "Maximum entitlement", "number"],
     ],
-    updateFields: ["full_name", "join_date", "department", "branch", "pay_group", "email",
+    updateFields: ["full_name", "join_date", "department", "branch", "pay_group",
+      "designation", "sub_section", "nationality", "reporting_officer_id", "email",
       "custom_airfare_rate", "max_entitlement_cap_rate", "active"],
     columns: [
       ["code", "Code"],
@@ -922,12 +929,16 @@ async function openRecordDialog(config, record = null) {
   const controls = {};
   const grid = el("div", { className: "form-grid" });
   const companies = config.fields.some((field) => field[2] === "company") ? await api("/companies") : [];
-  const employees = config.fields.some((field) => field[2] === "employee")
+  const employees = config.fields.some((field) =>
+    field[2] === "employee" || field[2] === "employee_optional")
     ? await api("/employees?limit=500") : [];
   const lookupLists = {
-    departments: await api("/lookups/departments"),
-    pay_groups: await api("/lookups/pay_groups"),
-    repair_centers: await api("/lookups/repair_centers"),
+    departments: await api("/lookups/departments").catch(() => []),
+    pay_groups: await api("/lookups/pay_groups").catch(() => []),
+    repair_centers: await api("/lookups/repair_centers").catch(() => []),
+    designations: await api("/lookups/designations").catch(() => []),
+    nationalities: await api("/lookups/nationalities").catch(() => []),
+    sub_sections: await api("/lookups/sub_sections").catch(() => []),
   };
   config.fields.filter(([name]) => !record || config.updateFields.includes(name))
     .forEach(([name, label, type, choices]) => {
@@ -935,8 +946,11 @@ async function openRecordDialog(config, record = null) {
     if (type === "select") {
       control = el("select", { name, required: "required" });
       choices.forEach((choice) => control.append(el("option", { value: choice, text: choice })));
-    } else if (type === "employee") {
-      control = el("select", { name, required: "required" },
+    } else if (type === "employee" || type === "employee_optional") {
+      control = el("select", {
+        name,
+        required: type === "employee" ? "required" : undefined,
+      },
         el("option", { value: "", text: "Select employee" }),
         ...employees.map((employee) => el("option", {
           value: employee.id, text: employeeOptionLabel(employee),
@@ -946,13 +960,21 @@ async function openRecordDialog(config, record = null) {
         ...companies.map((company) => el("option", {
           value: company.id, text: `${company.code} — ${company.name}`,
         })));
+    } else if (String(type).startsWith("lookup:")) {
+      const lookupType = String(type).slice("lookup:".length);
+      const source = lookupLists[lookupType] || [];
+      control = el("select", { name },
+        el("option", { value: "", text: `Select ${label.toLowerCase()}` }),
+        ...source.map((item) => el("option", {
+          value: item.code, text: `${item.code} — ${item.name}`,
+        })));
     } else if (name === "department" || name === "pay_group" || name === "branch") {
       const source = name === "department"
         ? lookupLists.departments
         : name === "pay_group"
           ? lookupLists.pay_groups
           : lookupLists.repair_centers;
-      control = el("select", { name, required: "required" },
+      control = el("select", { name },
         el("option", { value: "", text: `Select ${label.toLowerCase()}` }),
         ...source.map((item) => el("option", {
           value: item.code, text: `${item.code} — ${item.name}`,
@@ -1691,7 +1713,10 @@ async function renderPreferences(content) {
   content.append(el("section", { className: "panel form-panel" },
     el("div", { className: "panel-title", text: "What this screen is for" }),
     el("p", { className: "pref-help", text:
-      "Airfare amount is the ATLAS MaxPayout used by Allocation (daily rate = amount ÷ 60). Set a company default, then override by pay group or employee with an effective date. Employee beats group, group beats company, company beats the global fallback." })));
+      "Preference cascade: Global → Company → Branch/Department → Pay Group → User. "
+      + "User personal preferences win unless an earlier layer locked the key. "
+      + "Airfare MaxPayout for Allocation: Employee dated rate → Pay group → Company → Global. "
+      + "Daily rate = amount ÷ 60 (ATLAS)." })));
 
   const theme = el("select", {},
     el("option", { value: "light", text: "Light" }),
@@ -2116,9 +2141,16 @@ async function renderBackupRestore(content) {
 function renderReports(content) {
   content.append(pageHeader("Reports", "Open operational reports, review rows, and export PDF or Excel."));
   const reports = [
-    ["employee-master", "Employee Master"], ["opening-balances", "Opening Balances"],
-    ["entitlements", "Entitlement Rates"], ["ticket-register", "Ticket Register"],
-    ["loan-outstanding", "Loan Outstanding"], ["loan-statement", "Loan Statement"],
+    ["entitlement-balance-summary", "Entitlement Balance Summary"],
+    ["booking-register", "Booking Register"],
+    ["loan-recovery-ledger", "Loan Recovery Ledger"],
+    ["liability-projections", "Liability Projections"],
+    ["employee-master", "Employee Master"],
+    ["opening-balances", "Opening Balances"],
+    ["entitlements", "Entitlement Rates"],
+    ["ticket-register", "Ticket Register"],
+    ["loan-outstanding", "Loan Outstanding"],
+    ["loan-statement", "Loan Statement"],
     ["excess-recovery", "Excess Recovery"],
   ];
   reports.forEach(([id, label]) => {

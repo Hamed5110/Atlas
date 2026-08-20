@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-from sqlalchemy import delete, func, inspect, select, update
+from sqlalchemy import delete, func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -128,6 +128,10 @@ EMPLOYEE_API_FIELDS = (
     "branch",
     "email",
     "pay_group",
+    "designation",
+    "nationality",
+    "sub_section",
+    "reporting_officer_id",
     "custom_airfare_rate",
     "max_entitlement_cap_rate",
     "active",
@@ -191,6 +195,10 @@ class EmployeeCreate(ApiModel):
     department: str = Field(default="", max_length=100)
     branch: str = Field(default="", max_length=100)
     pay_group: str = Field(default="", max_length=100)
+    designation: str = Field(default="", max_length=100)
+    nationality: str = Field(default="", max_length=100)
+    sub_section: str = Field(default="", max_length=100)
+    reporting_officer_id: UUID | None = None
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
@@ -204,6 +212,10 @@ class EmployeeUpdate(ApiModel):
     department: str = Field(default="", max_length=100)
     branch: str = Field(default="", max_length=100)
     pay_group: str | None = Field(default=None, max_length=100)
+    designation: str = Field(default="", max_length=100)
+    nationality: str = Field(default="", max_length=100)
+    sub_section: str = Field(default="", max_length=100)
+    reporting_officer_id: UUID | None = None
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
@@ -500,9 +512,13 @@ ReportName = Literal[
     "employee-master",
     "opening-balances",
     "entitlements",
+    "entitlement-balance-summary",
     "ticket-register",
+    "booking-register",
     "loan-outstanding",
     "loan-statement",
+    "loan-recovery-ledger",
+    "liability-projections",
     "excess-recovery",
 ]
 
@@ -939,10 +955,83 @@ def _import_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     }
 
 
+def _ensure_employee_hcm_columns(bind: Any) -> None:
+    """Add HCM lookup columns on existing MSSQL/SQLite employees tables."""
+    inspector = inspect(bind)
+    if "employees" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("employees")}
+    dialect = bind.dialect.name
+    additions: list[tuple[str, str]] = [
+        ("designation", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("nationality", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("sub_section", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("reporting_officer_id", "VARCHAR(36) NULL"),
+    ]
+    with bind.begin() as connection:
+        for name, ddl in additions:
+            if name in existing:
+                continue
+            if dialect == "mssql":
+                connection.execute(text(f"ALTER TABLE employees ADD {name} {ddl}"))
+            else:
+                connection.execute(text(f"ALTER TABLE employees ADD COLUMN {name} {ddl}"))
+
+
 def _collect_report_rows(
     session: Session, report_name: ReportName
 ) -> tuple[list[str], list[tuple[Any, ...]]]:
     """Return report column headers and row tuples."""
+    # Enterprise aliases map onto canonical operational reports.
+    canonical: ReportName = {
+        "entitlement-balance-summary": "opening-balances",
+        "booking-register": "ticket-register",
+        "loan-recovery-ledger": "loan-statement",
+    }.get(report_name, report_name)  # type: ignore[arg-type]
+    if report_name == "liability-projections":
+        columns = (
+            "Employee",
+            "Loan",
+            "Status",
+            "Outstanding",
+            "Monthly EMI",
+            "Remaining installments",
+            "Projected recovery",
+            "First due",
+        )
+        query = (
+            select(LoanRow, EmployeeRow)
+            .join(EmployeeRow, EmployeeRow.id == LoanRow.employee_id)
+            .where(
+                LoanRow.deleted_at.is_(None),
+                LoanRow.status.in_(("active", "deferred")),
+            )
+            .order_by(LoanRow.outstanding.desc())
+        )
+        rows = []
+        for loan, employee in session.execute(query):
+            emi = loan.monthly_installment or Decimal("0")
+            outstanding = loan.outstanding or Decimal("0")
+            remaining = int(loan.installments or 0)
+            if emi > 0 and outstanding > 0:
+                remaining = min(
+                    remaining,
+                    int((outstanding / emi).to_integral_value(rounding=ROUND_CEILING)),
+                )
+            rows.append(
+                (
+                    employee.code,
+                    getattr(loan, "loan_number", None) or loan.id,
+                    loan.status,
+                    outstanding,
+                    emi,
+                    remaining,
+                    outstanding,
+                    loan.first_due_date.isoformat() if loan.first_due_date else "",
+                )
+            )
+        return list(columns), rows
+    report_name = canonical
     if report_name == "employee-master":
         columns = ("Code", "Employee", "Department", "Branch", "Join date", "Email", "Status")
         rows = [
@@ -1353,6 +1442,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     web_root = Path(__file__).resolve().parents[1] / "interface" / "web_client"
     if config.environment == "test":
         Base.metadata.create_all(sessions.kw["bind"])
+    _ensure_employee_hcm_columns(sessions.kw["bind"])
     attachment_root = Path(config.attachment_root).resolve()
     attachment_root.mkdir(parents=True, exist_ok=True)
     preference_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
@@ -1950,6 +2040,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "branch",
                     "email",
                     "pay_group",
+                    "designation",
+                    "nationality",
+                    "sub_section",
+                    "reporting_officer_id",
                     "custom_airfare_rate",
                     "max_entitlement_cap_rate",
                     "active",
@@ -2008,6 +2102,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = datetime.now(UTC)
         fields = payload.model_dump()
         fields["company_id"] = str(fields["company_id"])
+        if fields.get("reporting_officer_id") is not None:
+            fields["reporting_officer_id"] = str(fields["reporting_officer_id"])
         item = EmployeeRow(
             id=uuid4(),
             active=True,
@@ -2039,6 +2135,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 key not in payload.model_fields_set
             ):
                 continue
+            if key == "reporting_officer_id" and value is not None:
+                value = str(value)
             setattr(item, key, value)
         item.version += 1
         return _row(item, *EMPLOYEE_API_FIELDS)
@@ -3683,7 +3781,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 .select_from(EmployeeRow)
                 .where(EmployeeRow.deleted_at.is_(None))
             )
-        elif report_name == "opening-balances":
+        elif report_name in {"opening-balances", "entitlement-balance-summary"}:
             report_value = session.scalar(
                 select(func.count())
                 .select_from(OpeningBalanceRow)
@@ -3695,7 +3793,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 .select_from(EntitlementRateRow)
                 .where(EntitlementRateRow.deleted_at.is_(None))
             )
-        elif report_name == "ticket-register":
+        elif report_name in {"ticket-register", "booking-register"}:
             report_value = session.scalar(
                 select(func.count()).select_from(TicketRow).where(TicketRow.deleted_at.is_(None))
             )
@@ -3705,9 +3803,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     LoanRow.deleted_at.is_(None)
                 )
             )
-        elif report_name == "loan-statement":
+        elif report_name in {"loan-statement", "loan-recovery-ledger"}:
             report_value = session.scalar(
                 select(func.count()).select_from(LoanRow).where(LoanRow.deleted_at.is_(None))
+            )
+        elif report_name == "liability-projections":
+            report_value = session.scalar(
+                select(func.coalesce(func.sum(LoanRow.outstanding), 0)).where(
+                    LoanRow.deleted_at.is_(None),
+                    LoanRow.status.in_(("active", "deferred")),
+                )
             )
         else:
             report_value = session.scalar(

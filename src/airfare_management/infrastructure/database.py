@@ -59,6 +59,10 @@ class EmployeeRow(Base):
     branch: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     pay_group: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     repair_center: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    designation: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    nationality: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    sub_section: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    reporting_officer_id: Mapped[str | None] = mapped_column(String(36))
     email: Mapped[str | None] = mapped_column(String(320))
     custom_airfare_rate: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
     max_entitlement_cap_rate: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
@@ -157,6 +161,10 @@ class EmployeeRepository(Repository[Employee]):
                 branch=entity.branch,
                 pay_group=entity.pay_group,
                 repair_center="",
+                designation="",
+                nationality="",
+                sub_section="",
+                reporting_officer_id=None,
                 email=entity.email,
                 custom_airfare_rate=entity.custom_airfare_rate,
                 max_entitlement_cap_rate=entity.max_entitlement_cap_rate,
