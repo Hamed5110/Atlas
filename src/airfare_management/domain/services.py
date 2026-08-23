@@ -328,6 +328,7 @@ class ExcessSettlementOption(StrEnum):
     LOAN = "LOAN"
     COMPANY_PAID = "COMPANY_PAID"
     SELF_PAID = "SELF_PAID"
+    ENTITLEMENT_AMOUNT = "ENTITLEMENT_AMOUNT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -593,7 +594,7 @@ def settle_excess_ticket(
     Args:
         requested_ticket_amount: Ticket price requested for issue.
         final_entitlement_amount: Capped entitlement.
-        option: LOAN, COMPANY_PAID, or SELF_PAID.
+        option: LOAN, COMPANY_PAID, SELF_PAID, or ENTITLEMENT_AMOUNT.
         tenure_months: Required when option is LOAN.
 
     Returns:
@@ -647,6 +648,20 @@ def settle_excess_ticket(
             option=option,
             employee_payable=Decimal("0"),
             company_payout=requested_ticket_amount,
+            loan_principal=None,
+            emi=None,
+            tenure_months=None,
+            loan_status=None,
+        )
+    if option is ExcessSettlementOption.ENTITLEMENT_AMOUNT:
+        # Cap issue to entitlement: company pays entitlement only; excess is not recovered.
+        return ExcessSettlementResult(
+            requested_ticket_amount=requested_ticket_amount,
+            final_entitlement_amount=final_entitlement_amount,
+            excess_cost=excess,
+            option=option,
+            employee_payable=Decimal("0"),
+            company_payout=final_entitlement_amount,
             loan_principal=None,
             emi=None,
             tenure_months=None,

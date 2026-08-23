@@ -7,6 +7,7 @@ const state = {
   token: "",
   refreshToken: "",
   user: null,
+  companyName: "",
   activeModule: "dashboard",
 };
 
@@ -98,7 +99,7 @@ const tableModules = {
       ["ticket_cost", "Ticket cost", "number"], ["entitlement", "Entitlement", "number"],
       ["company_paid", "Company paid", "number"],
       ["excess_handling", "Excess handling", "select",
-        ["SELF_PAID", "COMPANY_PAID", "CONVERT_TO_LOAN"]],
+        ["SELF_PAID", "COMPANY_PAID", "CONVERT_TO_LOAN", "ENTITLEMENT_AMOUNT"]],
     ],
     workflow: true,
     columns: [
@@ -289,7 +290,9 @@ function installStyles() {
     dialog::backdrop { background:rgba(10,31,50,.55); }
     .dialog-head { padding:20px 24px; border-bottom:1px solid var(--line); }
     .dialog-body { padding:4px 24px 24px; }
-    .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+    .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; flex-wrap:wrap; }
+    .dialog-actions.excess-actions { justify-content:stretch; }
+    .dialog-actions.excess-actions button { flex:1 1 140px; }
     .cards { display:grid; grid-template-columns:repeat(4,minmax(160px,1fr)); gap:17px; }
     .card { background:var(--paper); border:1px solid var(--line); border-radius:11px; padding:20px;
       box-shadow:0 2px 8px rgba(27,55,80,.04); }
@@ -345,6 +348,9 @@ function installStyles() {
     .severity-error { color:var(--danger); font-weight:650; }
     .danger-zone { border:1px solid #f2b8b5; background:#fff7f6; border-radius:11px; padding:18px 20px; }
     .pref-help { color:var(--slate); font-size:14px; line-height:1.55; max-width:820px; }
+    .logo-preview { display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap; }
+    .company-logo-thumb { max-height:56px; max-width:160px; object-fit:contain; border:1px solid #d5dee8;
+      border-radius:8px; background:#fff; padding:6px; }
     .policy-table { padding:0 0 8px; }
     dialog.report-dialog { width:min(1100px,calc(100vw - 30px)); }
     .report-icon { width:48px; height:48px; display:grid; place-items:center; background:#e9f2fb;
@@ -599,6 +605,12 @@ function renderLogin(message = "") {
       sessionStorage.setItem(TOKEN_KEY, state.token);
       sessionStorage.setItem(REFRESH_KEY, state.refreshToken);
       state.user = await api("/auth/me");
+      try {
+        const companies = await api("/companies");
+        state.companyName = companies?.[0]?.name || "";
+      } catch (_) {
+        state.companyName = "";
+      }
       renderShell();
     } catch (error) {
       showError(form, error.message);
@@ -628,10 +640,13 @@ function renderShell() {
     }, el("span", { className: "nav-icon", text: item.icon }),
     el("span", { className: "nav-label", text: item.label })));
   });
+  const companyLabel = state.companyName || "Company";
   const sidebar = el("aside", { className: "sidebar" },
     el("div", { className: "side-brand" },
-      el("div", { className: "brand-mark", text: "AA" }),
-      el("div", {}, el("strong", { text: "Atlas Aluminum" }), el("small", { text: "HCM Airfare" })),
+      el("div", { className: "brand-mark", text: (companyLabel.slice(0, 2) || "CO").toUpperCase() }),
+      el("div", {},
+        el("strong", { text: companyLabel }),
+        el("small", { text: "HCM Airfare Management" })),
     ),
     nav,
     el("div", { className: "sidebar-footer" },
@@ -1534,6 +1549,9 @@ async function renderAllocation(content) {
     SELF_PAID: el("input", { type: "radio", name: "excess_option", value: "SELF_PAID" }),
     COMPANY_PAID: el("input", { type: "radio", name: "excess_option", value: "COMPANY_PAID" }),
     LOAN: el("input", { type: "radio", name: "excess_option", value: "LOAN" }),
+    ENTITLEMENT_AMOUNT: el("input", {
+      type: "radio", name: "excess_option", value: "ENTITLEMENT_AMOUNT",
+    }),
   };
   const excessAmount = el("strong", { text: "—" });
   const excessPanel = el("div", { className: "excess-panel", id: "alloc-excess-panel" },
@@ -1543,7 +1561,9 @@ async function renderAllocation(content) {
     el("div", { className: "excess-options" },
       el("label", {}, excessRadios.SELF_PAID, " Self paid by employee (SELF_PAID)"),
       el("label", {}, excessRadios.COMPANY_PAID, " Fully company paid (COMPANY_PAID)"),
-      el("label", {}, excessRadios.LOAN, " Make loan (LOAN / CONVERT_TO_LOAN)")),
+      el("label", {}, excessRadios.LOAN, " Make loan (LOAN / CONVERT_TO_LOAN)"),
+      el("label", {}, excessRadios.ENTITLEMENT_AMOUNT,
+        " Entitlement amount (issue / pay entitlement only)")),
   );
   let promptedExcess = false;
   let latestPreview = null;
@@ -1657,11 +1677,17 @@ async function renderAllocation(content) {
         el("p", { className: "muted",
           text: `Excess is ${formatMoney(amount)}. Choose how the company should settle the balance.` })),
       el("div", { className: "dialog-body" },
-        el("div", { className: "dialog-actions" },
+        el("div", { className: "dialog-actions excess-actions" },
           el("button", { className: "secondary", type: "button", text: "Self paid by employee",
             on: { click: () => { excessRadios.SELF_PAID.checked = true; dialog.close(); autoPreview(); } } }),
           el("button", { className: "secondary", type: "button", text: "Fully company paid",
             on: { click: () => { excessRadios.COMPANY_PAID.checked = true; dialog.close(); autoPreview(); } } }),
+          el("button", { className: "secondary", type: "button", text: "Entitlement amount",
+            on: { click: () => {
+              excessRadios.ENTITLEMENT_AMOUNT.checked = true;
+              dialog.close();
+              autoPreview();
+            } } }),
           el("button", { className: "primary", type: "button", text: "Make loan",
             on: { click: () => { dialog.close(); chooseLoanOption(); } } }))));
     document.body.append(dialog);
@@ -1736,6 +1762,8 @@ async function renderAllocation(content) {
     );
     const settlementRows = [
       ["Ticket amount", data.requested_ticket_amount == null ? "—" : formatMoney(data.requested_ticket_amount)],
+      ["Entitlement amount", formatMoney(firstValue(
+        data.entitlement_amount, data.final_entitlement_amount, data.airfare_entitlement_amount))],
       ["Excess", formatMoney(data.excess_cost)],
       ["Company payout", data.company_payout == null ? "—" : formatMoney(data.company_payout)],
       ["Employee payable", data.employee_payable == null ? "—" : formatMoney(data.employee_payable)],
@@ -1766,6 +1794,55 @@ async function renderAllocation(content) {
     className: "secondary", type: "button", text: "Preview",
     on: { click: autoPreview },
   });
+  const printButton = el("button", {
+    className: "secondary", type: "button", text: "Print",
+    on: {
+      click: async () => {
+        form.querySelector(".error")?.remove();
+        if (!employeeSelected() && !optionalValue("date_of_joining")) {
+          showError(form, "Select an employee (or enter join date) before printing.");
+          return;
+        }
+        try {
+          const payload = {
+            ...previewPayload(),
+            origin_code: optionalValue("origin_code") || "ORG",
+            destination_code: optionalValue("destination_code") || "DST",
+          };
+          if (latestPreview?.ticket_code) payload.ticket_code = latestPreview.ticket_code;
+          if (latestPreview?.status) payload.status = latestPreview.status;
+          const response = await fetch(`${API_ROOT}/allocations/print`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${state.token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            let detail = `Print failed (${response.status})`;
+            try {
+              const problem = await response.json();
+              if (problem?.detail) detail = problem.detail;
+            } catch (_) { /* ignore */ }
+            throw new Error(detail);
+          }
+          const blob = await response.blob();
+          const code = latestPreview?.employee_code || optionalValue("employee_id") || "allocation";
+          const link = el("a", {
+            href: URL.createObjectURL(blob),
+            download: `airfare-allocation-${code}.pdf`,
+          });
+          document.body.append(link);
+          link.click();
+          URL.revokeObjectURL(link.href);
+          link.remove();
+        } catch (error) {
+          showError(form, error.message);
+        }
+      },
+    },
+  });
   const issueButton = el("button", {
     className: "primary", type: "button", text: "Issue ticket",
     on: {
@@ -1785,7 +1862,7 @@ async function renderAllocation(content) {
         const excessOption = selectedExcess();
         if (excess > 0 && !excessOption) {
           promptExcessChoice(latestPreview.excess_cost);
-          showError(form, "Ticket exceeds entitlement. Choose Self paid, Fully company paid, or Make loan.");
+          showError(form, "Ticket exceeds entitlement. Choose Self paid, Fully company paid, Entitlement amount, or Make loan.");
           return;
         }
         const payload = {
@@ -1838,9 +1915,9 @@ async function renderAllocation(content) {
   });
   const notice = el("div", { className: "alloc-notice" });
   const form = el("form", { className: "form-panel" }, grid, excessPanel,
-    el("div", { className: "form-actions" }, previewButton, issueButton,
+    el("div", { className: "form-actions" }, previewButton, printButton, issueButton,
       el("span", { className: "muted",
-        text: "Employee select auto-loads entitlement. Enter ticket amount to settle excess and issue." })),
+        text: "Employee select auto-loads entitlement. Enter ticket amount to settle excess and issue. Print uses the Atlas leave-style layout." })),
     notice,
     results,
   );
@@ -1909,6 +1986,118 @@ async function renderPreferences(content) {
   });
   content.append(el("section", { className: "panel form-panel" },
     el("div", { className: "field" }, el("label", { text: "Color theme" }), theme)));
+
+  const company = (companies || [])[0];
+  if (company) {
+    const companyName = el("input", {
+      type: "text",
+      value: company.name || "",
+      placeholder: "Company legal name",
+    });
+    const logoInput = el("input", {
+      type: "file",
+      accept: "image/png,image/jpeg,image/webp",
+    });
+    const logoPreview = el("div", { className: "logo-preview muted", text: company.has_logo
+      ? "Logo on file — used on print slips."
+      : "No logo uploaded yet." });
+    if (company.has_logo && company.logo_url) {
+      const img = el("img", {
+        className: "company-logo-thumb",
+        alt: "Company logo",
+        src: `${API_ROOT}${company.logo_url}?t=${Date.now()}`,
+      });
+      // Attach bearer via fetch blob so <img> works with auth
+      fetch(`${API_ROOT}${company.logo_url}`, {
+        headers: { Authorization: `Bearer ${state.token}` },
+      }).then(async (response) => {
+        if (!response.ok) return;
+        img.src = URL.createObjectURL(await response.blob());
+        logoPreview.replaceChildren(img, el("span", {
+          className: "muted",
+          text: " Current logo (shown on print)",
+        }));
+      }).catch(() => {});
+    }
+    const saveBrand = el("button", {
+      className: "primary",
+      type: "button",
+      text: "Save company name",
+      on: {
+        click: async () => {
+          try {
+            const name = String(companyName.value || "").trim();
+            if (name.length < 2) throw new Error("Enter a company name.");
+            await api(`/companies/${company.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ name }),
+            });
+            state.companyName = name;
+            const brand = document.querySelector(".side-brand strong");
+            if (brand) brand.textContent = name;
+            await navigate("preferences");
+          } catch (error) {
+            showError(content, error.message);
+          }
+        },
+      },
+    });
+    const uploadLogo = el("button", {
+      className: "secondary",
+      type: "button",
+      text: "Upload logo",
+      on: {
+        click: async () => {
+          try {
+            const file = logoInput.files?.[0];
+            if (!file) throw new Error("Choose a logo image first.");
+            const body = new FormData();
+            body.append("file", file);
+            const response = await fetch(`${API_ROOT}/companies/${company.id}/logo`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${state.token}` },
+              body,
+            });
+            if (!response.ok) {
+              let detail = `Logo upload failed (${response.status})`;
+              try {
+                const problem = await response.json();
+                if (problem?.detail) detail = problem.detail;
+              } catch (_) { /* ignore */ }
+              throw new Error(detail);
+            }
+            await navigate("preferences");
+          } catch (error) {
+            showError(content, error.message);
+          }
+        },
+      },
+    });
+    const clearLogo = el("button", {
+      className: "secondary",
+      type: "button",
+      text: "Remove logo",
+      on: {
+        click: async () => {
+          try {
+            await api(`/companies/${company.id}/logo`, { method: "DELETE" });
+            await navigate("preferences");
+          } catch (error) {
+            showError(content, error.message);
+          }
+        },
+      },
+    });
+    content.append(el("section", { className: "panel form-panel" },
+      el("div", { className: "panel-title", text: "Company branding (print)" }),
+      el("p", { className: "pref-help", text:
+        "Print slips use this company name. Upload a PNG/JPG logo to show it on the letterhead. "
+        + "No logo and no background watermark are used until you upload one." }),
+      el("div", { className: "field" }, el("label", { text: "Company name" }), companyName),
+      el("div", { className: "field" }, el("label", { text: "Company logo" }), logoInput, logoPreview),
+      el("div", { className: "actions" }, saveBrand, uploadLogo, clearLogo),
+    ));
+  }
 
   const globalAmount = el("input", {
     type: "number", step: "any", min: "0",
@@ -2604,6 +2793,12 @@ async function start() {
   }
   try {
     state.user = await api("/auth/me");
+    try {
+      const companies = await api("/companies");
+      state.companyName = companies?.[0]?.name || "";
+    } catch (_) {
+      state.companyName = "";
+    }
     renderShell();
   } catch (error) {
     renderLogin(error.message);

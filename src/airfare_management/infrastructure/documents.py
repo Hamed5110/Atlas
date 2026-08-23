@@ -3,7 +3,9 @@
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
@@ -20,6 +22,11 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+_PRINT_ASSETS = Path(__file__).resolve().parent / "print_assets"
+_ATLAS_LOGO = _PRINT_ASSETS / "atlas_logo.png"
+_ATLAS_FOOTER = _PRINT_ASSETS / "atlas_footer.png"
+_ATLAS_WATERMARK = _PRINT_ASSETS / "atlas_watermark.png"
 
 EMPLOYEE_COLUMNS = ("code", "full_name", "company_id", "join_date", "department", "branch", "email")
 
@@ -246,7 +253,7 @@ def _template_specs(company_id: str) -> dict[str, ImportTemplateSpec]:
             ),
             instructions=(
                 "Use this template as a bulk-entry reference for ticket records.",
-                "excess_handling must be SELF_PAID, COMPANY_PAID, or CONVERT_TO_LOAN.",
+                "excess_handling must be SELF_PAID, COMPANY_PAID, CONVERT_TO_LOAN, or ENTITLEMENT_AMOUNT.",
                 "Create tickets individually in the Tickets screen or via API.",
             ),
         ),
@@ -380,7 +387,7 @@ def _template_specs(company_id: str) -> dict[str, ImportTemplateSpec]:
             ),
             instructions=(
                 "ATLAS 30/360 engine: daily rate = max payout / 60.",
-                "excess_option: LOAN, COMPANY_PAID, or SELF_PAID.",
+                "excess_option: LOAN, COMPANY_PAID, SELF_PAID, or ENTITLEMENT_AMOUNT.",
                 "Use the Airfare Allocation screen for live entitlement review, preview and issue.",
             ),
         ),
@@ -625,4 +632,356 @@ def build_pdf_report(
         onFirstPage=_letterhead,
         onLaterPages=_letterhead,
     )
+    return output.getvalue()
+
+
+def _fmt_money(value: Any) -> str:
+    """Format a decimal-like value for print forms (ASCII-safe)."""
+    if value is None or value == "":
+        return "-"
+    try:
+        return f"{Decimal(str(value)):,.2f}"
+    except Exception:
+        return str(value)
+
+
+def _fmt_date(value: Any) -> str:
+    """Format ISO or date values as DD/MM/YYYY for print forms."""
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
+    text_value = str(value)
+    try:
+        return date.fromisoformat(text_value[:10]).strftime("%d/%m/%Y")
+    except ValueError:
+        return text_value
+
+
+def _fmt_text(value: Any, *, fallback: str = "-") -> str:
+    """Normalize blank print values to a dash."""
+    if value is None:
+        return fallback
+    text_value = str(value).strip()
+    return text_value if text_value else fallback
+
+
+def _draw_kv(
+    canvas: Any,
+    y: float,
+    label: str,
+    value: Any,
+    *,
+    label_x: float,
+    value_x: float,
+) -> None:
+    """Draw a compact HCM label/value pair."""
+    canvas.setFillColor(colors.HexColor("#526579"))
+    canvas.setFont("Helvetica", 8)
+    canvas.drawString(label_x, y, label)
+    canvas.setFillColor(colors.HexColor("#1A2332"))
+    canvas.setFont("Helvetica-Bold", 8)
+    canvas.drawString(value_x, y, _fmt_text(value)[:46])
+
+
+def _section_title(canvas: Any, y: float, title: str, width: float) -> float:
+    """Draw a section band and return baseline Y below it."""
+    canvas.setFillColor(colors.HexColor("#E8EEF5"))
+    canvas.roundRect(36, y - 4, width - 72, 18, 3, fill=1, stroke=0)
+    canvas.setFillColor(colors.HexColor("#1F4E78"))
+    canvas.setFont("Helvetica-Bold", 8)
+    canvas.drawString(44, y + 1, title.upper())
+    return y - 22
+
+
+def build_allocation_print_pdf(
+    data: Mapping[str, Any],
+    *,
+    company_name: str = "Atlas Aluminum",
+    company_name_ar: str = "",
+    prepared_by: str = "",
+    generated_at: datetime | None = None,
+    logo_path: str | Path | None = None,
+) -> bytes:
+    """Render a professional HCM airfare allocation print slip.
+
+    Clean white letterhead (no watermark / employee photo). Optional company logo
+    is drawn only when ``logo_path`` points to an uploaded branding file.
+    """
+    from reportlab.pdfgen import canvas as pdf_canvas
+
+    output = BytesIO()
+    width, height = A4
+    stamp = (generated_at or datetime.now(UTC)).astimezone()
+    page = pdf_canvas.Canvas(output, pagesize=A4)
+    page.setTitle("Airfare Allocation")
+    page.setAuthor(company_name)
+
+    navy = colors.HexColor("#1F4E78")
+    slate = colors.HexColor("#526579")
+    ink = colors.HexColor("#1A2332")
+    line = colors.HexColor("#D5DEE8")
+    soft = colors.HexColor("#F4F7FB")
+    accent = colors.HexColor("#0E7C66")
+
+    # Clean white letterhead — logo only when the company uploaded one
+    logo = Path(logo_path) if logo_path else None
+    text_x = 28.0
+    if logo is not None and logo.exists():
+        page.drawImage(
+            str(logo),
+            28,
+            height - 58,
+            width=48,
+            height=48,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+        text_x = 88.0
+
+    display_name = (company_name or "").strip() or "Company"
+    page.setFillColor(ink)
+    page.setFont("Helvetica-Bold", 13)
+    page.drawString(text_x, height - 28, display_name)
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 8)
+    page.drawString(text_x, height - 42, "HCM Airfare Management")
+    if company_name_ar:
+        page.setFont("Helvetica", 7.5)
+        page.drawString(text_x, height - 54, company_name_ar)
+
+    page.setFillColor(ink)
+    page.setFont("Helvetica-Bold", 14)
+    page.drawRightString(width - 28, height - 28, "Airfare Allocation")
+    page.setFont("Helvetica", 8)
+    page.setFillColor(slate)
+    subtitle = _fmt_text(data.get("scenario") or "Ticket Settlement").replace("_", " ").title()
+    page.drawRightString(width - 28, height - 42, subtitle)
+
+    page.setStrokeColor(navy)
+    page.setLineWidth(1.6)
+    page.line(28, height - 64, width - 28, height - 64)
+
+    # Meta strip
+    page.setFillColor(soft)
+    page.rect(0, height - 96, width, 32, fill=1, stroke=0)
+    page.setStrokeColor(line)
+    page.setLineWidth(0.6)
+    page.line(0, height - 96, width, height - 96)
+
+    doc_no = _fmt_text(data.get("ticket_code") or data.get("document_number"))
+    as_of = _fmt_date(data.get("as_of_date") or stamp.date())
+    status = _fmt_text(data.get("status") or "APPROVED").upper()
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 7.5)
+    page.drawString(28, height - 80, "Document No.")
+    page.drawString(160, height - 80, "As of Date")
+    page.drawString(280, height - 80, "Status")
+    page.drawString(400, height - 80, "Generated")
+    page.setFillColor(ink)
+    page.setFont("Helvetica-Bold", 9)
+    page.drawString(28, height - 92, doc_no)
+    page.drawString(160, height - 92, as_of)
+    page.setFillColor(accent if status == "APPROVED" else navy)
+    page.drawString(280, height - 92, status)
+    page.setFillColor(ink)
+    page.drawString(400, height - 92, stamp.strftime("%d/%m/%Y %H:%M"))
+
+    entitlement_amount = (
+        data.get("entitlement_amount")
+        or data.get("final_entitlement_amount")
+        or data.get("airfare_entitlement_amount")
+    )
+    ticket_amount = data.get("ticket_cost") or data.get("requested_ticket_amount")
+    origin = _fmt_text(data.get("origin_code")).upper()
+    destination = _fmt_text(data.get("destination_code")).upper()
+    route = f"{origin} to {destination}" if origin != "-" and destination != "-" else "-"
+
+    y = height - 118
+    y = _section_title(page, y, "1. Employee Information", width)
+
+    employee_left = [
+        ("Employee ID", data.get("employee_code")),
+        ("Employee Name", data.get("employee_name") or data.get("full_name")),
+        ("Date of Joining", _fmt_date(data.get("join_date") or data.get("date_of_joining"))),
+        ("Department", data.get("department")),
+        ("Designation", data.get("designation")),
+    ]
+    employee_right = [
+        ("Nationality", data.get("nationality")),
+        ("Location", data.get("branch") or data.get("location")),
+        ("Pay Group", data.get("pay_group")),
+        ("Reporting To", data.get("reporting_officer") or data.get("reporting_to")),
+        ("Email", data.get("email")),
+    ]
+    for index in range(max(len(employee_left), len(employee_right))):
+        row_y = y - index * 14
+        if index < len(employee_left):
+            _draw_kv(
+                page,
+                row_y,
+                employee_left[index][0],
+                employee_left[index][1],
+                label_x=44,
+                value_x=140,
+            )
+        if index < len(employee_right):
+            _draw_kv(
+                page,
+                row_y,
+                employee_right[index][0],
+                employee_right[index][1],
+                label_x=310,
+                value_x=400,
+            )
+    y = y - max(len(employee_left), len(employee_right)) * 14 - 16
+
+    y = _section_title(page, y, "2. Ticket & Entitlement", width)
+
+    page.setFillColor(colors.HexColor("#E8F6F1"))
+    page.roundRect(36, y - 28, width - 72, 36, 4, fill=1, stroke=0)
+    page.setStrokeColor(accent)
+    page.setLineWidth(1.2)
+    page.roundRect(36, y - 28, width - 72, 36, 4, fill=0, stroke=1)
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 7.5)
+    page.drawString(48, y - 6, "ENTITLEMENT AMOUNT")
+    page.setFillColor(accent)
+    page.setFont("Helvetica-Bold", 16)
+    page.drawString(48, y - 22, _fmt_money(entitlement_amount))
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 7.5)
+    page.drawString(220, y - 6, "TICKET AMOUNT")
+    page.setFillColor(ink)
+    page.setFont("Helvetica-Bold", 12)
+    page.drawString(220, y - 22, _fmt_money(ticket_amount))
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 7.5)
+    page.drawString(380, y - 6, "ROUTE")
+    page.setFillColor(ink)
+    page.setFont("Helvetica-Bold", 11)
+    page.drawString(380, y - 22, route)
+    y -= 48
+
+    ticket_left = [
+        ("Origin", origin),
+        ("Destination", destination),
+        ("Rate Source", data.get("rate_source")),
+        ("Per-day Rate", _fmt_money(data.get("per_day_rate") or data.get("daily_rate"))),
+        (
+            "Maximum Payout",
+            _fmt_money(
+                data.get("maximum_payout")
+                or data.get("max_payout")
+                or data.get("airfare_rate")
+            ),
+        ),
+    ]
+    ticket_right = [
+        ("Company Payout", _fmt_money(data.get("company_payout") or data.get("company_paid"))),
+        ("Employee Payable", _fmt_money(data.get("employee_payable"))),
+        ("Excess", _fmt_money(data.get("excess_cost"))),
+        ("Excess Option", data.get("excess_option") or data.get("excess_handling")),
+        ("EMI / Loan", data.get("loan_code") or _fmt_money(data.get("emi"))),
+    ]
+    for index in range(max(len(ticket_left), len(ticket_right))):
+        row_y = y - index * 14
+        if index < len(ticket_left):
+            _draw_kv(
+                page,
+                row_y,
+                ticket_left[index][0],
+                ticket_left[index][1],
+                label_x=44,
+                value_x=150,
+            )
+        if index < len(ticket_right):
+            _draw_kv(
+                page,
+                row_y,
+                ticket_right[index][0],
+                ticket_right[index][1],
+                label_x=310,
+                value_x=420,
+            )
+    y = y - max(len(ticket_left), len(ticket_right)) * 14 - 12
+
+    notes = _fmt_text(data.get("notes"), fallback="")
+    if notes:
+        page.setFillColor(slate)
+        page.setFont("Helvetica", 8)
+        page.drawString(44, y, "Notes")
+        page.setFillColor(ink)
+        page.setFont("Helvetica", 8)
+        page.drawString(150, y, notes[:90])
+        y -= 16
+
+    y = _section_title(page, y - 4, "3. Entitlement Balance Summary", width)
+
+    headers = ("Metric", "Opening", "Earned", "Already Paid", "Entitlement", "Ticket")
+    values = (
+        "Airfare",
+        _fmt_money(data.get("opening_balance_amount")),
+        _fmt_money(data.get("current_year_earned_amount") or data.get("current_year_amount")),
+        _fmt_money(data.get("already_paid_amount")),
+        _fmt_money(entitlement_amount),
+        _fmt_money(ticket_amount),
+    )
+    table_width = width - 72
+    col_w = table_width / len(headers)
+    page.setFillColor(navy)
+    page.roundRect(36, y - 4, table_width, 18, 2, fill=1, stroke=0)
+    page.setFillColor(colors.white)
+    page.setFont("Helvetica-Bold", 7.5)
+    for index, header in enumerate(headers):
+        page.drawString(42 + index * col_w, y + 1, header)
+    y -= 18
+    page.setFillColor(soft)
+    page.rect(36, y - 4, table_width, 18, fill=1, stroke=0)
+    page.setStrokeColor(line)
+    page.setLineWidth(0.5)
+    page.rect(36, y - 4, table_width, 18, fill=0, stroke=1)
+    page.setFillColor(ink)
+    page.setFont("Helvetica", 8)
+    for index, value in enumerate(values):
+        page.drawString(42 + index * col_w, y + 1, str(value)[:16])
+    y -= 36
+
+    y = _section_title(page, y, "4. Approvals Remarks", width)
+    page.setStrokeColor(line)
+    page.setLineWidth(0.7)
+    for _ in range(3):
+        page.line(44, y, width - 44, y)
+        y -= 16
+
+    page.setFillColor(slate)
+    page.setFont("Helvetica-Oblique", 8)
+    page.drawCentredString(
+        width / 2,
+        78,
+        "*** This is a computer-generated document. No signature is required. ***",
+    )
+    page.setFont("Helvetica", 7.5)
+    page.setFillColor(ink)
+    page.drawString(44, 58, "Prepared by")
+    page.setFont("Helvetica-Bold", 8)
+    page.drawString(
+        44,
+        46,
+        prepared_by or _fmt_text(data.get("prepared_by") or data.get("username")),
+    )
+
+    page.setStrokeColor(navy)
+    page.setLineWidth(1.2)
+    page.line(28, 34, width - 28, 34)
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 6.5)
+    page.drawCentredString(
+        width / 2,
+        18,
+        f"{display_name}  |  HCM Airfare Management  |  Computer-generated print",
+    )
+
+    page.showPage()
+    page.save()
     return output.getvalue()

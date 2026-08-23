@@ -195,6 +195,16 @@ class TestExcessSettlement:
                 Decimal("200"), Decimal("150"), ExcessSettlementOption.LOAN
             )
 
+    def test_entitlement_amount_caps_company_payout(self) -> None:
+        result = settle_excess_ticket(
+            Decimal("300"), Decimal("48.54"), ExcessSettlementOption.ENTITLEMENT_AMOUNT
+        )
+        assert result.excess_cost == Decimal("251.46")
+        assert result.company_payout == Decimal("48.54")
+        assert result.employee_payable == Decimal("0")
+        assert result.option is ExcessSettlementOption.ENTITLEMENT_AMOUNT
+        assert result.loan_principal is None
+
     def test_loan_excess_computes_emi(self) -> None:
         result = settle_excess_ticket(
             Decimal("200"), Decimal("150"), ExcessSettlementOption.LOAN, tenure_months=12

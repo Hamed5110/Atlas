@@ -69,6 +69,7 @@ from airfare_management.infrastructure.database import (
 )
 from airfare_management.infrastructure.documents import (
     EMPLOYEE_COLUMNS,
+    build_allocation_print_pdf,
     build_import_template,
     export_workbook,
     list_import_templates,
@@ -191,6 +192,14 @@ class CompanyCreate(ApiModel):
     code: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=2, max_length=200)
     currency: str = Field(default="USD", min_length=3, max_length=3)
+
+
+class CompanyUpdate(ApiModel):
+    """Mutable company branding fields."""
+
+    name: str = Field(min_length=2, max_length=200)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    active: bool | None = None
 
 
 class EmployeeCreate(ApiModel):
@@ -326,6 +335,16 @@ class AllocationIssueRequest(ApiModel):
         return value
 
 
+class AllocationPrintRequest(AllocationPreviewRequest):
+    """Print-format payload for an Atlas-style airfare allocation slip."""
+
+    origin_code: str = Field(default="ORG", min_length=3, max_length=3)
+    destination_code: str = Field(default="DST", min_length=3, max_length=3)
+    notes: str = Field(default="", max_length=4000)
+    ticket_code: str | None = Field(default=None, max_length=40)
+    status: str = Field(default="APPROVED", max_length=40)
+
+
 class LoanPreviewRequest(ApiModel):
     """Loan calculation payload."""
 
@@ -350,7 +369,9 @@ class TicketCreate(ApiModel):
     ticket_cost: Decimal = Field(ge=0)
     entitlement: Decimal = Field(ge=0)
     company_paid: Decimal = Field(ge=0)
-    excess_handling: Literal["CONVERT_TO_LOAN", "COMPANY_PAID", "SELF_PAID"] = "SELF_PAID"
+    excess_handling: Literal[
+        "CONVERT_TO_LOAN", "COMPANY_PAID", "SELF_PAID", "ENTITLEMENT_AMOUNT"
+    ] = "SELF_PAID"
     notes: str = Field(default="", max_length=4000)
 
 
@@ -732,8 +753,17 @@ def _allocation_response(
                 "employee_name": employee.full_name,
                 "username": username,
                 "pay_group": employee.pay_group,
+                "department": employee.department,
+                "designation": employee.designation,
+                "nationality": employee.nationality,
+                "branch": employee.branch,
+                "email": employee.email,
+                "reporting_officer_id": employee.reporting_officer_id,
             }
         )
+        if not body.get("join_date") and employee.join_date is not None:
+            body["join_date"] = employee.join_date.isoformat()
+            body["date_of_joining"] = employee.join_date.isoformat()
     if preview.settlement is not None:
         settlement = preview.settlement
         body.update(
@@ -1190,10 +1220,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     CompanyRow(
                         id=DEFAULT_COMPANY_ID,
                         code="DEFAULT",
-                        name="Default Company",
+                        name="Atlas Aluminum",
                         currency="USD",
                     )
                 )
+            else:
+                existing = session.get(CompanyRow, DEFAULT_COMPANY_ID)
+                if existing is not None and existing.name.strip().lower() in {
+                    "default company",
+                    "default",
+                }:
+                    existing.name = "Atlas Aluminum"
             if (
                 session.scalar(
                     select(UserRow).where(UserRow.username == config.bootstrap_admin_username)
@@ -1593,10 +1630,125 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session: Annotated[Session, Depends(database)],
         _: Annotated[Claims, Depends(authenticated)],
     ) -> list[dict[str, Any]]:
-        return [
-            _row(item, "id", "code", "name", "currency", "active")
-            for item in session.scalars(select(CompanyRow).order_by(CompanyRow.code))
-        ]
+        branding = Path(config.attachment_root).resolve() / "branding"
+        rows = []
+        for item in session.scalars(select(CompanyRow).order_by(CompanyRow.code)):
+            logo_file = next(
+                (
+                    branding / f"{item.id}{ext}"
+                    for ext in (".png", ".jpg", ".jpeg", ".webp")
+                    if (branding / f"{item.id}{ext}").exists()
+                ),
+                None,
+            )
+            rows.append(
+                {
+                    **_row(item, "id", "code", "name", "currency", "active"),
+                    "has_logo": logo_file is not None,
+                    "logo_url": f"/v1/companies/{item.id}/logo" if logo_file else None,
+                }
+            )
+        return rows
+
+    @app.patch("/v1/companies/{company_id}")
+    def update_company(
+        company_id: str,
+        payload: CompanyUpdate,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        item = session.get(CompanyRow, company_id)
+        if item is None or item.deleted_at is not None:
+            raise DomainError("company_not_found", "Company was not found.")
+        item.name = payload.name.strip()
+        if payload.currency is not None:
+            item.currency = payload.currency.upper()
+        if payload.active is not None:
+            item.active = payload.active
+        session.flush()
+        branding = Path(config.attachment_root).resolve() / "branding"
+        logo_file = next(
+            (branding / f"{item.id}{ext}" for ext in (".png", ".jpg", ".jpeg", ".webp")
+             if (branding / f"{item.id}{ext}").exists()),
+            None,
+        )
+        return {
+            **_row(item, "id", "code", "name", "currency", "active"),
+            "has_logo": logo_file is not None,
+            "logo_url": f"/v1/companies/{item.id}/logo" if logo_file else None,
+        }
+
+    @app.post("/v1/companies/{company_id}/logo")
+    async def upload_company_logo(
+        company_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+        file: Annotated[UploadFile, File()],
+    ) -> dict[str, Any]:
+        item = session.get(CompanyRow, company_id)
+        if item is None or item.deleted_at is not None:
+            raise DomainError("company_not_found", "Company was not found.")
+        content_type = (file.content_type or "").lower()
+        allowed = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/webp": ".webp",
+        }
+        if content_type not in allowed:
+            raise DomainError("invalid_logo_type", "Upload a PNG, JPG, or WebP company logo.")
+        payload = await file.read()
+        if not payload:
+            raise DomainError("empty_logo", "Logo file is empty.")
+        if len(payload) > 2_000_000:
+            raise DomainError("logo_too_large", "Logo must be 2 MB or smaller.")
+        branding = Path(config.attachment_root).resolve() / "branding"
+        branding.mkdir(parents=True, exist_ok=True)
+        for stale in branding.glob(f"{company_id}.*"):
+            stale.unlink(missing_ok=True)
+        destination = branding / f"{company_id}{allowed[content_type]}"
+        destination.write_bytes(payload)
+        return {
+            "id": company_id,
+            "has_logo": True,
+            "logo_url": f"/v1/companies/{company_id}/logo",
+            "bytes": len(payload),
+        }
+
+    @app.get("/v1/companies/{company_id}/logo")
+    def company_logo(
+        company_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+    ) -> FileResponse:
+        item = session.get(CompanyRow, company_id)
+        if item is None or item.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Company not found")
+        branding = Path(config.attachment_root).resolve() / "branding"
+        for ext, media in (
+            (".png", "image/png"),
+            (".jpg", "image/jpeg"),
+            (".jpeg", "image/jpeg"),
+            (".webp", "image/webp"),
+        ):
+            candidate = branding / f"{company_id}{ext}"
+            if candidate.exists():
+                return FileResponse(candidate, media_type=media, filename=f"company-logo{ext}")
+        raise HTTPException(status_code=404, detail="Company logo not uploaded")
+
+    @app.delete("/v1/companies/{company_id}/logo", status_code=204)
+    def delete_company_logo(
+        company_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> Response:
+        item = session.get(CompanyRow, company_id)
+        if item is None or item.deleted_at is not None:
+            raise DomainError("company_not_found", "Company was not found.")
+        branding = Path(config.attachment_root).resolve() / "branding"
+        for stale in branding.glob(f"{company_id}.*"):
+            stale.unlink(missing_ok=True)
+        return Response(status_code=204)
 
     @app.post("/v1/companies", status_code=201)
     def create_company(
@@ -2434,19 +2586,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise DomainError(
                     "settlement_required",
                     "Ticket amount exceeds entitlement. Choose Self paid by employee, "
-                    "Fully company paid, or Make loan.",
+                    "Fully company paid, Make loan, or Entitlement amount.",
                 )
             settlement = settle_excess_ticket(
                 payload.requested_ticket_amount,
                 entitlement.final_entitlement_amount,
                 ExcessSettlementOption.SELF_PAID,
             )
+        issued_ticket_cost = (
+            entitlement.final_entitlement_amount
+            if settlement.option is ExcessSettlementOption.ENTITLEMENT_AMOUNT
+            else payload.requested_ticket_amount
+        )
         ticket = TicketRow(
             employee_id=payload.employee_id,
             travel_date=payload.as_of_date,
             origin_code=payload.origin_code.upper(),
             destination_code=payload.destination_code.upper(),
-            ticket_cost=payload.requested_ticket_amount,
+            ticket_cost=issued_ticket_cost,
             entitlement=entitlement.final_entitlement_amount,
             company_paid=settlement.company_payout,
             excess_handling=settlement.option.value,
@@ -2509,6 +2666,117 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
         return body
+
+    @app.post("/v1/allocations/print")
+    @app.post("/v1/allocations/print.pdf")
+    def allocation_print_pdf(
+        payload: AllocationPrintRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
+    ) -> Response:
+        """Generate an Atlas Leave-Application-style airfare allocation print PDF."""
+        query = _allocation_query(
+            session,
+            employee_id=payload.employee_id,
+            as_of_date=payload.as_of_date,
+            date_of_joining=payload.date_of_joining,
+            last_ticket_date=payload.last_ticket_date,
+            opening_balance_days=payload.opening_balance_days,
+            opening_balance_amount=payload.opening_balance_amount,
+            employee_custom_rate=payload.employee_custom_rate,
+            pay_group_rate=payload.pay_group_rate,
+            global_company_preference_rate=payload.global_company_preference_rate,
+            global_company_preference_days=payload.global_company_preference_days,
+            max_entitlement_cap_rate=payload.max_entitlement_cap_rate,
+            requested_ticket_amount=payload.requested_ticket_amount,
+            excess_option=payload.excess_option,
+            tenure_months=payload.tenure_months,
+        )
+        body = _decorate_allocation(
+            session, AllocationQueryHandler().handle(query), query, payload.employee_id
+        )
+        company_name = "Atlas Aluminum"
+        company_id: str | None = None
+        reporting_officer = ""
+        employee = None
+        if payload.employee_id is not None:
+            employee = session.scalar(
+                select(EmployeeRow).where(
+                    EmployeeRow.id == payload.employee_id,
+                    EmployeeRow.deleted_at.is_(None),
+                )
+            )
+        if employee is not None:
+            company = session.scalar(
+                select(CompanyRow).where(CompanyRow.id == employee.company_id)
+            )
+            if company is not None:
+                company_id = company.id
+                if company.name:
+                    company_name = company.name
+            if employee.reporting_officer_id:
+                officer_key = str(employee.reporting_officer_id)
+                officer = None
+                try:
+                    officer = session.scalar(
+                        select(EmployeeRow).where(
+                            EmployeeRow.id == UUID(officer_key),
+                            EmployeeRow.deleted_at.is_(None),
+                        )
+                    )
+                except (ValueError, TypeError):
+                    officer = None
+                if officer is None:
+                    officer = session.scalar(
+                        select(EmployeeRow).where(
+                            EmployeeRow.code == officer_key,
+                            EmployeeRow.deleted_at.is_(None),
+                        )
+                    )
+                if officer is not None:
+                    reporting_officer = officer.full_name
+        if company_id is None:
+            fallback = session.scalar(
+                select(CompanyRow)
+                .where(CompanyRow.deleted_at.is_(None), CompanyRow.active.is_(True))
+                .order_by(CompanyRow.code)
+            )
+            if fallback is not None:
+                company_id = fallback.id
+                company_name = fallback.name or company_name
+        logo_path = None
+        if company_id is not None:
+            branding = Path(config.attachment_root).resolve() / "branding"
+            for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                candidate = branding / f"{company_id}{ext}"
+                if candidate.exists():
+                    logo_path = candidate
+                    break
+        body.update(
+            {
+                "as_of_date": payload.as_of_date.isoformat(),
+                "origin_code": payload.origin_code.upper(),
+                "destination_code": payload.destination_code.upper(),
+                "notes": payload.notes,
+                "ticket_code": payload.ticket_code or body.get("ticket_code"),
+                "status": payload.status or body.get("status") or "APPROVED",
+                "reporting_officer": reporting_officer or body.get("reporting_officer"),
+                "prepared_by": claims.username,
+            }
+        )
+        pdf = build_allocation_print_pdf(
+            body,
+            company_name=company_name,
+            prepared_by=claims.username,
+            logo_path=logo_path,
+        )
+        code = body.get("employee_code") or "allocation"
+        filename = f"airfare-allocation-{code}.pdf"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/v1/entitlement-rates")
     def entitlement_rates(

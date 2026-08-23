@@ -62,7 +62,9 @@ class AllocationEngineScreen(QWidget):
         self.ticket_amount = QLineEdit("")
         self.ticket_amount.setPlaceholderText("Enter ticket amount")
         self.excess_option = QComboBox()
-        self.excess_option.addItems(["", "SELF_PAID", "COMPANY_PAID", "LOAN"])
+        self.excess_option.addItems(
+            ["", "SELF_PAID", "COMPANY_PAID", "LOAN", "ENTITLEMENT_AMOUNT"]
+        )
         self.tenure = QSpinBox()
         self.tenure.setRange(1, 60)
         self.tenure.setValue(6)
@@ -308,7 +310,8 @@ class AllocationEngineScreen(QWidget):
             QMessageBox.critical(
                 self,
                 "Issue failed",
-                "Ticket exceeds entitlement. Choose SELF_PAID, COMPANY_PAID, or LOAN.",
+                "Ticket exceeds entitlement. Choose SELF_PAID, COMPANY_PAID, LOAN, "
+                "or ENTITLEMENT_AMOUNT.",
             )
             return
         payload: dict[str, object] = {

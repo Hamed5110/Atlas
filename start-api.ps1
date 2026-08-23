@@ -13,6 +13,25 @@ function Write-StartupError {
     exit 1
 }
 
+function Test-PortInUse {
+    param([int]$Port)
+    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    return $null -ne $listener
+}
+
+function Wait-ApiReady {
+    param([string]$Url, [int]$Seconds = 45)
+    for ($attempt = 0; $attempt -lt $Seconds; $attempt++) {
+        try {
+            Invoke-RestMethod -Uri $Url -TimeoutSec 2 | Out-Null
+            return $true
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+    return $false
+}
+
 if (-not (Test-Path -LiteralPath ".venv\Scripts\python.exe")) {
     Write-Host "Creating virtual environment..." -ForegroundColor Cyan
     py -3.12 -m venv .venv
@@ -27,6 +46,23 @@ if (-not (Test-Path -LiteralPath ".env")) {
 
 $python = ".\.venv\Scripts\python.exe"
 $env:PYTHONPATH = "src"
+$port = 3389
+$baseUrl = "http://127.0.0.1:$port"
+
+if (Test-PortInUse -Port $port) {
+    Write-Host "Port $port is already in use — checking if HCM Airfare is healthy..." -ForegroundColor Yellow
+    try {
+        $health = Invoke-RestMethod -Uri "$baseUrl/health" -TimeoutSec 3
+        Write-Host "API already running: $($health | ConvertTo-Json -Compress)" -ForegroundColor Green
+        Write-Host "Open: $baseUrl/" -ForegroundColor Green
+        Start-Process "$baseUrl/"
+        exit 0
+    } catch {
+        Write-StartupError `
+            "Port $port is occupied by another process that is not HCM Airfare." `
+            "Stop the other process or change AIRFARE_PORT in .env, then retry."
+    }
+}
 
 Write-Host "Checking database connectivity..." -ForegroundColor Cyan
 $dbCheck = & $python -c @"
@@ -39,6 +75,7 @@ with engine.connect() as conn:
 print('ok')
 "@ 2>&1
 if ($LASTEXITCODE -ne 0) {
+    Write-Host $dbCheck -ForegroundColor DarkYellow
     Write-StartupError `
         "Cannot reach SQL Server using AIRFARE_DATABASE_URL." `
         @(
@@ -62,22 +99,40 @@ Write-Host "Ensuring reporting views and stored procedures..." -ForegroundColor 
 $reporting = & $python scripts\apply_reporting_sql.py 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host $reporting -ForegroundColor DarkYellow
-    Write-StartupError `
-        "Reporting SQL apply step failed." `
-        "Check sql/reporting_views.sql and sql/reporting_procedures.sql for syntax errors."
+    Write-Host "Reporting SQL apply failed — continuing so the UI can still open." -ForegroundColor Yellow
+} else {
+    Write-Host $reporting
 }
-Write-Host $reporting
 
-Write-Host "Starting API on http://127.0.0.1:3389 ..." -ForegroundColor Green
+Write-Host "Ensuring entitlement engine SQL..." -ForegroundColor Cyan
+$entitlement = & $python scripts\apply_entitlement_sql.py 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host $entitlement -ForegroundColor DarkYellow
+    Write-Host "Entitlement SQL apply failed — Python fallback remains available." -ForegroundColor Yellow
+} else {
+    Write-Host $entitlement
+}
+
+Write-Host ""
+Write-Host "Starting API on $baseUrl ..." -ForegroundColor Green
+Write-Host "Web UI:     $baseUrl/" -ForegroundColor Green
+Write-Host "API docs:   $baseUrl/docs" -ForegroundColor Green
+Write-Host "Health:     $baseUrl/health" -ForegroundColor Green
+Write-Host "Login user: admin  (password from AIRFARE_BOOTSTRAP_ADMIN_PASSWORD in .env)" -ForegroundColor Cyan
+Write-Host ""
+
+# Open browser once /health/live responds (do not block uvicorn).
 Start-Job -Name "OpenBrowserWhenReady" -ScriptBlock {
-    for ($attempt = 0; $attempt -lt 45; $attempt++) {
+    param($LiveUrl, $HomeUrl)
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
         try {
-            Invoke-RestMethod -Uri "http://127.0.0.1:3389/health/live" -TimeoutSec 2 | Out-Null
-            Start-Process "http://127.0.0.1:3389"
+            Invoke-RestMethod -Uri $LiveUrl -TimeoutSec 2 | Out-Null
+            Start-Process $HomeUrl
             break
         } catch {
             Start-Sleep -Seconds 1
         }
     }
-} | Out-Null
-& $python -m uvicorn airfare_management.api.main:app --host 127.0.0.1 --port 3389 --reload
+} -ArgumentList "$baseUrl/health/live", "$baseUrl/" | Out-Null
+
+& $python -m uvicorn airfare_management.api.main:app --host 127.0.0.1 --port $port
