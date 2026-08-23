@@ -21,6 +21,9 @@ from airfare_management.domain.services import (
     resolve_entitlement_cap,
     settle_excess_ticket,
 )
+from airfare_management.infrastructure.mssql_entitlement import (
+    calculate_entitlement as calculate_entitlement_engine,
+)
 
 TEntity = TypeVar("TEntity", bound=Entity)
 TEvent = TypeVar("TEvent")
@@ -231,7 +234,7 @@ class AllocationQueryHandler:
             query.global_cap,
             query.company_cap,
         )
-        entitlement = calculate_allocation_entitlement(
+        entitlement = calculate_entitlement_engine(
             as_of_date=query.as_of_date,
             date_of_joining=query.date_of_joining,
             last_ticket_date=query.last_ticket_date,
@@ -240,9 +243,9 @@ class AllocationQueryHandler:
             airfare_rate=airfare_rate,
             rate_source=source,
             max_entitlement_cap_rate=cap,
-            rate_days=AIRFARE_CYCLE_DAYS,
             paid_days=query.paid_days,
             current_year_spending=query.current_year_spending,
+            prefer_mssql=False,
         )
         settlement = None
         ticket = query.requested_ticket_amount

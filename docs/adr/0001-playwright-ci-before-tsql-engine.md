@@ -1,29 +1,32 @@
-# Decision: Playwright CI before full MSSQL entitlement engine
+# Decision: Playwright CI before MSSQL entitlement engine, then ship T-SQL behind that gate
 
 **Date:** 2026-08-23  
-**Choice:** Add Playwright to GitHub Actions **first**; defer the full Alembic + T-SQL entitlement rewrite to the next phase.
+**Status:** Accepted (Phase 1 shipped; Phase 2 landed)
+
+## Choice
+
+1. **First:** Playwright in GitHub Actions (green CI gate).
+2. **Next:** Alembic + `airfare.fn_HCM_*` / `airfare.sp_HCM_CalculateEntitlement` with a thin Python wrapper and SQLite fallback.
 
 ## Research summary
 
-| Option | Industry guidance | Fit for Atlas Aluminum now |
-|--------|-------------------|----------------------------|
-| **Playwright in CI** | 2026 E2E best practice: keep critical journeys in CI with traces/artifacts; isolate data; avoid flaky shared DB | UI + 20 local E2E tests just shipped — without CI they rot |
-| **Full T-SQL entitlement engine** | Keep **set-based / integrity** logic near the data; keep **fast-changing domain rules** in app services with tests | Large rewrite; Python ATLAS 30/360 engine already works; needs a CI safety net first |
+| Option | Industry guidance | Fit for Atlas Aluminum |
+|--------|-------------------|------------------------|
+| **Playwright in CI** | Keep critical journeys in CI with traces/artifacts | Locks UI before SQL rewrite |
+| **T-SQL entitlement near the data** | Set-based / integrity logic in SQL Server; evolving rules in app services with tests | SP mirrors proven Python `calculate_allocation_entitlement` |
 
-Sources consulted (2025–2026): Playwright enterprise CI guidance, E2E isolation practices, SQL Server business-logic decision frameworks (set-based in T-SQL; evolving domain rules in application layer).
+## Phase 1 (done)
 
-## Why CI wins this turn
+- Playwright E2E job after backend tests; visual specs skipped on Linux CI.
 
-1. **Locks the UI we just built** (Atlas branding, kanban, loan chart, ESS form, theme toggle).
-2. **Unblocks safe delivery** — every push gets automated browser proof on Ubuntu.
-3. **Enables the SQL phase** — entitlement SPs can land later behind a green CI gate.
-4. **Ship today** — full T-SQL engine is multi-day and higher risk without CI first.
+## Phase 2 (this work)
 
-## What CI runs
+| Artifact | Role |
+|----------|------|
+| `migrations/versions/0011_hcm_entitlement_engine.py` | `grade` / `contract_type` / family + policy tables |
+| `sql/atlas_aluminum/01_functions.sql` | Working days 30/360, airfare amount, EMI, next due |
+| `sql/atlas_aluminum/02_sp_calculate_entitlement.sql` | `sp_HCM_CalculateEntitlement` (+ employee loader) |
+| `scripts/apply_entitlement_sql.py` | Apply GO-batched SQL outside Alembic transactions |
+| `infrastructure/mssql_entitlement.py` | Thin wrapper; Python fallback for SQLite/CI |
 
-- Functional / a11y / responsive / login / API health (always)
-- Visual screenshot tests are **skipped in CI** (Windows baselines ≠ Linux renderers)
-
-## Next phase (not this push)
-
-Alembic migration for `grade` / `contract_type` / `family_members` + `fn_HCM_*` / `sp_HCM_CalculateEntitlement` with Python thin wrappers.
+Parity target: scenarios `previous_ticket`, `new_joinee`, `opening_balance_accrual` with 30/360 + cycle-60 math matching the domain engine.
