@@ -10,16 +10,17 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     event,
     func,
     select,
+    text,
 )
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -99,7 +100,15 @@ class OpeningBalanceRow(Base):
     """Opening employee entitlement balance."""
 
     __tablename__ = "opening_balances"
-    __table_args__ = (UniqueConstraint("employee_id", "balance_year"),)
+    __table_args__ = (
+        Index(
+            "uq_opening_balances_active",
+            "employee_id",
+            "balance_year",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     employee_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("employees.id"), nullable=False, index=True
@@ -232,7 +241,15 @@ class LoanInstallmentRow(Base):
     """Persisted reducing-balance EMI installment."""
 
     __tablename__ = "loan_installments"
-    __table_args__ = (UniqueConstraint("loan_id", "number"),)
+    __table_args__ = (
+        Index(
+            "uq_loan_installments_active",
+            "loan_id",
+            "number",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     loan_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("loans.id"), nullable=False, index=True
@@ -258,7 +275,16 @@ class PreferenceRow(Base):
     """One preference layer value."""
 
     __tablename__ = "preferences"
-    __table_args__ = (UniqueConstraint("scope_type", "scope_id", "preference_key"),)
+    __table_args__ = (
+        Index(
+            "uq_preferences_active",
+            "scope_type",
+            "scope_id",
+            "preference_key",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     scope_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     scope_id: Mapped[str] = mapped_column(String(100), default="", nullable=False)
@@ -287,7 +313,7 @@ class AttachmentRow(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
-    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     scan_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -352,7 +378,15 @@ class LookupRow(Base):
     """Reference value used by employee and policy forms."""
 
     __tablename__ = "lookups"
-    __table_args__ = (UniqueConstraint("lookup_type", "code"),)
+    __table_args__ = (
+        Index(
+            "uq_lookups_active",
+            "lookup_type",
+            "code",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     lookup_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     code: Mapped[str] = mapped_column(String(30), nullable=False, index=True)

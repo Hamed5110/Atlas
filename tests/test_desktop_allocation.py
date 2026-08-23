@@ -10,6 +10,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
+pytestmark = pytest.mark.desktop
+
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from airfare_management.desktop.main import AllocationEngineScreen, ApiClient, MainWindow
@@ -20,7 +22,7 @@ def test_allocation_engine_screen_builds_and_requires_employee_to_issue(
 ) -> None:
     """The allocation widget constructs and blocks issue without an employee id."""
     application = QApplication.instance() or QApplication([])
-    screen = AllocationEngineScreen(ApiClient("http://127.0.0.1:3388"))
+    screen = AllocationEngineScreen(ApiClient("http://127.0.0.1:3389"))
     payload = screen._preview_payload()
     assert payload["excess_option"] == "LOAN"
     assert payload["global_company_preference_rate"] == "150"

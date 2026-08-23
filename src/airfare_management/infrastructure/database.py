@@ -120,7 +120,9 @@ def create_session_factory(settings: Settings) -> sessionmaker[Session]:
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
-    return sessionmaker(engine, expire_on_commit=False)
+    factory: sessionmaker[Session] = sessionmaker(engine, expire_on_commit=False)
+    factory.bind_engine = engine  # type: ignore[attr-defined]
+    return factory
 
 
 class EmployeeRepository(Repository[Employee]):
@@ -160,11 +162,13 @@ class EmployeeRepository(Repository[Employee]):
                 department=entity.department,
                 branch=entity.branch,
                 pay_group=entity.pay_group,
-                repair_center="",
-                designation="",
-                nationality="",
-                sub_section="",
-                reporting_officer_id=None,
+                repair_center=entity.repair_center,
+                designation=entity.designation,
+                nationality=entity.nationality,
+                sub_section=entity.sub_section,
+                reporting_officer_id=str(entity.reporting_officer_id)
+                if entity.reporting_officer_id
+                else None,
                 email=entity.email,
                 custom_airfare_rate=entity.custom_airfare_rate,
                 max_entitlement_cap_rate=entity.max_entitlement_cap_rate,
@@ -187,6 +191,13 @@ class EmployeeRepository(Repository[Employee]):
             department=row.department,
             branch=row.branch,
             pay_group=row.pay_group,
+            repair_center=row.repair_center,
+            designation=row.designation,
+            nationality=row.nationality,
+            sub_section=row.sub_section,
+            reporting_officer_id=UUID(str(row.reporting_officer_id))
+            if row.reporting_officer_id
+            else None,
             email=row.email,
             custom_airfare_rate=row.custom_airfare_rate,
             max_entitlement_cap_rate=row.max_entitlement_cap_rate,

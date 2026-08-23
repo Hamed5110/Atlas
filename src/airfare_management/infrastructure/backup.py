@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -38,6 +39,26 @@ from airfare_management.infrastructure.schema import (
 
 LOGICAL_FORMAT = "hcm-airfare-logical-v1"
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+SAFE_DB_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _quote_mssql_database(name: str) -> str:
+    """Validate and bracket a SQL Server database identifier."""
+    if not SAFE_DB_IDENT.fullmatch(name):
+        raise DomainError("invalid_database", "Unsafe database name.")
+    return f"[{name}]"
+
+
+def _run_sqlcmd(*, host: str, user: str, password: str, query: str) -> subprocess.CompletedProcess[str]:
+    """Run sqlcmd without putting the password on the process argv."""
+    env = {**os.environ, "SQLCMDPASSWORD": password}
+    return subprocess.run(
+        ["sqlcmd", "-S", host, "-U", user, "-C", "-b", "-Q", query],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,31 +463,17 @@ def create_native_mssql_backup(
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     path = directory / f"{SAFE_NAME.sub('_', database)}-{stamp}.bak"
     escaped = str(path).replace("'", "''")
+    db_ident = _quote_mssql_database(database)
     backup_sql = (
-        f"BACKUP DATABASE [{database}] TO DISK = N'{escaped}' "
+        f"BACKUP DATABASE {db_ident} TO DISK = N'{escaped}' "
         "WITH COPY_ONLY, COMPRESSION, CHECKSUM, INIT, STATS = 10"
     )
     verify_sql = f"RESTORE VERIFYONLY FROM DISK = N'{escaped}' WITH CHECKSUM"
     try:
         _execute_mssql_batches(database_url, [backup_sql, verify_sql])
     except Exception as pyodbc_error:  # noqa: BLE001 - fall back to sqlcmd
-        completed = subprocess.run(
-            [
-                "sqlcmd",
-                "-S",
-                host,
-                "-U",
-                user,
-                "-P",
-                password,
-                "-C",
-                "-b",
-                "-Q",
-                f"{backup_sql}; {verify_sql};",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
+        completed = _run_sqlcmd(
+            host=host, user=user, password=password, query=f"{backup_sql}; {verify_sql};"
         )
         if completed.returncode != 0 or not path.is_file():
             detail = (
@@ -506,33 +513,17 @@ def restore_native_mssql(
         database_url, db_user=db_user, db_password=db_password, server=server or None
     )
     escaped = str(backup_path).replace("'", "''")
+    db_ident = _quote_mssql_database(database)
     batches = [
-        f"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
-        f"RESTORE DATABASE [{database}] FROM DISK = N'{escaped}' WITH REPLACE, CHECKSUM",
-        f"ALTER DATABASE [{database}] SET MULTI_USER",
+        f"ALTER DATABASE {db_ident} SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
+        f"RESTORE DATABASE {db_ident} FROM DISK = N'{escaped}' WITH REPLACE, CHECKSUM",
+        f"ALTER DATABASE {db_ident} SET MULTI_USER",
     ]
     try:
         _execute_mssql_batches(database_url, batches)
     except Exception as pyodbc_error:  # noqa: BLE001
         query = ";\n".join(batches) + ";"
-        completed = subprocess.run(
-            [
-                "sqlcmd",
-                "-S",
-                host,
-                "-U",
-                user,
-                "-P",
-                password,
-                "-C",
-                "-b",
-                "-Q",
-                query,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        completed = _run_sqlcmd(host=host, user=user, password=password, query=query)
         if completed.returncode != 0:
             detail = (
                 completed.stderr or completed.stdout or str(pyodbc_error) or "restore failed"

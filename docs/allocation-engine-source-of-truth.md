@@ -5,7 +5,7 @@ Passwords, JWT secrets, and connection credentials are redacted.
 
 ## What listens on port 3355
 
-Port 3355 is **not** the HCM Airfare codebase (`C:\HCM Airfare`, port 3388).
+Port 3355 is **not** the HCM Airfare codebase (`C:\HCM Airfare`, port 3389).
 It is the ATLAS Airfare Allowance Node/Express + Next.js stack:
 
 | Item | Value |
@@ -18,7 +18,7 @@ It is the ATLAS Airfare Allowance Node/Express + Next.js stack:
 | Auth | JWT Bearer. Unauthenticated allocation/employee routes return 401 `Access token required`. |
 | Database | MSSQL `Atlasairfare010` on `localhost:1433`, login `sa` (password redacted) |
 
-HCM Airfare remains on **port 3388** and database **`HCM_Airfare_Management`**.
+HCM Airfare remains on **port 3389** and database **`HCM_Airfare_Management`**.
 This inspection did not stop, reconfigure, or write to the 3355 process.
 
 ## 3355 allocation HTTP contract
@@ -115,7 +115,7 @@ Per-user JSON: `PreferencesJSON`, `ThemeSettingsJSON`, `LayoutSettingsJSON`.
 
 ## 3355 live algorithm (now also the HCM engine)
 
-ATLAS uses the 30/360 working-day model. HCM Airfare on 3388 now uses the
+ATLAS uses the 30/360 working-day model. HCM Airfare on 3389 now uses the
 same formulas so allocation results match port 3355:
 
 - Working days: month serial `(month-1)*30 + day`, capped at 360.
@@ -130,7 +130,7 @@ same formulas so allocation results match port 3355:
 
 | Topic | 3355 | HCM Airfare (this engine) | Why |
 | --- | --- | --- | --- |
-| Port / process | 3355 Node | 3388 FastAPI | Isolation; do not break ATLAS |
+| Port / process | 3355 Node | 3389 FastAPI | Isolation; do not break ATLAS |
 | Day count | 30/360 | **Same 30/360** | Learned from ATLAS git history |
 | Daily rate | `MaxPayout / 60` | **Same** | Match live allocation screen |
 | Rate hierarchy | Policy table scopes | Employee custom → pay group → global | Closest HCM mapping |

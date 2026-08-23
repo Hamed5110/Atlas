@@ -92,6 +92,11 @@ class Employee(Entity):
     department: str = ""
     branch: str = ""
     pay_group: str = ""
+    repair_center: str = ""
+    designation: str = ""
+    nationality: str = ""
+    sub_section: str = ""
+    reporting_officer_id: UUID | None = None
     email: str | None = None
     custom_airfare_rate: Decimal | None = None
     max_entitlement_cap_rate: Decimal | None = None

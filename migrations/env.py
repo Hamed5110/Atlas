@@ -39,7 +39,16 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        dialect_name = connection.dialect.name
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            transaction_per_migration=dialect_name == "mssql",
+        )
+        if dialect_name == "mssql":
+            context.run_migrations()
+            return
         with context.begin_transaction():
             context.run_migrations()
 

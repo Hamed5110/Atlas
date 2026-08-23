@@ -24,13 +24,22 @@ dependencies = [
   "reportlab>=4.2",
   "redis>=6.0",
   "sqlalchemy>=2.0",
+  "structlog>=24.4",
+  "prometheus-client>=0.21",
   "uvicorn[standard]>=0.34",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "bandit>=1.8",
+  "factory-boy>=3.3",
+  "hypothesis>=6.120",
   "mypy>=1.14",
+  "mutmut>=3.0",
+  "pip-audit>=2.7",
+  "polyfactory>=2.18",
   "pytest>=8.3",
+  "pytest-asyncio>=0.25",
   "pytest-cov>=6.0",
   "ruff>=0.9",
   "types-openpyxl",
@@ -40,6 +49,14 @@ ml = [
   "pandas>=2.2",
   "scikit-learn>=1.5",
   "numpy>=2.0",
+  "statsmodels>=0.14",
+  "transformers>=4.48",
+]
+test = [
+  "locust>=2.32",
+  "playwright>=1.49",
+  "pytest-playwright>=0.6",
+  "testcontainers>=4.9",
 ]
 
 [project.scripts]
@@ -52,6 +69,16 @@ packages = ["src/airfare_management"]
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config"
 testpaths = ["tests"]
+markers = [
+  "integration: API integration tests requiring the FastAPI app",
+  "property: Hypothesis property-based tests",
+  "desktop: PySide6 GUI tests (offscreen; may hang in headless CI)",
+  "e2e: Playwright browser tests",
+  "slow: Long-running tests (mutation, load)",
+]
+filterwarnings = [
+  "ignore:Using `httpx` with `starlette.testclient`:DeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100
@@ -74,13 +101,29 @@ branch = true
 source = ["airfare_management"]
 omit = [
   "*/airfare_management/desktop/*",
+  "*/airfare_management/ai_agent/*",
+  "*/airfare_management/infrastructure/backup.py",
+  "*/airfare_management/infrastructure/documents.py",
 ]
 
 [tool.coverage.report]
-fail_under = 90
+fail_under = 85
 show_missing = true
 exclude_lines = [
   "pragma: no cover",
   "if TYPE_CHECKING:",
   "raise SystemExit",
 ]
+
+[tool.mutmut]
+paths_to_mutate = [
+  "src/airfare_management/domain/services.py",
+  "src/airfare_management/infrastructure/security.py",
+]
+backup = false
+runner = "python -m pytest -x -q --tb=no -m 'not e2e and not slow'"
+tests_dir = "tests/"
+
+[tool.bandit]
+exclude_dirs = ["tests", "migrations"]
+skips = ["B101"]

@@ -22,7 +22,7 @@ COPY migrations ./migrations
 RUN pip install --no-cache-dir .
 
 USER airfare
-EXPOSE 3388
+EXPOSE 3389
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl --fail http://127.0.0.1:3388/health || exit 1
-CMD ["sh", "-c", "alembic upgrade head && uvicorn airfare_management.api.main:app --host 0.0.0.0 --port 3388 --proxy-headers"]
+  CMD curl --fail http://127.0.0.1:3389/health/live || exit 1
+CMD ["sh", "-c", "alembic upgrade head && uvicorn airfare_management.api.main:app --host 0.0.0.0 --port 3389 --proxy-headers"]

@@ -13,6 +13,51 @@ from typing import Any, Mapping, Sequence
 
 
 ANOMALY_THRESHOLD_PCT = Decimal("25")
+_CACHED_MODELS: dict[str, object] = {}
+
+
+def _cached_isolation_forest(peer_amounts: list[float]) -> object | None:
+    """Fit IsolationForest once and reuse for the process lifetime."""
+    if len(peer_amounts) < 8:
+        return None
+    cached = _CACHED_MODELS.get("isolation_forest")
+    if cached is not None:
+        return cached
+    try:
+        from sklearn.ensemble import IsolationForest
+
+        model = IsolationForest(contamination=0.15, random_state=42)
+        model.fit([[value] for value in peer_amounts])
+        _CACHED_MODELS["isolation_forest"] = model
+        return model
+    except Exception:
+        return None
+
+
+def _cached_logistic_risk_model() -> object | None:
+    """Return a process-wide logistic risk model (synthetic prior)."""
+    cached = _CACHED_MODELS.get("logistic_risk")
+    if cached is not None:
+        return cached
+    try:
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+
+        rng = np.random.default_rng(42)
+        x_train: list[list[float]] = []
+        y_train: list[int] = []
+        for _ in range(80):
+            burden = float(rng.uniform(5, 80))
+            tenure = float(rng.uniform(1, 36))
+            defaults = float(rng.integers(0, 4))
+            x_train.append([burden, tenure, defaults])
+            y_train.append(1 if (burden > 35 or defaults >= 2 or (burden > 25 and tenure > 24)) else 0)
+        model = LogisticRegression(max_iter=200)
+        model.fit(np.array(x_train), np.array(y_train))
+        _CACHED_MODELS["logistic_risk"] = model
+        return model
+    except Exception:
+        return None
 
 
 @dataclass(frozen=True)
@@ -95,18 +140,12 @@ def detect_expense_anomaly(
 
     method = "percent_deviation"
     is_anomaly = deviation > threshold_pct
-    try:
-        import pandas as pd
-        from sklearn.ensemble import IsolationForest
-
-        if len(peers) >= 8:
-            frame = pd.DataFrame({"amount": [float(item) for item in peers] + [float(claim)]})
-            model = IsolationForest(contamination=0.15, random_state=42)
-            labels = model.fit_predict(frame[["amount"]])
-            is_anomaly = bool(labels[-1] == -1) or deviation > threshold_pct
-            method = "isolation_forest+percent"
-    except Exception:
-        method = "percent_deviation"
+    peer_floats = [float(item) for item in peers]
+    model = _cached_isolation_forest(peer_floats + [float(claim)])
+    if model is not None:
+        labels = model.predict([[float(claim)]])
+        is_anomaly = bool(labels[0] == -1) or deviation > threshold_pct
+        method = "isolation_forest+percent"
 
     message = (
         f"Claim {claim} is {deviation}% from pay-group average {average} "
@@ -166,28 +205,17 @@ def score_emi_default_risk(
     ).quantize(Decimal("0.01"))
 
     try:
-        import numpy as np
-        from sklearn.linear_model import LogisticRegression
+        model = _cached_logistic_risk_model()
+        if model is not None:
+            import numpy as np
 
-        # Synthetic prior: high burden/defaults → default class 1
-        rng = np.random.default_rng(42)
-        x_train = []
-        y_train = []
-        for _ in range(80):
-            b = float(rng.uniform(5, 80))
-            t = float(rng.uniform(1, 36))
-            d = float(rng.integers(0, 4))
-            x_train.append([b, t, d])
-            y_train.append(1 if (b > 35 or d >= 2 or (b > 25 and t > 24)) else 0)
-        model = LogisticRegression(max_iter=200)
-        model.fit(np.array(x_train), np.array(y_train))
-        prob = float(
-            model.predict_proba(
-                [[float(burden), float(tenure), float(prior_defaults)]]
-            )[0][1]
-        )
-        score = (Decimal(str(prob)) * Decimal("100")).quantize(Decimal("0.01"))
-        method = "logistic_regression"
+            prob = float(
+                model.predict_proba(
+                    np.array([[float(burden), float(tenure), float(prior_defaults)]])
+                )[0][1]
+            )
+            score = (Decimal(str(prob)) * Decimal("100")).quantize(Decimal("0.01"))
+            method = "logistic_regression"
     except Exception:
         method = "rule_blend"
 

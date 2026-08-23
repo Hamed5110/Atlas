@@ -632,6 +632,14 @@ def test_mssql_scenario_3_preview_persists_and_cleanup() -> None:
         assert body["scenario"] == AllocationScenario.OPENING_BALANCE_ACCRUAL.value
         assert Decimal(body["final_entitlement_amount"]) == Decimal("42.29")
     finally:
+        if employee_id is not None:
+            current = client.get(f"/v1/employees/{employee_id}", headers=headers)
+            if current.status_code == 200:
+                deleted = client.delete(
+                    f"/v1/employees/{employee_id}",
+                    headers={**headers, "If-Match": str(current.json()["version"])},
+                )
+                assert deleted.status_code == 204, deleted.text
         sessions.kw["bind"].dispose()
 
 

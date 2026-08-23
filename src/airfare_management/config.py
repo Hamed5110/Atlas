@@ -1,8 +1,9 @@
 """Validated process configuration."""
 
 from functools import lru_cache
+from typing import Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,8 +28,8 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://127.0.0.1:6379/1"
     celery_result_backend: str = "redis://127.0.0.1:6379/2"
     host: str = "127.0.0.1"
-    port: int = Field(default=3388, ge=1, le=65535)
-    api_base_url: str = "http://127.0.0.1:3388"
+    port: int = Field(default=3389, ge=1, le=65535)
+    api_base_url: str = "http://127.0.0.1:3389"
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="ChangeMeNow!2026", min_length=12)
     attachment_root: str = "./var/attachments"
@@ -39,6 +40,16 @@ class Settings(BaseSettings):
     db_password: str | None = None
     db_server: str = "127.0.0.1"
     cors_origins: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_insecure_defaults(self) -> Self:
+        """Refuse shipping defaults when running as production."""
+        if self.environment == "production":
+            if self.jwt_secret.startswith("development-only"):
+                raise ValueError("AIRFARE_JWT_SECRET must be set in production")
+            if self.bootstrap_admin_password == "ChangeMeNow!2026":
+                raise ValueError("AIRFARE_BOOTSTRAP_ADMIN_PASSWORD must be changed")
+        return self
 
 
 @lru_cache(maxsize=1)

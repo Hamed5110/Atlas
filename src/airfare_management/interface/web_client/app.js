@@ -4,8 +4,8 @@ const API_ROOT = "/v1";
 const TOKEN_KEY = "airfare_access_token";
 const REFRESH_KEY = "airfare_refresh_token";
 const state = {
-  token: sessionStorage.getItem(TOKEN_KEY) || "",
-  refreshToken: sessionStorage.getItem(REFRESH_KEY) || "",
+  token: "",
+  refreshToken: "",
   user: null,
   activeModule: "dashboard",
 };
@@ -139,6 +139,10 @@ const tableModules = {
 };
 
 const REPORT_TEMPLATE_NAMES = {
+  "entitlement-balance-summary": "report-entitlement-balance-summary",
+  "booking-register": "report-booking-register",
+  "loan-recovery-ledger": "report-loan-recovery-ledger",
+  "liability-projections": "report-liability-projections",
   "employee-master": "report-employee-master",
   "opening-balances": "report-opening-balances",
   entitlements: "report-entitlements",
@@ -147,6 +151,8 @@ const REPORT_TEMPLATE_NAMES = {
   "loan-statement": "report-loan-statement",
   "excess-recovery": "report-excess-recovery",
 };
+
+const THEME_KEY = "airfare_theme";
 
 const DASHBOARD_TEMPLATES = [
   ["employees", "Employee Master"],
@@ -369,6 +375,29 @@ function installStyles() {
     .emi-schedule { margin:0 20px 20px; }
     .warning { color:#8a5a00; background:#fff8e8; border:1px solid #f0c36d;
       border-radius:8px; padding:10px 12px; margin-top:16px; font-size:14px; }
+    .topbar-actions { display:flex; align-items:center; gap:12px; }
+    .kanban { display:grid; grid-template-columns:repeat(4,minmax(180px,1fr)); gap:14px; margin-bottom:22px; }
+    .board-column { background:#f8fbfe; border:1px solid var(--line); border-radius:10px; min-height:220px;
+      display:flex; flex-direction:column; }
+    .board-column-head { padding:12px 14px; border-bottom:1px solid var(--line); font-weight:750; color:var(--navy);
+      display:flex; justify-content:space-between; align-items:center; font-size:13px; text-transform:capitalize; }
+    .board-column-body { padding:10px; display:flex; flex-direction:column; gap:8px; flex:1; }
+    .kanban-card { background:white; border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+      box-shadow:0 1px 4px rgba(20,50,80,.05); cursor:pointer; }
+    .kanban-card:hover { border-color:#9fc0dc; }
+    .kanban-card strong { display:block; color:var(--navy); font-size:13px; }
+    .kanban-card small { color:var(--slate); font-size:12px; }
+    .loan-detail { margin-top:18px; }
+    .detail-panel { background:white; border:1px solid var(--line); border-radius:11px; padding:20px;
+      box-shadow:0 2px 8px rgba(27,55,80,.04); }
+    .detail-panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+      margin-bottom:16px; }
+    .loan-chart { width:100%; height:180px; margin:12px 0 18px; }
+    .loan-row { cursor:pointer; }
+    .loan-row.selected td { background:#e9f2fb !important; }
+    .ess-form { margin-bottom:22px; }
+    .ess-form-grid { display:grid; grid-template-columns:repeat(3,minmax(160px,1fr)); gap:0 18px; }
+    .view-toggle { display:flex; gap:8px; }
     @media (max-width:900px) {
       .login-page { grid-template-columns:1fr; }.login-brand { display:none; }
       .shell { grid-template-columns:76px 1fr; }.sidebar { padding:18px 9px; }
@@ -386,6 +415,18 @@ function installStyles() {
       .search { min-width:100%; }.loading { left:0; }
     }`;
   document.head.append(style);
+  applyTheme(localStorage.getItem(THEME_KEY) || "light");
+}
+
+function applyTheme(mode) {
+  document.body.classList.toggle("dark", mode === "dark");
+  localStorage.setItem(THEME_KEY, mode);
+  const toggle = document.querySelector("#theme-toggle");
+  if (toggle) toggle.textContent = mode === "dark" ? "Light mode" : "Dark mode";
+}
+
+function toggleTheme() {
+  applyTheme(document.body.classList.contains("dark") ? "light" : "dark");
 }
 
 async function api(path, options = {}) {
@@ -397,7 +438,7 @@ async function api(path, options = {}) {
     const renewed = await renewSession();
     if (renewed) return api(path, { ...options, _retried: true });
   }
-  if (response.status === 401) {
+  if (response.status === 401 && state.token && !options._skipAuthLogout) {
     logout(false);
     throw new Error("Your session expired. Please sign in again.");
   }
@@ -523,7 +564,7 @@ function renderLogin(message = "") {
     id: "password", name: "password", type: "password", autocomplete: "current-password",
     required: "required", placeholder: "Enter your password",
   });
-  const form = el("form", { className: "login-card" },
+  const form = el("form", { className: "login-card", novalidate: "novalidate" },
     el("div", { className: "eyebrow", text: "Secure workspace" }),
     el("h2", { text: "Welcome back" }),
     el("p", { className: "muted", text: "Sign in to manage employee airfare benefits." }),
@@ -534,15 +575,27 @@ function renderLogin(message = "") {
   if (message) showError(form, message);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    form.querySelector("button").disabled = true;
     form.querySelector(".error")?.remove();
+    if (!username.value.trim() || !password.value) {
+      showError(form, "Username and password are required.");
+      return;
+    }
+    form.querySelector("button").disabled = true;
     try {
-      const result = await api("/auth/login", {
+      const response = await fetch(`${API_ROOT}/auth/login`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: username.value.trim(), password: password.value }),
       });
-      state.token = result.access_token;
-      state.refreshToken = result.refresh_token;
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = Array.isArray(payload.detail)
+          ? payload.detail.map((item) => item.msg || JSON.stringify(item)).join("; ")
+          : payload.detail || payload.title || "Invalid username or password.";
+        throw new Error(String(detail));
+      }
+      state.token = payload.access_token;
+      state.refreshToken = payload.refresh_token;
       sessionStorage.setItem(TOKEN_KEY, state.token);
       sessionStorage.setItem(REFRESH_KEY, state.refreshToken);
       state.user = await api("/auth/me");
@@ -554,9 +607,9 @@ function renderLogin(message = "") {
   });
   document.body.append(el("main", { className: "login-page" },
     el("section", { className: "login-brand" },
-      el("div", { className: "brand-mark", text: "A" }),
-      el("h1", { text: "Airfare benefits, managed with clarity." }),
-      el("p", { text: "A secure HCM workspace for employee entitlements, tickets, balances and recoveries." }),
+      el("div", { className: "brand-mark", text: "AA" }),
+      el("h1", { text: "Atlas Aluminum — airfare benefits, managed with clarity." }),
+      el("p", { text: "Secure HCM workspace for GCC employee entitlements, tickets, balances and recoveries." }),
     ),
     el("section", { className: "login-panel" }, form),
   ));
@@ -577,8 +630,8 @@ function renderShell() {
   });
   const sidebar = el("aside", { className: "sidebar" },
     el("div", { className: "side-brand" },
-      el("div", { className: "brand-mark", text: "A" }),
-      el("div", {}, el("strong", { text: "HCM Airfare" }), el("small", { text: "Management" })),
+      el("div", { className: "brand-mark", text: "AA" }),
+      el("div", {}, el("strong", { text: "Atlas Aluminum" }), el("small", { text: "HCM Airfare" })),
     ),
     nav,
     el("div", { className: "sidebar-footer" },
@@ -591,7 +644,16 @@ function renderShell() {
   const main = el("main", { className: "main" },
     el("header", { className: "topbar" },
       el("div", { className: "topbar-title", id: "topbar-title", text: "Dashboard" }),
-      el("div", { className: "live" }, el("span", { className: "dot" }), "API connected"),
+      el("div", { className: "topbar-actions" },
+        el("button", {
+          id: "theme-toggle",
+          className: "secondary",
+          type: "button",
+          text: document.body.classList.contains("dark") ? "Light mode" : "Dark mode",
+          on: { click: toggleTheme },
+        }),
+        el("div", { className: "live" }, el("span", { className: "dot" }), "API connected"),
+      ),
     ),
     content,
   );
@@ -695,6 +757,90 @@ function displayValue(key, value, row) {
   return String(value);
 }
 
+function buildTicketKanban(records) {
+  const columns = ["draft", "submitted", "approved", "paid"];
+  return el("section", { className: "kanban ticket-board", "aria-label": "Ticket workflow board" },
+    ...columns.map((status) => {
+      const items = records.filter((record) => record.status === status);
+      return el("div", { className: "board-column" },
+        el("div", { className: "board-column-head" },
+          el("span", { text: status.replace("_", " ") }),
+          el("span", { className: "pill", text: String(items.length) })),
+        el("div", { className: "board-column-body" },
+          ...(items.length
+            ? items.map((record) => el("article", {
+              className: "kanban-card",
+              on: {
+                click: () => openRecordDialog(tableModules.tickets, record),
+              },
+            },
+            el("strong", { text: record.ticket_code || record.id.slice(0, 8) }),
+            el("small", { text: record.employee_label || "Employee" }),
+            el("small", { text: `${displayValue("route", null, record)} · ${formatMoney(record.ticket_cost)}` }),
+            ))
+            : [el("div", { className: "muted", text: "No tickets", style: "padding:8px 4px;font-size:12px;" })]),
+        ));
+    }));
+}
+
+function loanChartSvg(schedule) {
+  const width = 640;
+  const height = 160;
+  const padding = 28;
+  const payments = schedule.map((part) => Number(part.payment));
+  const maxValue = Math.max(...payments, 1);
+  const barWidth = Math.max(12, (width - padding * 2) / Math.max(schedule.length, 1) - 6);
+  const bars = schedule.map((part, index) => {
+    const barHeight = (Number(part.payment) / maxValue) * (height - padding * 2);
+    const x = padding + index * (barWidth + 6);
+    const y = height - padding - barHeight;
+    return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4" fill="#2463a6" opacity="0.85"></rect>`;
+  }).join("");
+  return `<svg class="loan-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Loan payment chart"><rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>${bars}</svg>`;
+}
+
+function showEmptyLoanDetailPanel(host) {
+  host.replaceChildren(el("section", { className: "detail-panel loan-detail" },
+    el("div", { className: "detail-panel-head" },
+      el("div", {},
+        el("div", { className: "panel-title", text: "Loan analytics" }),
+        el("p", { className: "muted", text: "Create a loan from Airfare Allocation to view amortization charts here." }))),
+    (() => {
+      const chartHost = el("div");
+      chartHost.innerHTML = loanChartSvg([
+        { payment: 0 }, { payment: 0 }, { payment: 0 }, { payment: 0 },
+      ]);
+      return chartHost;
+    })(),
+  ));
+}
+
+async function showLoanDetailPanel(record, host) {
+  host.replaceChildren(el("div", { className: "muted", text: "Loading loan detail…" }));
+  try {
+    const schedule = await api(`/loans/${record.id}/schedule`);
+    host.replaceChildren(el("section", { className: "detail-panel loan-detail" },
+      el("div", { className: "detail-panel-head" },
+        el("div", {},
+          el("div", { className: "panel-title", text: `Loan ${record.loan_code || record.id.slice(0, 8)}` }),
+          el("p", { className: "muted", text: `${record.employee_label || "Employee"} · ${formatMoney(record.outstanding)} outstanding` })),
+        el("div", { className: "actions" },
+          el("button", {
+            className: "secondary", type: "button", text: "Full schedule",
+            on: { click: () => showLoanSchedule(record) },
+          }))),
+      (() => {
+        const chartHost = el("div");
+        chartHost.innerHTML = loanChartSvg(schedule);
+        return chartHost;
+      })(),
+      el("div", { className: "table-wrap" }, scheduleTable(schedule.slice(0, 6))),
+    ));
+  } catch (error) {
+    host.replaceChildren(el("div", { className: "error", text: error.message }));
+  }
+}
+
 async function renderTableModule(content, config) {
   const records = await api(`${config.endpoint}?limit=500`);
   const refresh = el("button", {
@@ -737,7 +883,11 @@ async function renderTableModule(content, config) {
       },
     },
   }));
-  const table = el("table", {},
+  const tableClass = ["data-table"];
+  if (state.activeModule === "employees") tableClass.push("employee-table");
+  if (config.workflow) tableClass.push("ticket-table");
+  if (config.schedule) tableClass.push("loan-table");
+  const table = el("table", { className: tableClass.join(" ") },
     el("thead", {}, el("tr", {},
       ...headers,
       el("th", { text: "Actions" }))),
@@ -745,6 +895,8 @@ async function renderTableModule(content, config) {
   );
   const countLabel = el("div", { className: "panel-title" });
   const pageLabel = el("span");
+  const loanDetailHost = el("div", { className: "loan-detail", id: "loan-detail-host" });
+  let selectedLoanId = null;
   const previous = el("button", {
     className: "secondary", type: "button", text: "Previous",
     on: { click: () => { page -= 1; paint(); } },
@@ -811,7 +963,19 @@ async function renderTableModule(content, config) {
         on: { click: () => showLoanSchedule(record) },
       }));
       rowActions.push(remove);
-      body.append(el("tr", {}, ...cells,
+      const rowOptions = {};
+      if (config.schedule) {
+        rowOptions.className = `loan-row${selectedLoanId === record.id ? " selected" : ""}`;
+        rowOptions.on = {
+          click: (event) => {
+            if (event.target.closest("button")) return;
+            selectedLoanId = record.id;
+            paint();
+            showLoanDetailPanel(record, loanDetailHost);
+          },
+        };
+      }
+      body.append(el("tr", rowOptions, ...cells,
         el("td", {}, el("div", { className: "actions" }, ...rowActions))));
     });
     if (!visible.length) body.append(el("tr", {}, el("td", {
@@ -847,7 +1011,19 @@ async function renderTableModule(content, config) {
   if (config.emiRunner) {
     content.append(await renderLoanEmiRunner(records));
   }
+  if (config.workflow) {
+    content.append(buildTicketKanban(records));
+  }
   content.append(panel);
+  if (config.schedule) {
+    content.append(loanDetailHost);
+    if (records.length) {
+      selectedLoanId = records[0].id;
+      showLoanDetailPanel(records[0], loanDetailHost);
+    } else {
+      showEmptyLoanDetailPanel(loanDetailHost);
+    }
+  }
   paint();
 }
 
@@ -2196,7 +2372,56 @@ function renderReports(content) {
 }
 
 async function renderEss(content) {
-  const records = await api("/ess/requests");
+  const [records, employees] = await Promise.all([
+    api("/ess/requests"),
+    api("/employees?limit=500"),
+  ]);
+  const employeeSelect = el("select", { id: "ess-employee", name: "employee_id", required: "required" },
+    el("option", { value: "", text: "Select employee" }),
+    ...employees.map((employee) => el("option", {
+      value: employee.id, text: employeeOptionLabel(employee),
+    })));
+  const requestType = el("select", { id: "ess-type", name: "request_type", required: "required" },
+    el("option", { value: "airfare", text: "airfare" }),
+    el("option", { value: "ticket", text: "ticket" }),
+    el("option", { value: "loan", text: "loan" }));
+  const travelDate = el("input", { id: "ess-travel-date", name: "travel_date", type: "date", required: "required" });
+  const origin = el("input", { id: "ess-origin", name: "origin_code", type: "text", required: "required", placeholder: "BAH" });
+  const destination = el("input", { id: "ess-destination", name: "destination_code", type: "text", required: "required", placeholder: "DEL" });
+  const notes = el("textarea", { id: "ess-notes", name: "notes", rows: "3", placeholder: "Optional notes" });
+  const essForm = el("form", { className: "ess-form panel form-panel" },
+    el("div", { className: "panel-header" },
+      el("div", {},
+        el("div", { className: "panel-title", text: "Submit ESS request" }),
+        el("p", { className: "muted", text: "Quick airfare self-service form for employees and HR." }))),
+    el("div", { className: "ess-form-grid" },
+      el("div", { className: "field" }, el("label", { for: "ess-employee", text: "Employee" }), employeeSelect),
+      el("div", { className: "field" }, el("label", { for: "ess-type", text: "Request type" }), requestType),
+      el("div", { className: "field" }, el("label", { for: "ess-travel-date", text: "Travel date" }), travelDate),
+      el("div", { className: "field" }, el("label", { for: "ess-origin", text: "Origin" }), origin),
+      el("div", { className: "field" }, el("label", { for: "ess-destination", text: "Destination" }), destination),
+      el("div", { className: "field", style: "grid-column:1/-1" }, el("label", { for: "ess-notes", text: "Notes" }), notes)),
+    el("div", { className: "form-actions" },
+      el("button", { className: "primary", type: "submit", text: "Submit request" })));
+  essForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await api("/ess/requests", {
+        method: "POST",
+        body: JSON.stringify({
+          employee_id: employeeSelect.value,
+          request_type: requestType.value,
+          travel_date: travelDate.value,
+          origin_code: origin.value.trim(),
+          destination_code: destination.value.trim(),
+          notes: notes.value.trim(),
+        }),
+      });
+      await navigate("ess");
+    } catch (error) {
+      showError(content, error.message);
+    }
+  });
   const create = el("button", {
     className: "primary", type: "button", text: "New request",
     on: {
@@ -2219,6 +2444,7 @@ async function renderEss(content) {
     "Submit airfare requests and follow approval status.",
     el("div", { className: "actions" }, templateButton("ess-requests"), create),
   ));
+  content.append(essForm);
   const list = el("section", { className: "panel form-panel" });
   records.forEach((record) => {
     list.append(el("div", { className: "report-card" },
@@ -2369,6 +2595,8 @@ function formatDecimal(value, maxDigits = 4) {
 }
 
 async function start() {
+  state.token = sessionStorage.getItem(TOKEN_KEY) || "";
+  state.refreshToken = sessionStorage.getItem(REFRESH_KEY) || "";
   installStyles();
   if (!state.token) {
     renderLogin();

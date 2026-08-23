@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from airfare_management.api.main import DEFAULT_COMPANY_ID, create_app
@@ -102,3 +103,38 @@ def test_resolve_login_from_database_url() -> None:
     assert password == "Secret@Pass"
     assert host == "sqlhost"
     assert database == "HCM_Airfare_Management"
+
+
+def test_sqlcmd_uses_env_password_not_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+
+    from airfare_management.infrastructure.backup import _run_sqlcmd
+
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], env: dict[str, str], **_kwargs: object) -> MagicMock:
+        captured["cmd"] = cmd
+        captured["env"] = env
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = ""
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr("airfare_management.infrastructure.backup.subprocess.run", fake_run)
+    _run_sqlcmd(host="localhost", user="sa", password="Secret!Pass", query="SELECT 1")
+    cmd = captured["cmd"]
+    assert isinstance(cmd, list)
+    assert "-P" not in cmd
+    env = captured["env"]
+    assert isinstance(env, dict)
+    assert env.get("SQLCMDPASSWORD") == "Secret!Pass"
+
+
+def test_restore_loads_companies_before_employees() -> None:
+    import inspect
+
+    from airfare_management.infrastructure.backup import restore_logical_backup
+
+    source = inspect.getsource(restore_logical_backup)
+    assert source.index("CompanyRow") < source.index("EmployeeRow")

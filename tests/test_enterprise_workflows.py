@@ -472,14 +472,20 @@ def test_documents_import_attachment_password_and_delete_paths(client: TestClien
     attachment = client.post(
         f"/v1/attachments?entity_type=employee&entity_id={employee['id']}",
         headers=headers,
-        files={"file": ("proof.txt", b"verified document", "text/plain")},
+        files={"file": ("proof.pdf", b"%PDF-1.4 verified document", "application/pdf")},
     )
     assert attachment.status_code == 201
     assert attachment.json()["sha256"]
+    rejected_mime = client.post(
+        f"/v1/attachments?entity_type=employee&entity_id={employee['id']}",
+        headers=headers,
+        files={"file": ("proof.txt", b"verified document", "text/plain")},
+    )
+    assert rejected_mime.status_code == 422
     empty = client.post(
         f"/v1/attachments?entity_type=employee&entity_id={employee['id']}",
         headers=headers,
-        files={"file": ("empty.txt", b"", "text/plain")},
+        files={"file": ("empty.pdf", b"", "application/pdf")},
     )
     assert empty.status_code == 422
     report = client.get("/v1/reports/excess.pdf", headers=headers)

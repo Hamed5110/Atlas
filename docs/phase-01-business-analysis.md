@@ -78,7 +78,7 @@ Payroll touchpoints are: export due deductions by payroll period; receive accept
 
 | Capability | Current dependency | Target dependency / failure behavior |
 |---|---|---|
-| API | FastAPI/Uvicorn :3388 | Nginx TLS proxy; reject overload with 429/503. |
+| API | FastAPI/Uvicorn :3389 | Nginx TLS proxy; reject overload with 429/503. |
 | Persistence | SQLAlchemy 2, MSSQL, Alembic `0001`/`0002` | HA SQL Server, encrypted backups, Query Store. |
 | Async work | None | Redis + Celery; durable retries and dead-letter workflow. |
 | Desktop | PySide6 + HTTPX | Same versioned API; no direct DB access. |

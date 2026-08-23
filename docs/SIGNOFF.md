@@ -1,7 +1,7 @@
 # HCM Airfare — Full Process Review and Sign-off Pack
 
 **Review date:** 2026-08-18  
-**Scope:** Entire build process from the original enterprise command through the live 3388 system.  
+**Scope:** Entire build process from the original enterprise command through the live 3389 system.  
 **Decision requested:** one yes/no on this pack. Do not treat individual rows as separately signed.
 
 This document is the durable record. It does **not** certify SOC 2, OWASP ASVS, or unrestricted financial production readiness.
@@ -12,10 +12,10 @@ This document is the durable record. It does **not** certify SOC 2, OWASP ASVS, 
 
 | Product | Path | Port | Database | Rule |
 |---|---|---|---|---|
-| HCM Airfare (this pack) | `C:\HCM Airfare` | 3388 | `HCM_Airfare_Management` | In scope |
+| HCM Airfare (this pack) | `C:\HCM Airfare` | 3389 | `HCM_Airfare_Management` | In scope |
 | ATLAS (reference) | `C:\Airfare_Allowance` | 3355 | `Atlasairfare010` | Read-only; do not modify |
 
-Sign-off covers the **operational baseline** delivered on 3388: FastAPI + vanilla JS SPA + PySide6 desktop, Alembic-managed MSSQL, ATLAS 30/360 allocation formula, imported reference data, and passing automated tests.
+Sign-off covers the **operational baseline** delivered on 3389: FastAPI + vanilla JS SPA + PySide6 desktop, Alembic-managed MSSQL, ATLAS 30/360 allocation formula, imported reference data, and passing automated tests.
 
 Sign-off **excludes** the original factory’s commercial-ERP claims (tenant RLS, malware scanning, payroll/HRIS adapters, Celery/Redis/Nginx, WCAG evidence, concurrent payment safety, visual identity with ATLAS Next.js).
 
@@ -25,7 +25,7 @@ Sign-off **excludes** the original factory’s commercial-ERP claims (tenant RLS
 
 | Check | Result |
 |---|---|
-| `GET http://127.0.0.1:3388/health` | `{"status":"ok","version":"1.0.0","port":"3388"}` |
+| `GET http://127.0.0.1:3389/health` | `{"status":"ok","version":"1.0.0","port":"3389"}` |
 | `GET http://127.0.0.1:3355/api/health` | ATLAS 2.3.92, database connected, `continuousAirfareEntitlement: false` |
 | Alembic on `HCM_Airfare_Management` | `0006_users_company_fk` (head) |
 | Pytest | **52 passed**, 90.49% coverage (90% gate met), 18.75s |
@@ -50,11 +50,11 @@ ATLAS live flags confirm 3355 is still on this 30/360 path; continuous-entitleme
 | Step | Request | Outcome |
 |---|---|---|
 | 1 | Enterprise Airfare Management (Clean Architecture, FastAPI, PySide6, MSSQL, 90% tests) | Foundation started under `C:\Airfare_Allowance\airfare_management`, then relocated. |
-| 2 | Put the full system in `C:\HCM Airfare` on port **3388** | Canonical runtime is 3388. Do not bind this product to 3355. |
+| 2 | Put the full system in `C:\HCM Airfare` on port **3389** | Canonical runtime is 3389. Do not bind this product to 3355. |
 | 3 | Persist everything in MSSQL (`sa` / encoded password in gitignored `.env`) | Live DB `HCM_Airfare_Management`; Alembic through 0006. SQLite is tests-only. |
 | 4 | Browser UI (not JSON at `/`) | SPA at `/` and `/assets/app.js` (`Cache-Control: no-store` for `app.js`). |
 | 5 | 12-phase factory + four review reports | Blueprint `docs/phase-01`–`08` plus architecture/security/DBA/QA reviews. Reports remain defect lists, not closure certificates. |
-| 6 | “Nothing working like 3355” | Root cause: 3388 had ~1 employee vs ATLAS ~129 plus real balances/tickets/loans. Importer added. |
+| 6 | “Nothing working like 3355” | Root cause: 3389 had ~1 employee vs ATLAS ~129 plus real balances/tickets/loans. Importer added. |
 | 7 | Git remote `https://github.com/Hamed5110/Atlas.git` | Executed on `C:\Airfare_Allowance` (`main`). `C:\HCM Airfare` is a separate tree; do not overwrite ATLAS `main` without an explicit branch. |
 | 8 | Match 3355 calculation (learn from ATLAS git), not the earlier 365-day engine | Allocation engine switched to 30/360. Tests rewritten to ATLAS cases. |
 | 9 | This review | Full pack below. No piecemeal ticks. |
@@ -63,7 +63,7 @@ ATLAS live flags confirm 3355 is still on this 30/360 path; continuous-entitleme
 
 ## 4. Factory phases 1–12 — single verdict table
 
-Blueprint phases 1–8 exist as design. Phases 9–12 are implementation/ops. Status is against **delivered code + live 3388**, not against the aspiration in the original prompt.
+Blueprint phases 1–8 exist as design. Phases 9–12 are implementation/ops. Status is against **delivered code + live 3389**, not against the aspiration in the original prompt.
 
 | Phase | Title | Verdict | Evidence | Residual |
 |---|---|---|---|---|
@@ -75,7 +75,7 @@ Blueprint phases 1–8 exist as design. Phases 9–12 are implementation/ops. St
 | 6 | API design | Partial | Broad `/v1` catalog including allocations, loans, ESS | Error shapes mixed; some endpoints unused by UI |
 | 7 | UI/UX | Partial | 11 web modules + 11 desktop screens; grids with search/sort/page | Not ATLAS Next.js; no WCAG evidence; loan payment/defer UI missing |
 | 8 | Service design | Partial | Pure calc + some handlers | Ticket/loan commands still in `api/main.py` |
-| 9 | Implementation | Partial | Runnable 3388 against MSSQL with imported data | See module table |
+| 9 | Implementation | Partial | Runnable 3389 against MSSQL with imported data | See module table |
 | 10 | Testing / QA | Partial | 52 tests, 90.49% line coverage | QA-03/04/05 open; tests are SQLite, not MSSQL concurrency |
 | 11 | DevOps | Partial | `ci.yml`, Docker compose (API), start-*.ps1 | Compose does not prove Redis/Celery/Nginx here |
 | 12 | Handover | Partial | README, import docs, this pack | `C:\HCM Airfare` has no git commit; import doc still mentions 365 in one paragraph |
@@ -103,13 +103,13 @@ Blueprint phases 1–8 exist as design. Phases 9–12 are implementation/ops. St
 
 ---
 
-## 6. ATLAS left-panel modules vs 3388
+## 6. ATLAS left-panel modules vs 3389
 
 ATLAS nav (3355): Overview, Employees, Entitlement Seeds, Airfare Allocation, ESS, Loans, Reports, Multi-Company, Preferences, Import/Export, AI Insights, User Management, Support.
 
-HCM web nav (3388): Dashboard, Employees, Opening Balances, Airfare Entitlement, Airfare Allocation Engine, Tickets, Loans, Preferences, Reports, ESS, Administration.
+HCM web nav (3389): Dashboard, Employees, Opening Balances, Airfare Entitlement, Airfare Allocation Engine, Tickets, Loans, Preferences, Reports, ESS, Administration.
 
-| ATLAS / queue item | 3388 | Verdict |
+| ATLAS / queue item | 3389 | Verdict |
 |---|---|---|
 | Dashboard / Overview | KPI counts | Partial (no ATLAS charts/AI) |
 | Company-DB selector | Single company | Not delivered |
@@ -175,7 +175,7 @@ These findings from `docs/review-*.md` are **still open**. Signing this pack doe
 I have reviewed this pack as a whole. I accept **one** of the following:
 
 **A — Accept operational baseline (recommended)**  
-3388 is accepted as the HCM Airfare runtime: MSSQL Alembic 0006, ATLAS 30/360 allocation, imported reference data, SPA + desktop, 52 tests / 90% coverage. Factory enterprise claims, ATLAS visual parity, and the critical defects in section 8 remain **out of scope** until a later pack.
+3389 is accepted as the HCM Airfare runtime: MSSQL Alembic 0006, ATLAS 30/360 allocation, imported reference data, SPA + desktop, 52 tests / 90% coverage. Factory enterprise claims, ATLAS visual parity, and the critical defects in section 8 remain **out of scope** until a later pack.
 
 **B — Reject**  
 The system is not accepted until named gaps are closed. List them in the reply.
