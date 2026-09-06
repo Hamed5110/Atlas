@@ -1,0 +1,28 @@
+{
+  "title": "Employee Master",
+  "dataset": "employee-master",
+  "bands": {
+    "header": {
+      "title": "Employee Master",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Code",
+        "Employee",
+        "Department",
+        "Branch",
+        "Join date",
+        "Email",
+        "Status"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Code"
+}

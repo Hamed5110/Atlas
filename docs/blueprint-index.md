@@ -33,7 +33,7 @@ This blueprint defines the enterprise target for the HCM Airfare Management modu
 | Migration path | `migrations/versions/0001_initial.py`, `0002_operational_modules.py`, `0003_enterprise_workflows.py` |
 | MSSQL target/reference | `sql/mssql_schema.sql` (not equivalent to migrations) |
 | Desktop | `src/airfare_management/desktop/main.py` |
-| Browser client | `src/airfare_management/interface/web_client/app.js` |
+| Browser client | `web/` (Vite + React 19 + TypeScript + Tailwind 4 + shadcn/ui), built to `src/airfare_management/interface/web_dist/` |
 | Verification baseline | `tests/` |
 
 ## Cross-cutting target principles

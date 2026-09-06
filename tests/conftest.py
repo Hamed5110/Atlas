@@ -14,8 +14,10 @@ from airfare_management.infrastructure.security import issue_access_token
 
 
 @pytest.fixture
-def settings() -> Settings:
-    """Isolated in-memory test settings."""
+def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
+    """Isolated in-memory test settings (ignore host .env MSSQL URL)."""
+    monkeypatch.setenv("AIRFARE_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv("AIRFARE_ENVIRONMENT", "test")
     return Settings(
         environment="test",
         database_url="sqlite+pysqlite:///:memory:",

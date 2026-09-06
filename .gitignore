@@ -21,3 +21,6 @@ tests/e2e/**/*-snapshots/
 
 *.log
 scripts/uvicorn-*.log
+logs/
+uvicorn-*.log*
+web/node_modules/

@@ -1,0 +1,29 @@
+{
+  "title": "Liability Projections",
+  "dataset": "liability-projections",
+  "bands": {
+    "header": {
+      "title": "Liability Projections",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Employee",
+        "Loan",
+        "Status",
+        "Outstanding",
+        "Monthly EMI",
+        "Remaining installments",
+        "Projected recovery",
+        "First due"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Employee"
+}

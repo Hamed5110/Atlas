@@ -61,8 +61,19 @@ class EmployeeRow(Base):
     repair_center: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     designation: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     nationality: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    passport_no: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    arabic_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    cpr_no: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    date_of_birth: Mapped[date | None] = mapped_column(Date)
+    gender: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    passport_expiry: Mapped[date | None] = mapped_column(Date)
+    visa_no: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    visa_expiry: Mapped[date | None] = mapped_column(Date)
+    airline_sector: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    travel_class: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    last_airticket_date: Mapped[date | None] = mapped_column(Date)
     sub_section: Mapped[str] = mapped_column(String(100), default="", nullable=False)
-    reporting_officer_id: Mapped[str | None] = mapped_column(String(36))
+    reporting_officer_id: Mapped[str | None] = mapped_column(String(200))
     email: Mapped[str | None] = mapped_column(String(320))
     custom_airfare_rate: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
     max_entitlement_cap_rate: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
@@ -171,6 +182,17 @@ class EmployeeRepository(Repository[Employee]):
                 repair_center=entity.repair_center,
                 designation=entity.designation,
                 nationality=entity.nationality,
+                passport_no=entity.passport_no,
+                arabic_name=entity.arabic_name,
+                cpr_no=entity.cpr_no,
+                date_of_birth=entity.date_of_birth,
+                gender=entity.gender,
+                passport_expiry=entity.passport_expiry,
+                visa_no=entity.visa_no,
+                visa_expiry=entity.visa_expiry,
+                airline_sector=entity.airline_sector,
+                travel_class=entity.travel_class,
+                last_airticket_date=entity.last_airticket_date,
                 sub_section=entity.sub_section,
                 reporting_officer_id=str(entity.reporting_officer_id)
                 if entity.reporting_officer_id
@@ -178,6 +200,12 @@ class EmployeeRepository(Repository[Employee]):
                 email=entity.email,
                 custom_airfare_rate=entity.custom_airfare_rate,
                 max_entitlement_cap_rate=entity.max_entitlement_cap_rate,
+                grade=entity.grade,
+                contract_type=entity.contract_type,
+                origin_country=entity.origin_country,
+                employment_status=entity.employment_status,
+                monthly_salary=entity.monthly_salary,
+                probation_end_date=entity.probation_end_date,
                 active=entity.active,
                 version=entity.version,
                 created_at=entity.created_at,
@@ -200,13 +228,30 @@ class EmployeeRepository(Repository[Employee]):
             repair_center=row.repair_center,
             designation=row.designation,
             nationality=row.nationality,
+            passport_no=row.passport_no,
+            arabic_name=row.arabic_name,
+            cpr_no=row.cpr_no,
+            date_of_birth=row.date_of_birth,
+            gender=row.gender,
+            passport_expiry=row.passport_expiry,
+            visa_no=row.visa_no,
+            visa_expiry=row.visa_expiry,
+            airline_sector=row.airline_sector,
+            travel_class=row.travel_class,
+            last_airticket_date=row.last_airticket_date,
             sub_section=row.sub_section,
-            reporting_officer_id=UUID(str(row.reporting_officer_id))
+            reporting_officer_id=str(row.reporting_officer_id).strip()
             if row.reporting_officer_id
             else None,
             email=row.email,
             custom_airfare_rate=row.custom_airfare_rate,
             max_entitlement_cap_rate=row.max_entitlement_cap_rate,
+            grade=row.grade,
+            contract_type=row.contract_type,
+            origin_country=row.origin_country,
+            employment_status=row.employment_status,
+            monthly_salary=row.monthly_salary,
+            probation_end_date=row.probation_end_date,
             active=row.active,
             version=row.version,
             created_at=row.created_at.replace(tzinfo=UTC)

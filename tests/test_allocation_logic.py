@@ -13,6 +13,7 @@ from airfare_management.application.contracts import AllocationQueryHandler, Pre
 from airfare_management.config import Settings
 from airfare_management.domain.models import ValidationError
 from airfare_management.domain.services import (
+    AllocationPolicy,
     AllocationScenario,
     EntitlementRate,
     ExcessSettlementOption,
@@ -25,6 +26,8 @@ from airfare_management.domain.services import (
     resolve_entitlement_rate,
     settle_excess_ticket,
 )
+
+CALENDAR = AllocationPolicy(cycle_reset_basis="calendar")
 from airfare_management.infrastructure.database import (
     Base,
     EmployeeRow,
@@ -230,7 +233,7 @@ def test_atlas_formula_matches_3355_engine() -> None:
 
 
 def test_scenario_a_previous_ticket_resets_working_days() -> None:
-    """Previous ticket moves 30/360 start; opening BHD is still applied (CalcPolicy)."""
+    """Previous ticket moves 30/360 start; opening excluded in post-ticket window."""
     result = calculate_allocation_entitlement(
         as_of_date=date(2026, 1, 11),
         date_of_joining=date(2020, 1, 1),
@@ -240,13 +243,15 @@ def test_scenario_a_previous_ticket_resets_working_days() -> None:
         airfare_rate=POLICY_150,
         rate_source=RateSource.EMPLOYEE,
         max_entitlement_cap_rate=None,
+        policy=CALENDAR,
     )
     assert result.scenario is AllocationScenario.PREVIOUS_TICKET
     assert result.accrual_start == date(2026, 1, 2)
     assert result.accrued_days == Decimal("0.8333")
     assert result.opening_balance_days == Decimal("20")
     assert result.opening_balance_amount == Decimal("50")
-    assert result.final_entitlement_amount == Decimal("52.08")
+    assert result.final_entitlement_amount == Decimal("2.08")
+    assert any("Post-ticket" in n for n in result.policy_notes)
 
 
 def test_scenario_b_current_year_new_joinee() -> None:
@@ -260,6 +265,7 @@ def test_scenario_b_current_year_new_joinee() -> None:
         airfare_rate=POLICY_150,
         rate_source=RateSource.PAY_GROUP,
         max_entitlement_cap_rate=None,
+        policy=CALENDAR,
     )
     assert result.scenario is AllocationScenario.NEW_JOINEE
     assert result.accrual_start == date(2026, 3, 1)
@@ -278,6 +284,7 @@ def test_scenario_c_opening_balance_plus_current_year_accrual() -> None:
         airfare_rate=POLICY_150,
         rate_source=RateSource.GLOBAL,
         max_entitlement_cap_rate=None,
+        policy=CALENDAR,
     )
     assert result.scenario is AllocationScenario.OPENING_BALANCE_ACCRUAL
     assert result.accrual_start == date(2026, 1, 1)
@@ -297,6 +304,7 @@ def test_employee_0004_as_of_2026_08_18_matches_atlas() -> None:
         rate_source=RateSource.GLOBAL,
         max_entitlement_cap_rate=None,
         rate_days=Decimal("365"),
+        policy=CALENDAR,
     )
     assert allocation_working_days(date(2026, 8, 18), 2026, date(2024, 1, 1), None) == 228
     assert result.accrual_start == date(2026, 1, 1)

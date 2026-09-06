@@ -14,6 +14,9 @@ ReportName = Literal[
     "loan-recovery-ledger",
     "liability-projections",
     "excess-recovery",
+    "airfare-payable",
+    "airfare-payable-summary",
+    "airfare-payable-exceptions",
 ]
 
 MssqlReportName = Literal[

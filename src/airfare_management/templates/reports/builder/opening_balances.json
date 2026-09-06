@@ -1,0 +1,28 @@
+{
+  "title": "Opening Balances",
+  "dataset": "opening-balances",
+  "bands": {
+    "header": {
+      "title": "Opening Balances",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Employee",
+        "Name",
+        "Year",
+        "Opening days",
+        "Paid days",
+        "Opening amount",
+        "Maximum payout"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Employee"
+}

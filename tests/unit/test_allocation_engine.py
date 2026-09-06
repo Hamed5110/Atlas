@@ -8,6 +8,7 @@ import pytest
 from airfare_management.domain.models import ValidationError
 from airfare_management.domain.services import (
     AIRFARE_CYCLE_DAYS,
+    AllocationPolicy,
     AllocationScenario,
     ExcessSettlementOption,
     RateSource,
@@ -205,6 +206,12 @@ class TestExcessSettlement:
         assert result.option is ExcessSettlementOption.ENTITLEMENT_AMOUNT
         assert result.loan_principal is None
 
+    def test_entitlement_amount_blocked_when_zero_balance(self) -> None:
+        with pytest.raises(ValidationError, match="positive entitlement"):
+            settle_excess_ticket(
+                Decimal("200"), Decimal("0"), ExcessSettlementOption.ENTITLEMENT_AMOUNT
+            )
+
     def test_loan_excess_computes_emi(self) -> None:
         result = settle_excess_ticket(
             Decimal("200"), Decimal("150"), ExcessSettlementOption.LOAN, tenure_months=12
@@ -221,3 +228,66 @@ class TestExcessSettlement:
             ticket, entitlement, ExcessSettlementOption.SELF_PAID
         )
         assert result.company_payout + result.employee_payable == ticket
+
+
+class TestModernContinuousJoiningDate:
+    """Industry hire-date anniversary cycle (Workday / SF / GCC continuous)."""
+
+    def test_anniversary_window_and_accrual_start(self) -> None:
+        from airfare_management.domain.services import _anniversary_window
+
+        assert _anniversary_window(date(2020, 4, 16), date(2026, 9, 6)) == date(2026, 4, 16)
+        assert _anniversary_window(date(2020, 4, 16), date(2026, 3, 1)) == date(2025, 4, 16)
+
+    def test_joining_cycle_ignores_pre_anniversary_ticket(self) -> None:
+        policy = AllocationPolicy(cycle_reset_basis="joining_date")
+        result = calculate_allocation_entitlement(
+            as_of_date=date(2026, 9, 6),
+            date_of_joining=date(2020, 4, 16),
+            last_ticket_date=date(2026, 2, 1),  # before anniversary → cleared
+            opening_balance_days=Decimal("0"),
+            opening_balance_amount=Decimal("0"),
+            airfare_rate=POLICY_150,
+            rate_source=RateSource.GLOBAL,
+            max_entitlement_cap_rate=None,
+            policy=policy,
+        )
+        assert result.last_ticket_date is None
+        assert result.accrual_start == date(2026, 4, 16)
+        assert result.scenario is AllocationScenario.OPENING_BALANCE_ACCRUAL
+        assert any("joining anniversary" in n for n in result.policy_notes)
+        assert result.final_entitlement_amount > 0
+
+    def test_joining_post_ticket_window_after_anniversary(self) -> None:
+        policy = AllocationPolicy(cycle_reset_basis="joining_date")
+        result = calculate_allocation_entitlement(
+            as_of_date=date(2026, 9, 6),
+            date_of_joining=date(2020, 4, 16),
+            last_ticket_date=date(2026, 5, 1),
+            opening_balance_days=Decimal("10"),
+            opening_balance_amount=Decimal("25"),
+            airfare_rate=POLICY_150,
+            rate_source=RateSource.GLOBAL,
+            max_entitlement_cap_rate=None,
+            current_year_spending=Decimal("0"),
+            policy=policy,
+        )
+        assert result.last_ticket_date == date(2026, 5, 1)
+        assert result.accrual_start == date(2026, 5, 2)
+        assert result.scenario is AllocationScenario.PREVIOUS_TICKET
+        assert result.opening_balance_amount == Decimal("25")  # display
+        assert any("Post-ticket" in n for n in result.policy_notes)
+
+    def test_default_policy_uses_joining_date(self) -> None:
+        result = calculate_allocation_entitlement(
+            as_of_date=date(2026, 9, 6),
+            date_of_joining=date(2020, 4, 16),
+            last_ticket_date=None,
+            opening_balance_days=Decimal("0"),
+            opening_balance_amount=Decimal("0"),
+            airfare_rate=POLICY_150,
+            rate_source=RateSource.GLOBAL,
+            max_entitlement_cap_rate=None,
+        )
+        assert result.accrual_start == date(2026, 4, 16)
+        assert any("joining anniversary" in n for n in result.policy_notes)

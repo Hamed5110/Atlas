@@ -170,6 +170,70 @@ class TestLoanRestructureAndDefer:
         ).json()
         assert schedule[0]["due_date"] == deferred_until
 
+    def test_return_resumes_deferred_loan(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        loan = create_loan(
+            client,
+            admin_headers,
+            str(employee["id"]),
+            principal="400",
+            installments=8,
+        )
+        deferred_until = (date.today() + timedelta(days=45)).isoformat()
+        deferred = client.post(
+            f"/v1/loans/{loan['id']}/defer",
+            headers={**admin_headers, "If-Match": str(loan["version"])},
+            json={"deferred_until": deferred_until},
+        )
+        assert deferred.status_code == 200
+        resumed = client.post(
+            f"/v1/loans/{loan['id']}/return",
+            headers={**admin_headers, "If-Match": str(deferred.json()["version"])},
+        )
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["status"] == "active"
+        assert resumed.json().get("deferred_until") in (None, "")
+
+    def test_return_reopens_settled_loan_by_reversing_payments(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        loan = create_loan(
+            client,
+            admin_headers,
+            str(employee["id"]),
+            principal="500",
+            installments=5,
+        )
+        settled = client.post(
+            "/v1/loans/bulk-settle",
+            headers=admin_headers,
+            json={
+                "items": [
+                    {
+                        "loan_id": loan["id"],
+                        "amount": "500",
+                        "paid_on": date.today().isoformat(),
+                        "reference": "FULL-SETTLE",
+                    }
+                ]
+            },
+        )
+        assert settled.status_code == 200, settled.text
+        listed = client.get("/v1/loans?status=settled", headers=admin_headers).json()
+        current = next(item for item in listed if item["id"] == loan["id"])
+        resumed = client.post(
+            f"/v1/loans/{loan['id']}/return",
+            headers={**admin_headers, "If-Match": str(current["version"])},
+        )
+        assert resumed.status_code == 200, resumed.text
+        body = resumed.json()
+        assert body["status"] == "active"
+        assert Decimal(str(body["outstanding"])) == Decimal("500")
+        assert body.get("reversed_payments", 0) >= 1
+
 
 class TestLoanSoftDelete:
     """Soft-delete preserves financial state."""

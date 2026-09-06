@@ -1,0 +1,539 @@
+{% extends "documents/contract/focus_base.html" %}
+{% block content %}
+
+{# Title band #}
+<table class="pair">
+  <tr>
+    <td class="en"><div class="title-en">CONTRACT OF EMPLOYMENT</div></td>
+    <td class="ar"><div class="title-ar">عقـــــد عمل</div></td>
+  </tr>
+</table>
+
+{# Parties band — one synced row per unit #}
+<table class="pair">
+  <tr>
+    <td class="en">
+      <p>
+        On <span class="ltr" dir="ltr">{{ params.document_date_focus or doc.issue_date_long }}</span>
+        it was agreed to conclude this Employment contract between:
+      </p>
+    </td>
+    <td class="ar">
+      <p>
+        في <span class="ltr" dir="ltr">{{ params.document_date_focus_ar or params.document_date_focus or doc.issue_date_long }}</span>
+        تم الاتفاق على إبرام عقد العمل هذا بين:
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p>
+        <strong>{{ company.name }}{% if company.name and 'W.L.L' not in company.name|upper %} W.L.L.{% endif %}</strong>
+        {% if company.cr_no %} CR No. <span class="ltr" dir="ltr">{{ company.cr_no }}</span>{% endif %}
+      </p>
+      {% if company.address or params.address_villa or params.address_street or params.address_block %}
+      <p>
+        Address
+        {% if params.address_villa %}Building <span class="ltr" dir="ltr">{{ params.address_villa }}</span>{% endif %}
+        {% if params.address_street %} Road/Street <span class="ltr" dir="ltr">{{ params.address_street }}</span>{% endif %}
+        {% if params.address_block %} Block <span class="ltr" dir="ltr">{{ params.address_block }}</span>{% endif %}
+        {% if not params.address_villa and not params.address_street and company.address %}
+        <span class="ltr" dir="ltr">{{ company.address }}</span>
+        {% endif %}
+      </p>
+      {% endif %}
+      <p>Bahrain (hereinafter called the “First Party” and/or the “Employer”)</p>
+    </td>
+    <td class="ar">
+      <p>
+        {% if company.arabic_name and company.arabic_name != company.name %}
+        <strong>{{ company.arabic_name }}</strong> ذ.م.م
+        {% else %}
+        شركة <span class="ltr" dir="ltr">{{ company.name }}</span> ذ.م.م
+        {% endif %}
+        {% if company.cr_no %} رقم السجل التجاري <span class="ltr" dir="ltr">{{ company.cr_no }}</span>{% endif %}
+      </p>
+      {% if company.address or params.address_villa or params.address_street or params.address_block %}
+      <p>
+        {% if params.address_villa %}بناية <span class="ltr" dir="ltr">{{ params.address_villa }}</span>{% endif %}
+        {% if params.address_street %} الطريق <span class="ltr" dir="ltr">{{ params.address_street }}</span>{% endif %}
+        {% if params.address_block %} المجمع <span class="ltr" dir="ltr">{{ params.address_block }}</span>{% endif %}
+        {% if not params.address_villa and not params.address_street and company.address %}
+        <span class="ltr" dir="ltr">{{ company.address }}</span>
+        {% endif %}
+      </p>
+      {% endif %}
+      <p>(يُشار إليها فيما يلي باسم "الطرف الأول" و / أو "صاحب العمل") و</p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <table class="fld"><tr>
+        <td class="k">Name Mr./Ms :</td>
+        <td class="v">{{ employee.full_name }}</td>
+      </tr></table>
+    </td>
+    <td class="ar">
+      <table class="fld"><tr>
+        <td class="k">السيد/السيدة :</td>
+        <td class="v">{% if employee.arabic_name %}{{ employee.arabic_name }}{% else %}<span class="ltr" dir="ltr">{{ employee.full_name }}</span>{% endif %}</td>
+      </tr></table>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <table class="fld"><tr>
+        <td class="k">Nationality :</td>
+        <td class="v">{{ employee.nationality or "—" }}</td>
+      </tr></table>
+    </td>
+    <td class="ar">
+      <table class="fld"><tr>
+        <td class="k">الجنسية :</td>
+        <td class="v">{% if params.nationality_ar %}{{ params.nationality_ar }}{% else %}<span class="ltr" dir="ltr">{{ employee.nationality or "—" }}</span>{% endif %}</td>
+      </tr></table>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <table class="fld"><tr>
+        <td class="k">Passport No. :</td>
+        <td class="v"><span class="ltr" dir="ltr">{{ employee.passport_no or "—" }}</span></td>
+      </tr></table>
+    </td>
+    <td class="ar">
+      <table class="fld"><tr>
+        <td class="k">جواز سفر رقم :</td>
+        <td class="v"><span class="ltr" dir="ltr">{{ employee.passport_no or "—" }}</span></td>
+      </tr></table>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <table class="fld"><tr>
+        <td class="k">CPR NO. :</td>
+        <td class="v"><span class="ltr" dir="ltr">{{ employee.cpr_no or "—" }}</span></td>
+      </tr></table>
+    </td>
+    <td class="ar">
+      <table class="fld"><tr>
+        <td class="k">الرقم الشخصي :</td>
+        <td class="v"><span class="ltr" dir="ltr">{{ employee.cpr_no or "—" }}</span></td>
+      </tr></table>
+    </td>
+  </tr>
+  <tr>
+    <td class="en"><p>(hereinafter called the “Second Party” and/or the “Employee”).</p></td>
+    <td class="ar"><p>ويعرف فيما بعد بالموظف من جهة وعنوانه. يشار إليها فيما يلي بـ "الطرف الثاني".</p></td>
+  </tr>
+</table>
+
+<hr class="sec-rule" />
+
+{# Clauses 0–5 #}
+<table class="pair">
+  <tr>
+    <td class="en"><p class="h">The parties to this Contract mutually agree as follows:</p></td>
+    <td class="ar"><p class="h">يتفق طرفا هذا العقد بشكل متبادل على ما يلي:</p></td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p>
+        1. This contract is subject to the following terms and conditions according to the provisions
+        of the Labour Law in the private sector issued by Decree-Law No. (23) of 1976 and its amendments.
+      </p>
+    </td>
+    <td class="ar">
+      <p>
+        ١) يخضع هذا العقد للشروط والأحكام التالية وفقاً لأحكام قانون العمل في القطاع الخاص الصادر
+        بالمرسوم بقانون رقم (<span class="ltr" dir="ltr">23</span>) لسنة
+        <span class="ltr" dir="ltr">1976</span> وتعديلاته.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en"><p>2. The Job Offer Letter is an integral part of this contract.</p></td>
+    <td class="ar"><p>٢) تعتبر رسالة عرض العمل جزء لا يتجزأ من هذا العقد.</p></td>
+  </tr>
+  <tr>
+    <td class="en"><p>3. The aforementioned terms and conditions are an integral part of this contract.</p></td>
+    <td class="ar"><p>٣) تعتبر الشروط المشار إليها في هذا العقد جزء لا يتجزأ من هذا العقد.</p></td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p>
+        4. The employee undertakes to work under the management and supervision of the employer in
+        return for a monthly salary in order to perform certain work specified in the contract.
+      </p>
+    </td>
+    <td class="ar">
+      <p>
+        ٤) يتعهد الموظف بموجب هذا العقد أن يعمل تحت إدارة وإشراف صاحب العمل مقابل أجر شهري وذلك من
+        أجل القيام بعمل معين محدد بالعقد.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p>
+        5. The worker is obligated to accept joining any training course in or outside the workplace,
+        if the management deems it necessary to nominate him, to improve and develop his job
+        capabilities, whenever the need arises.
+      </p>
+    </td>
+    <td class="ar">
+      <p>
+        ٥) يلتزم العامل بالقبول للالتحاق بأي دورة تدريبية في مكان العمل أو خارجه، إذا ما ارتأت الإدارة
+        ضرورة ترشيحه، لتحسين وتطوير قدراته الوظيفية، كل ما دعت الحاجة لذلك.
+      </p>
+    </td>
+  </tr>
+</table>
+
+{# Clause 6 intro #}
+<table class="pair">
+  <tr>
+    <td class="en"><p class="h">6) Contract terms and conditions:</p></td>
+    <td class="ar"><p class="h">٦) طبيعة الوظيفة</p></td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p>
+        a- The employee is obligated to work under the supervision of the employer in the position of
+        <strong>{{ params.nature_of_employment }}</strong>.
+      </p>
+    </td>
+    <td class="ar">
+      <p>
+        أ) يلتزم الموظف بأن يعمل تحت إشراف صاحب العمل بوظيفة
+        {% if params.nature_of_employment_arabic %}
+        <strong>{{ params.nature_of_employment_arabic }}</strong>.
+        {% else %}
+        <span class="ltr" dir="ltr"><strong>{{ params.nature_of_employment }}</strong>.</span>
+        {% endif %}
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p>
+        b- Wage: The employer shall pay a monthly salary in cash, or by check, or by direct transfer
+        to the bank account.
+      </p>
+    </td>
+    <td class="ar">
+      <p>
+        ب) الأجر: يلتزم صاحب العمل بأن يدفع أجرا شهريا نقدا أو بموجب شيك أو بالتحويل المباشر إلى
+        الحساب المصرفي.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en"><p>c- Salary agreed:</p></td>
+    <td class="ar"><p>ج) الراتب المتفق عليه:</p></td>
+  </tr>
+</table>
+
+{# ONE salary table — 4 columns = perfect horizontal alignment (invoice pattern) #}
+<table class="salary">
+  <thead>
+    <tr>
+      <th class="c-en">Component</th>
+      <th class="c-amt-en">Amount</th>
+      <th class="c-amt-ar">المبلغ</th>
+      <th class="c-ar">البند</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="c-en">Basic</td>
+      <td class="c-amt-en"><span class="ltr" dir="ltr">{{ params.basic_fmt_focus or params.basic_fmt }}</span></td>
+      <td class="c-amt-ar"><span class="ltr" dir="ltr">{{ params.basic_fmt_focus or params.basic_fmt }}</span></td>
+      <td class="c-ar">الراتب الأساسي</td>
+    </tr>
+    {% if params.hra and params.hra|float > 0 %}
+    <tr>
+      <td class="c-en">HRA</td>
+      <td class="c-amt-en"><span class="ltr" dir="ltr">{{ params.hra_fmt_focus or params.hra_fmt }}</span></td>
+      <td class="c-amt-ar"><span class="ltr" dir="ltr">{{ params.hra_fmt_focus or params.hra_fmt }}</span></td>
+      <td class="c-ar">علاوة السكن</td>
+    </tr>
+    {% endif %}
+    {% if params.car_allowance and params.car_allowance|float > 0 %}
+    <tr>
+      <td class="c-en">Car Allowance</td>
+      <td class="c-amt-en"><span class="ltr" dir="ltr">{{ params.car_allowance_fmt_focus or params.car_allowance_fmt }}</span></td>
+      <td class="c-amt-ar"><span class="ltr" dir="ltr">{{ params.car_allowance_fmt_focus or params.car_allowance_fmt }}</span></td>
+      <td class="c-ar">علاوة السيارة</td>
+    </tr>
+    {% endif %}
+    {% if params.petrol_allowance and params.petrol_allowance|float > 0 %}
+    <tr>
+      <td class="c-en">Petrol Allowance</td>
+      <td class="c-amt-en"><span class="ltr" dir="ltr">{{ params.petrol_allowance_fmt_focus or params.petrol_allowance_fmt }}</span></td>
+      <td class="c-amt-ar"><span class="ltr" dir="ltr">{{ params.petrol_allowance_fmt_focus or params.petrol_allowance_fmt }}</span></td>
+      <td class="c-ar">علاوة بترول</td>
+    </tr>
+    {% endif %}
+    {% if params.special_duty_allowance and params.special_duty_allowance|float > 0 %}
+    <tr>
+      <td class="c-en">Special Duty Allowance</td>
+      <td class="c-amt-en"><span class="ltr" dir="ltr">{{ params.special_duty_allowance_fmt_focus or params.special_duty_allowance_fmt }}</span></td>
+      <td class="c-amt-ar"><span class="ltr" dir="ltr">{{ params.special_duty_allowance_fmt_focus or params.special_duty_allowance_fmt }}</span></td>
+      <td class="c-ar">علاوة خاصة</td>
+    </tr>
+    {% endif %}
+    <tr class="total">
+      <td class="c-en">Total Amount (BD)</td>
+      <td class="c-amt-en"><span class="ltr" dir="ltr">{{ params.net_fmt_focus or params.net_fmt }}</span></td>
+      <td class="c-amt-ar"><span class="ltr" dir="ltr">{{ params.net_fmt_focus or params.net_fmt }}</span></td>
+      <td class="c-ar">المبلغ الإجمالي</td>
+    </tr>
+  </tbody>
+</table>
+
+<table class="words">
+  <tr>
+    <td class="en">
+      <span class="lbl">Total amount in Words :</span>
+      {{ params.net_in_words_focus or params.net_in_words }}
+    </td>
+    <td class="ar">
+      <span class="lbl">المبلغ الإجمالي بالحروف :</span>
+      {{ params.net_in_words_ar or params.net_in_words_focus or params.net_in_words }}
+    </td>
+  </tr>
+</table>
+
+{# Clauses 7–17 #}
+<table class="pair">
+  <tr>
+    <td class="en">
+      <p class="h">7) Duration of the contract:</p>
+      <p>
+        This contract is for a fixed term of
+        <span class="ltr" dir="ltr">{{ params.duration_months }}</span> months, beginning from the
+        employee’s joining date
+        <span class="ltr" dir="ltr">{{ params.joining_date_long }}</span>
+        and ending on
+        <span class="ltr" dir="ltr">{{ params.end_date_long }}</span>,
+        unless renewed by written agreement of both parties.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">٧) مدة العقد</p>
+      <p>
+        هذا العقد لمدة محددة قدرها
+        <span class="ltr" dir="ltr">{{ params.duration_months }}</span>
+        شهراً، ويبدأ سريانه من تاريخ مزاولة الموظف العمل الفعلي
+        <span class="ltr" dir="ltr">{{ params.joining_date_long }}</span>
+        وينتهي في
+        <span class="ltr" dir="ltr">{{ params.end_date_long }}</span>،
+        ما لم يُجدد باتفاق كتابي بين الطرفين.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">8) Probationary period:</p>
+      <p>
+        the employee is appointed under a probationary period of
+        <span class="ltr" dir="ltr">{{ params.probation_months }}</span> months from the date of
+        commencing work under this contract, the employee may not be employed under the probation
+        period condition more than once under the employer.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">٨) مدة التجربة</p>
+      <p>
+        يعين الموظف تحت فترة التجربة لمدة
+        <span class="ltr" dir="ltr">{{ params.probation_months }}</span>
+        شهور من تاريخ بدء العمل بهذا العقد، ولا يجوز تعيين العامل تحت شرط التجربة أكثر من مرة واحدة
+        لدى صاحب العمل.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">9) Termination of the contract:</p>
+      <p>
+        Each of the parties of the contract may terminate the contract during the probationary period
+        after giving a one-day notice to the other party, and at least a
+        <span class="ltr" dir="ltr">{{ params.notice_period_days }}</span>-days’ notice after the end
+        of the probationary period. The Company may terminate this contract immediately without
+        notification or indemnity or end of service benefits based on the cases stated in Article
+        <span class="ltr" dir="ltr">107</span> of the Labour Law No.
+        <span class="ltr" dir="ltr">36/2012</span>.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">٩) فسخ العقد</p>
+      <p>
+        يجوز لأي من الطرفين إنهاء العقد خلال فترة التجربة وذلك بعد إعطاء إشعار للطرف الآخر مدته يوما
+        واحدا، ومدة <span class="ltr" dir="ltr">{{ params.notice_period_days }}</span> يوما على الأقل
+        بعد انتهاء فترة التجربة. يحق للشركة إنهاء هذا العقد فوراً دون إخطار أو تعويض أو مكافأة نهاية
+        خدمة استناداً للحالات الواردة بالمادة رقم <span class="ltr" dir="ltr">107</span> من قانون
+        العمل رقم <span class="ltr" dir="ltr">36/2012</span>.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">10) Annual leaves:</p>
+      <p>
+        <span class="ltr" dir="ltr">{{ params.annual_leave_days }}</span> days. The employee deserves
+        an annual leave in accordance with the Labour Law in the Private Sector No. (23) of 1976 and
+        its amendments.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١٠) الإجازات السنوية</p>
+      <p>
+        <span class="ltr" dir="ltr">{{ params.annual_leave_days }}</span>
+        يوم يستحق الموظف إجازة سنوية طبقا لقانون العمل في القطاع الأهلي رقم
+        (<span class="ltr" dir="ltr">23</span>) لسنة <span class="ltr" dir="ltr">1976</span> وتعديلاته.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">11) Sick leave:</p>
+      <p>
+        the employee is entitled to a sick leave in accordance with what is stipulated in the Bahraini
+        Labour Law and its amendments, provided that the sick leave is supported by an approved medical report.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١١) الإجازات المرضية</p>
+      <p>يستحق الموظف إجازة مرضية بموجب قانون العمل البحريني بشرط تقرير طبي معتمد.</p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">12) Working Hours:</p>
+      <p><span class="ltr" dir="ltr">{{ params.working_hours }}</span> hours per week.</p>
+    </td>
+    <td class="ar">
+      <p class="h">١٢) ساعات العمل</p>
+      <p><span class="ltr" dir="ltr">{{ params.working_hours }}</span> ساعة أسبوعياً.</p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">13) Passage:</p>
+      <p>
+        The company shall provide the employee on successful completion of every Two (2) years, an
+        economy class return ticket to the employee home country, if it is agreed to extend the
+        employment contract by both parties, otherwise a one-way ticket in case of deportation.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١٣) تذكرة العودة</p>
+      <p>
+        توفر الشركة للموظف عند إتمامه بنجاح كل <span class="ltr" dir="ltr">24</span> شهر تذكرة ذهاب
+        وعودة اقتصادية إلى موطن الموظف عند تمديد العقد، وإلا تذكرة ذهاب فقط في حالة الترحيل.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">14) Employee obligations:</p>
+      <p>
+        The employee must comply with the provisions of the implemented Labour Law, in particular:
+        a- be present at the workplace at the scheduled times and perform work with due care;
+        b- abide by occupational safety instructions;
+        c- respect the rules and regulations of the company.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١٤) التزامات الموظف</p>
+      <p>
+        يجب على الموظف الالتزام بأحكام قانون العمل المنفذة وعلى الأخص: أ) التواجد في مواعيد العمل
+        وبذل العناية المعتادة؛ ب) التقيد بتعليمات السلامة المهنية؛ ج) احترام أنظمة ولوائح الشركة.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">15) Confidentiality:</p>
+      <p>
+        The employee agrees to keep all the employer's business secrets at all times during and after
+        his work period.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١٥) السرية</p>
+      <p>
+        يوافق الموظف على الاحتفاظ بجميع أسرار عمل صاحب العمل في جميع الأوقات خلال فترة عمله وبعدها.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">16) Penalty / Compensation:</p>
+      <p>
+        If the employee terminates the contract of employment before completing the agreed period,
+        he/she shall be obliged to indemnify the employer for the training courses expenses provided
+        to him/her, where the expenses are determined by the employer based on the amount spent for
+        this purpose and not exceedingly twice the employee’s basic salary.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١٦) الجزاء / التعويض</p>
+      <p>
+        إذا أنهى الموظف عقد العمل قبل استكمال المدة المتفق عليها فإنه يلتزم بتعويض صاحب العمل عن
+        مصاريف الدورات التدريبية المقدمة له، بما لا يتجاوز ضعف الراتب الأساسي.
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td class="en">
+      <p class="h">17) Any other conditions to be agreed by the two parties:</p>
+      <p>
+        The First Party shall have right to transfer the Second Party to any other property belongs
+        to {{ company.name }} as needed.
+        {% if params.narration or params.special_terms or params.additional_details %}
+        {{ params.narration or params.special_terms }} {{ params.additional_details or "" }}
+        {% endif %}
+      </p>
+    </td>
+    <td class="ar">
+      <p class="h">١٧) أي شروط أخرى يتفق عليها الطرفان</p>
+      <p>
+        يحق للطرف الأول نقل الطرف الثاني إلى أي ممتلكات أخرى تخص
+        {{ company.arabic_name or company.name }} إذا اقتضت الحاجة.
+      </p>
+    </td>
+  </tr>
+</table>
+
+{# Keep signatures with closing clauses (avoid orphan signature page) #}
+<div style="page-break-inside: avoid;">
+{# Signature band — Focus Soft: AR title + EN subtitle, date center #}
+<table class="sig-band">
+  <tr>
+    <td class="en">
+      <span class="ttl-ar">توقيع الطرف الأول (صاحب العمل) / يمثله</span>
+      <span class="ttl">First Party Signature (Employer) / Represented by</span>
+      <div class="space"></div>
+      <div class="uline">
+        {{ params.signatory_name }}{% if params.signatory_title %}, {{ params.signatory_title }}{% endif %}
+      </div>
+    </td>
+    <td class="mid">
+      <span class="d-en ltr" dir="ltr">{{ params.document_weekday_focus or params.document_date_focus }}</span>
+      <span class="d-ar ltr" dir="ltr">{{ params.document_weekday_focus_ar or params.document_date_focus_ar }}</span>
+    </td>
+    <td class="ar">
+      <span class="ttl-ar">توقيع الطرف الثاني (الموظف)</span>
+      <span class="ttl">Second Party Signature (Employee)</span>
+      <div class="space"></div>
+      <div class="uline">
+        <span class="ltr" dir="ltr">{{ employee.full_name }}</span>
+      </div>
+    </td>
+  </tr>
+</table>
+</div>
+
+{% endblock %}

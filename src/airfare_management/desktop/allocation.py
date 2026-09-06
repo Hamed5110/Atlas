@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import httpx
-from PySide6.QtCore import QDate, QObject, QThread, Signal, Slot
+from PySide6.QtCore import QDate, QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
@@ -65,6 +65,7 @@ class AllocationEngineScreen(QWidget):
         self.excess_option.addItems(
             ["", "SELF_PAID", "COMPANY_PAID", "LOAN", "ENTITLEMENT_AMOUNT"]
         )
+        self.excess_option.setCurrentText("LOAN")
         self.tenure = QSpinBox()
         self.tenure.setRange(1, 60)
         self.tenure.setValue(6)
@@ -160,13 +161,14 @@ class AllocationEngineScreen(QWidget):
         self.excess_option.currentIndexChanged.connect(self.schedule_preview)
         self.tenure.valueChanged.connect(self.schedule_preview)
 
-        self.reload_employees()
+        QTimer.singleShot(0, self.reload_employees)
 
     def reload_employees(self) -> None:
         """Load employees from MSSQL via API into the combo box."""
         try:
             rows = self.api.get("/v1/employees?limit=500")
         except httpx.HTTPError as exc:
+            self.lbl_status.setText(f"Employee load failed: {exc}")
             QMessageBox.critical(self, "Employee load failed", str(exc))
             return
         self._employees = list(rows)
@@ -185,31 +187,30 @@ class AllocationEngineScreen(QWidget):
         text = str(value or "").strip()
         return text or None
 
-    def _preview_payload(self) -> dict[str, object] | None:
-        employee_id = self._selected_employee_id()
-        if employee_id is None:
-            return None
+    def _preview_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
-            "employee_id": employee_id,
             "as_of_date": self.as_of.date().toString("yyyy-MM-dd"),
+            "global_company_preference_rate": "150",
         }
+        employee_id = self._selected_employee_id()
+        if employee_id is not None:
+            payload["employee_id"] = employee_id
         ticket = self.ticket_amount.text().strip()
         if ticket:
             payload["requested_ticket_amount"] = ticket
-        excess = self.excess_option.currentText().strip()
-        if excess:
-            payload["excess_option"] = excess
-            if excess == "LOAN":
-                payload["tenure_months"] = int(self.tenure.value())
+        excess = self.excess_option.currentText().strip() or "LOAN"
+        payload["excess_option"] = excess
+        if excess == "LOAN":
+            payload["tenure_months"] = int(self.tenure.value())
         return payload
 
     def schedule_preview(self) -> None:
         """Auto preview on employee / date / ticket changes with generation guard."""
-        payload = self._preview_payload()
-        if payload is None:
+        if self._selected_employee_id() is None:
             self._clear_review()
             self.lbl_status.setText("Select an employee to load MSSQL entitlement.")
             return
+        payload = self._preview_payload()
         self._preview_generation += 1
         generation = self._preview_generation
         if self._thread is not None and self._thread.isRunning():
@@ -298,7 +299,7 @@ class AllocationEngineScreen(QWidget):
         """Issue a ticket for the selected employee."""
         employee_id = self._selected_employee_id()
         if employee_id is None:
-            QMessageBox.critical(self, "Issue failed", "Select an employee first.")
+            QMessageBox.critical(self, "Issue failed", "Employee ID is required")
             return
         ticket = self.ticket_amount.text().strip()
         if not ticket:
@@ -321,10 +322,10 @@ class AllocationEngineScreen(QWidget):
             "origin_code": self.origin.text().strip() or "ORG",
             "destination_code": self.destination.text().strip() or "DST",
         }
-        if option:
+        if excess > 0 and option:
             payload["excess_option"] = option
-        if option == "LOAN":
-            payload["tenure_months"] = int(self.tenure.value())
+            if option == "LOAN":
+                payload["tenure_months"] = int(self.tenure.value())
         try:
             result = self.api.post("/v1/allocations/issue", payload)
             self.lbl_status.setText(

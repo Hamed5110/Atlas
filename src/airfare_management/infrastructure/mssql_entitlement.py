@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from airfare_management.domain.services import (
     AIRFARE_CYCLE_DAYS,
     AllocationEntitlementResult,
+    AllocationPolicy,
     AllocationScenario,
     RateSource,
     calculate_allocation_entitlement,
@@ -88,9 +89,13 @@ def calculate_entitlement(
     current_year_spending: Decimal = Decimal("0"),
     session: Session | None = None,
     prefer_mssql: bool = True,
+    policy: AllocationPolicy | None = None,
+    rate_effective_from: date | None = None,
+    ytd_paid_days: Decimal | None = None,
+    ytd_spending: Decimal | None = None,
 ) -> AllocationEntitlementResult:
     """Call MSSQL SP when available; otherwise use the Python domain engine."""
-    if prefer_mssql and session is not None and _is_mssql(session):
+    if prefer_mssql and session is not None and _is_mssql(session) and policy is None:
         try:
             return _call_sp_calculate_entitlement(
                 session,
@@ -120,6 +125,10 @@ def calculate_entitlement(
         rate_days=AIRFARE_CYCLE_DAYS,
         paid_days=paid_days,
         current_year_spending=current_year_spending,
+        policy=policy,
+        rate_effective_from=rate_effective_from,
+        ytd_paid_days=ytd_paid_days,
+        ytd_spending=ytd_spending,
     )
 
 

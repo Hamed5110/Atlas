@@ -1,0 +1,82 @@
+{
+  "database": "HCM_Airfare_Management",
+  "quarantine_root": "C:\\Airfare_Allowance\\unwanted",
+  "roots": [
+    {
+      "path": "C:\\Airfare_Allowance",
+      "role": "ui_workspace",
+      "catalog_datasets": true,
+      "catalog_tools": true,
+      "sanitize": true
+    },
+    {
+      "path": "C:\\HCM Airfare",
+      "role": "api_runtime",
+      "catalog_datasets": false,
+      "catalog_tools": true,
+      "sanitize": true
+    }
+  ],
+  "protected_names": [
+    ".git",
+    ".env",
+    ".venv",
+    "node_modules",
+    "venv",
+    "migrations",
+    "src",
+    "atlas-next",
+    "tests",
+    ".pdf_fonts",
+    ".tmp_airports",
+    "unwanted"
+  ],
+  "junk_file_globs": [
+    "*.tmp",
+    "*.bak",
+    "*.log",
+    "*.pyc",
+    ".DS_Store",
+    "Thumbs.db",
+    "Desktop.ini"
+  ],
+  "junk_dir_names": [
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pdf_runtime",
+    ".tmp_chrome_profile",
+    ".tmp_chrome_profile2"
+  ],
+  "junk_name_prefixes": [
+    ".tmp_"
+  ],
+  "dataset_globs": [
+    ".tmp_airports/**",
+    ".pdf_fonts/**",
+    "tmp/**/*.csv",
+    "tmp/**/*.json"
+  ],
+  "tool_globs": [
+    "scripts/**/*.py",
+    "scripts/**/*.ps1",
+    "tools/**/*"
+  ],
+  "skip_dir_names": [
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".next",
+    "out",
+    "dist",
+    "build",
+    "playwright-report",
+    "test-results",
+    "redist",
+    ".wix",
+    "unwanted"
+  ],
+  "max_delete_bytes": 5368709120
+}

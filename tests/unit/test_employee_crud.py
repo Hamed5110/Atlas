@@ -26,14 +26,49 @@ def test_hcm_fields_round_trip(client: TestClient, admin_headers: dict[str, str]
             "nationality": "BH",
             "sub_section": "Wing A",
             "pay_group": "OPS",
+            "arabic_name": "موظف تجريبي",
+            "cpr_no": "900012345",
+            "passport_no": "P1234567",
+            "gender": "Male",
+            "grade": "G5",
+            "contract_type": "unlimited",
+            "origin_country": "India",
+            "airline_sector": "Asia",
+            "travel_class": "Economy",
+            "monthly_salary": "450.000",
+            "visa_no": "V-99",
         },
     )
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["designation"] == "Engineer"
     assert body["nationality"] == "BH"
+    assert body["arabic_name"] == "موظف تجريبي"
+    assert body["cpr_no"] == "900012345"
+    assert body["airline_sector"] == "Asia"
+    assert body["monthly_salary"] in ("450.0000", "450.000", "450")
     detail = client.get(f"/v1/employees/{body['id']}", headers=admin_headers)
     assert detail.json()["sub_section"] == "Wing A"
+    assert detail.json()["passport_no"] == "P1234567"
+
+    updated = client.put(
+        f"/v1/employees/{body['id']}",
+        headers={**admin_headers, "If-Match": str(body["version"])},
+        json={
+            "full_name": body["full_name"],
+            "join_date": body["join_date"],
+            "designation": "Senior Engineer",
+            "nationality": "BH",
+            "cpr_no": "900012345",
+            "arabic_name": "موظف تجريبي",
+            "airline_sector": "GCC",
+            "travel_class": "Business",
+            "active": True,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["designation"] == "Senior Engineer"
+    assert updated.json()["airline_sector"] == "GCC"
 
 
 def test_update_optimistic_locking(client: TestClient, admin_headers: dict[str, str]) -> None:

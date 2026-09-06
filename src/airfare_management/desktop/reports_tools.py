@@ -18,6 +18,9 @@ from PySide6.QtWidgets import (
 )
 
 REPORTS: list[tuple[str, str]] = [
+    ("airfare-payable", "Airfare Payable"),
+    ("airfare-payable-summary", "Airfare Payable Summary"),
+    ("airfare-payable-exceptions", "Airfare Payable Exceptions"),
     ("entitlement-balance-summary", "Entitlement Balance Summary"),
     ("booking-register", "Booking Register"),
     ("loan-recovery-ledger", "Loan Recovery Ledger"),

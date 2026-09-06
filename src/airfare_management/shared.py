@@ -51,7 +51,7 @@ class Money:
     """Decimal monetary value rounded with banker's rounding."""
 
     amount: Decimal
-    currency: str = "USD"
+    currency: str = "BHD"
 
     def __post_init__(self) -> None:
         """Normalize precision and ISO currency representation."""

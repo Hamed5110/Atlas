@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date
 from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
@@ -10,6 +11,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from airfare_management.api.schemas.report import ReportName
+from airfare_management.application.airfare_payable import (
+    AirfarePayableFilters,
+    airfare_payable_kpi,
+    collect_airfare_payable,
+)
 from airfare_management.domain.services import LoanInstallment, build_amortization_schedule
 from airfare_management.infrastructure.database import EmployeeRow
 from airfare_management.infrastructure.repositories import LoanRepository
@@ -24,9 +30,31 @@ from airfare_management.infrastructure.schema import (
 
 
 def collect_report_rows(
-    session: Session, report_name: ReportName
+    session: Session,
+    report_name: ReportName,
+    *,
+    year: int | None = None,
+    as_of_date: date | None = None,
+    company_id: str | None = None,
+    department: str | None = None,
 ) -> tuple[list[str], list[tuple[Any, ...]]]:
     """Return report column headers and row tuples."""
+    payable_alias = {
+        "airfare-payable": "full",
+        "airfare-payable-summary": "summary",
+        "airfare-payable-exceptions": "exceptions",
+    }
+    if report_name in payable_alias:
+        return collect_airfare_payable(
+            session,
+            AirfarePayableFilters(
+                year=year,
+                as_of_date=as_of_date,
+                company_id=company_id,
+                department=department,
+                variant=payable_alias[report_name],  # type: ignore[arg-type]
+            ),
+        )
     canonical: ReportName = {
         "entitlement-balance-summary": "opening-balances",
         "booking-register": "ticket-register",
@@ -292,6 +320,8 @@ def collect_report_rows(
                     )
                 )
         return list(columns), rows
+    if report_name != "excess-recovery":
+        raise ValueError(f"Unsupported report: {report_name}")
     columns = (
         "Travel date",
         "Employee",
@@ -325,8 +355,36 @@ def collect_report_rows(
     return list(columns), rows
 
 
-def report_aggregate_value(session: Session, report_name: ReportName) -> int | Decimal:
+def report_aggregate_value(
+    session: Session,
+    report_name: ReportName,
+    *,
+    year: int | None = None,
+    as_of_date: date | None = None,
+    company_id: str | None = None,
+    department: str | None = None,
+) -> int | Decimal:
     """Return the scalar KPI shown on report dashboard tiles."""
+    if report_name in {
+        "airfare-payable",
+        "airfare-payable-summary",
+        "airfare-payable-exceptions",
+    }:
+        variant = {
+            "airfare-payable": "full",
+            "airfare-payable-summary": "summary",
+            "airfare-payable-exceptions": "exceptions",
+        }[report_name]
+        return airfare_payable_kpi(
+            session,
+            AirfarePayableFilters(
+                year=year,
+                as_of_date=as_of_date,
+                company_id=company_id,
+                department=department,
+                variant=variant,  # type: ignore[arg-type]
+            ),
+        )
     if report_name == "employee-master":
         return session.scalar(
             select(func.count()).select_from(EmployeeRow).where(EmployeeRow.deleted_at.is_(None))

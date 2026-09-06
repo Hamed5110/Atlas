@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import case, delete, func, inspect, select, text, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -28,24 +28,39 @@ from airfare_management.api.dependencies import (
 )
 from airfare_management.api.health import register_health_routes, update_operational_gauges
 from airfare_management.api.routers.reports import create_reports_router
+from airfare_management.application.documents import (
+    create_document,
+    document_detail,
+    document_pdf_path,
+    employee_defaults,
+    get_document,
+    list_documents,
+    list_templates as list_document_templates,
+    preview_document,
+    render_allocation_print_pdf,
+    update_document,
+)
 from airfare_management.application.contracts import (
     AllocationPreview,
     AllocationQueryHandler,
     PreviewAllocation,
 )
 from airfare_management.config import Settings, get_settings
-from airfare_management.domain.models import DomainError
+from airfare_management.domain.models import DomainError, ValidationError
 from airfare_management.domain.services import (
     AIRFARE_CYCLE_DAYS,
     EntitlementScenario,
     ExcessSettlementOption,
+    ExcessSettlementResult,
     LoanInstallment,
+    _anniversary_window,
     atlas_round,
     build_amortization_schedule,
     calculate_emi,
     calculate_entitlement_scenario,
     conditional_format,
     fn_atlas_airfare_amount,
+    is_loan_settlement,
     quantize_money,
     resolve_preferences,
     settle_excess_ticket,
@@ -61,20 +76,29 @@ from airfare_management.infrastructure.backup import (
     restore_native_mssql,
 )
 from airfare_management.infrastructure.database import (
+    AuditRow,
     Base,
     EmployeeRow,
+    actor_context,
     correlation_context,
     create_session_factory,
     ip_context,
 )
 from airfare_management.infrastructure.documents import (
     EMPLOYEE_COLUMNS,
-    build_allocation_print_pdf,
     build_import_template,
+    build_pdf_report,
     export_workbook,
     list_import_templates,
     parse_employee_workbook,
     parse_opening_balance_workbook,
+)
+from airfare_management.infrastructure.policy import (
+    catalog_with_values,
+    load_policy,
+    policy_default_rows,
+    to_allocation_policy,
+    validate_setting,
 )
 from airfare_management.infrastructure.repositories import LoanRepository
 from airfare_management.infrastructure.telemetry import (
@@ -85,6 +109,7 @@ from airfare_management.infrastructure.telemetry import (
 from airfare_management.infrastructure.schema import (
     AttachmentRow,
     CompanyRow,
+    DocumentRow,
     EntitlementRateRow,
     EssRequestRow,
     LoanInstallmentRow,
@@ -95,8 +120,11 @@ from airfare_management.infrastructure.schema import (
     PasswordHistoryRow,
     PreferenceRow,
     RefreshTokenRow,
+    ReportTemplateRow,
     TicketRow,
     UserRow,
+    AiAgentAuditRow,
+    AiRepairLogRow,
 )
 from airfare_management.infrastructure.security import (
     create_refresh_token,
@@ -137,12 +165,30 @@ EMPLOYEE_API_FIELDS = (
     "branch",
     "email",
     "pay_group",
+    "repair_center",
     "designation",
     "nationality",
+    "passport_no",
+    "arabic_name",
+    "cpr_no",
+    "date_of_birth",
+    "gender",
+    "passport_expiry",
+    "visa_no",
+    "visa_expiry",
+    "airline_sector",
+    "travel_class",
+    "last_airticket_date",
     "sub_section",
     "reporting_officer_id",
     "custom_airfare_rate",
     "max_entitlement_cap_rate",
+    "grade",
+    "contract_type",
+    "origin_country",
+    "employment_status",
+    "monthly_salary",
+    "probation_end_date",
     "active",
     "version",
 )
@@ -186,19 +232,33 @@ class UserCreate(ApiModel):
     employee_id: UUID | None = None
 
 
+class UserUpdate(ApiModel):
+    """Administrative user update payload."""
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    roles: set[Literal["SYSTEM_ADMIN", "HR_MANAGER", "FINANCE_MANAGER", "EMPLOYEE"]] | None = None
+    employee_id: UUID | None = None
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=12, max_length=200)
+
+
 class CompanyCreate(ApiModel):
     """Company creation payload."""
 
     code: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=2, max_length=200)
-    currency: str = Field(default="USD", min_length=3, max_length=3)
+    currency: str = Field(default="BHD", min_length=3, max_length=3)
+    cr_no: str | None = Field(default=None, max_length=60)
+    address: str | None = Field(default=None, max_length=500)
 
 
 class CompanyUpdate(ApiModel):
     """Mutable company branding fields."""
 
-    name: str = Field(min_length=2, max_length=200)
+    name: str | None = Field(default=None, min_length=2, max_length=200)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
+    cr_no: str | None = Field(default=None, max_length=60)
+    address: str | None = Field(default=None, max_length=500)
     active: bool | None = None
 
 
@@ -214,11 +274,29 @@ class EmployeeCreate(ApiModel):
     pay_group: str = Field(default="", max_length=100)
     designation: str = Field(default="", max_length=100)
     nationality: str = Field(default="", max_length=100)
+    passport_no: str = Field(default="", max_length=40)
+    arabic_name: str = Field(default="", max_length=200)
+    cpr_no: str = Field(default="", max_length=40)
+    date_of_birth: date | None = None
+    gender: str = Field(default="", max_length=20)
+    passport_expiry: date | None = None
+    visa_no: str = Field(default="", max_length=40)
+    visa_expiry: date | None = None
+    airline_sector: str = Field(default="", max_length=100)
+    travel_class: str = Field(default="", max_length=40)
+    last_airticket_date: date | None = None
     sub_section: str = Field(default="", max_length=100)
-    reporting_officer_id: UUID | None = None
+    reporting_officer_id: str | None = Field(default=None, max_length=200)
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
+    repair_center: str = Field(default="", max_length=100)
+    grade: str = Field(default="", max_length=20)
+    contract_type: str = Field(default="", max_length=40)
+    origin_country: str = Field(default="", max_length=100)
+    employment_status: str = Field(default="active", max_length=40)
+    monthly_salary: Decimal | None = Field(default=None, ge=0)
+    probation_end_date: date | None = None
 
 
 class EmployeeUpdate(ApiModel):
@@ -231,11 +309,29 @@ class EmployeeUpdate(ApiModel):
     pay_group: str | None = Field(default=None, max_length=100)
     designation: str = Field(default="", max_length=100)
     nationality: str = Field(default="", max_length=100)
+    passport_no: str = Field(default="", max_length=40)
+    arabic_name: str = Field(default="", max_length=200)
+    cpr_no: str = Field(default="", max_length=40)
+    date_of_birth: date | None = None
+    gender: str = Field(default="", max_length=20)
+    passport_expiry: date | None = None
+    visa_no: str = Field(default="", max_length=40)
+    visa_expiry: date | None = None
+    airline_sector: str = Field(default="", max_length=100)
+    travel_class: str = Field(default="", max_length=40)
+    last_airticket_date: date | None = None
     sub_section: str = Field(default="", max_length=100)
-    reporting_officer_id: UUID | None = None
+    reporting_officer_id: str | None = Field(default=None, max_length=200)
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
+    repair_center: str = Field(default="", max_length=100)
+    grade: str = Field(default="", max_length=20)
+    contract_type: str = Field(default="", max_length=40)
+    origin_country: str = Field(default="", max_length=100)
+    employment_status: str = Field(default="active", max_length=40)
+    monthly_salary: Decimal | None = Field(default=None, ge=0)
+    probation_end_date: date | None = None
     active: bool = True
 
 
@@ -343,6 +439,7 @@ class AllocationPrintRequest(AllocationPreviewRequest):
     notes: str = Field(default="", max_length=4000)
     ticket_code: str | None = Field(default=None, max_length=40)
     status: str = Field(default="APPROVED", max_length=40)
+    ticket_id: UUID | None = None
 
 
 class LoanPreviewRequest(ApiModel):
@@ -373,6 +470,22 @@ class TicketCreate(ApiModel):
         "CONVERT_TO_LOAN", "COMPANY_PAID", "SELF_PAID", "ENTITLEMENT_AMOUNT"
     ] = "SELF_PAID"
     notes: str = Field(default="", max_length=4000)
+
+
+class TicketUpdate(ApiModel):
+    """Editable ticket fields (including paid corrections with loan revise)."""
+
+    travel_date: date
+    origin_code: str = Field(min_length=3, max_length=3)
+    destination_code: str = Field(min_length=3, max_length=3)
+    ticket_cost: Decimal = Field(ge=0)
+    entitlement: Decimal = Field(ge=0)
+    company_paid: Decimal = Field(ge=0)
+    excess_handling: Literal[
+        "CONVERT_TO_LOAN", "COMPANY_PAID", "SELF_PAID", "ENTITLEMENT_AMOUNT", "LOAN"
+    ] = "SELF_PAID"
+    notes: str = Field(default="", max_length=4000)
+    tenure_months: int | None = Field(default=None, ge=1, le=600)
 
 
 class StatusChange(ApiModel):
@@ -464,6 +577,15 @@ class RateCreate(ApiModel):
     cap_amount: Decimal | None = Field(default=None, ge=0)
 
 
+class RateUpdate(ApiModel):
+    """Mutable fields for an existing entitlement rate."""
+
+    amount: Decimal = Field(ge=0)
+    effective_from: date
+    effective_to: date | None = None
+    cap_amount: Decimal | None = Field(default=None, ge=0)
+
+
 class EssRequestCreate(ApiModel):
     """Employee self-service airfare request."""
 
@@ -491,8 +613,66 @@ class EmiRiskRequest(ApiModel):
     entitlement: Decimal | None = Field(default=None, ge=0)
 
 
+class AgentChatRequest(ApiModel):
+    """Schema-gated AI Data Agent chat turn."""
+
+    message: str = Field(min_length=1, max_length=2000)
+    apply_fix: str | None = Field(default=None, max_length=80)
+    auto_repair_mode: bool = False
+    apply_token: str | None = Field(default=None, max_length=64)
+    confirm: str | None = Field(default=None, max_length=20)
+
+
+class AgentRepairApplyRequest(ApiModel):
+    """Confirm a previously previewed whitelisted repair."""
+
+    apply_token: str = Field(min_length=8, max_length=64)
+    confirm: Literal["APPLY"]
+    auto_repair_mode: bool = True
+
+
+class SaaSilentFixRequest(ApiModel):
+    """Zero-risk SAA silent fixes (whitelist only)."""
+
+    codes: list[str] = Field(default_factory=lambda: ["update_statistics"])
+    confirm: Literal["SILENT_APPLY"] = "SILENT_APPLY"
+
+
+class ReportTemplateCreate(ApiModel):
+    """Create a Crystal-style report template."""
+
+    code: str = Field(min_length=1, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=200)
+    dataset: Literal[
+        "employee-master",
+        "opening-balances",
+        "entitlements",
+        "ticket-register",
+        "loan-outstanding",
+        "loan-statement",
+        "liability-projections",
+        "excess-recovery",
+    ]
+    definition: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReportTemplateUpdate(ApiModel):
+    """Update a saved report template."""
+
+    title: str = Field(min_length=1, max_length=200)
+    definition: dict[str, Any] = Field(default_factory=dict)
+
+
+class CrystalExportRequest(ApiModel):
+    """Export a Crystal .rpt via BIP when configured."""
+
+    report_id: str = Field(min_length=1, max_length=120)
+
+
 class EmployeeImportCommitRow(ApiModel):
-    """One employee row selected for import."""
+    """One employee row selected for import (Focus-style master fields)."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     row: int = Field(ge=1)
     code: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
@@ -502,9 +682,31 @@ class EmployeeImportCommitRow(ApiModel):
     department: str = Field(default="", max_length=100)
     branch: str = Field(default="", max_length=100)
     pay_group: str = Field(default="", max_length=100)
+    designation: str = Field(default="", max_length=100)
+    nationality: str = Field(default="", max_length=100)
+    passport_no: str = Field(default="", max_length=40)
+    arabic_name: str = Field(default="", max_length=200)
+    cpr_no: str = Field(default="", max_length=40)
+    date_of_birth: date | None = None
+    gender: str = Field(default="", max_length=20)
+    passport_expiry: date | None = None
+    visa_no: str = Field(default="", max_length=40)
+    visa_expiry: date | None = None
+    airline_sector: str = Field(default="", max_length=100)
+    travel_class: str = Field(default="", max_length=40)
+    last_airticket_date: date | None = None
+    sub_section: str = Field(default="", max_length=100)
+    reporting_officer_id: str | None = Field(default=None, max_length=200)
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
+    repair_center: str = Field(default="", max_length=100)
+    grade: str = Field(default="", max_length=20)
+    contract_type: str = Field(default="", max_length=40)
+    origin_country: str = Field(default="", max_length=100)
+    employment_status: str = Field(default="active", max_length=40)
+    monthly_salary: Decimal | None = Field(default=None, ge=0)
+    probation_end_date: date | None = None
     selected: bool = True
 
 
@@ -538,6 +740,35 @@ class EraseDataRequest(ApiModel):
     """Destructive operational reset confirmation."""
 
     confirm: Literal["ERASE_ALL_DATA"]
+
+
+class SettingsBatchUpdate(ApiModel):
+    """Batch update for the global rule-engine settings console."""
+
+    settings: dict[str, Any] = Field(min_length=1)
+
+
+class DocumentRequest(ApiModel):
+    """Document preview/generation payload.
+
+    employee_id is optional — Focus Soft issues offer/contract vouchers from
+    recruitment before Employee Master exists. Party details live in params.
+    """
+
+    kind: Literal["offer_letter", "contract"]
+    template_key: str = Field(min_length=1, max_length=40)
+    employee_id: UUID | None = None
+    company_id: UUID | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentUpdateRequest(ApiModel):
+    """Edit an issued voucher and regenerate PDF (keeps voucher_no)."""
+
+    template_key: str | None = Field(default=None, min_length=1, max_length=40)
+    employee_id: UUID | None = None
+    company_id: UUID | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class BackupCreateRequest(ApiModel):
@@ -627,12 +858,138 @@ def _ticket_display(ticket: TicketRow) -> dict[str, Any]:
 def _loan_display(loan: LoanRow | None) -> dict[str, Any]:
     """Public sequential loan identifiers shown in the UI."""
     if loan is None:
-        return {"loan_id": None, "loan_number": None, "loan_code": None}
+        return {
+            "loan_id": None,
+            "loan_number": None,
+            "loan_code": None,
+            "loan_status": None,
+            "loan_version": None,
+            "loan_outstanding": None,
+        }
     return {
         "loan_id": loan.id,
         "loan_number": loan.loan_number,
         "loan_code": loan.loan_code,
+        "loan_status": loan.status,
+        "loan_version": loan.version,
+        "loan_outstanding": loan.outstanding,
     }
+
+
+def _active_source_loan(session: Session, ticket_id: str) -> LoanRow | None:
+    """Return the non-deleted loan linked to a ticket, if any."""
+    return session.scalar(
+        select(LoanRow).where(
+            LoanRow.source_ticket_id == ticket_id,
+            LoanRow.deleted_at.is_(None),
+        )
+    )
+
+
+def _loan_has_payments(session: Session, loan_id: str) -> bool:
+    """True when any non-reversed recovery payment was posted against the loan."""
+    count = session.scalar(
+        select(func.count())
+        .select_from(LoanPaymentRow)
+        .where(
+            LoanPaymentRow.loan_id == loan_id,
+            LoanPaymentRow.deleted_at.is_(None),
+        )
+    )
+    return bool(count)
+
+
+def _reverse_loan_payments(session: Session, loan_id: str) -> int:
+    """Soft-delete active payments (ERPNext-style repayment cancel) and return count."""
+    payments = list(
+        session.scalars(
+            select(LoanPaymentRow).where(
+                LoanPaymentRow.loan_id == loan_id,
+                LoanPaymentRow.deleted_at.is_(None),
+            )
+        )
+    )
+    now = datetime.now(UTC)
+    for payment in payments:
+        payment.deleted_at = now
+        payment.version += 1
+    return len(payments)
+
+
+def _soft_delete_loan(session: Session, loan: LoanRow) -> None:
+    """Void a loan without posted payments (revise / cascade delete)."""
+    loan.deleted_at = datetime.now(UTC)
+    loan.status = "voided"
+    loan.version += 1
+
+
+def _create_loan_from_settlement(
+    session: Session,
+    *,
+    ticket: TicketRow,
+    settlement: ExcessSettlementResult,
+    policy: Any,
+) -> LoanRow | None:
+    """Create a recovery loan from an excess settlement (issue / edit / approve)."""
+    if (
+        not is_loan_settlement(settlement.option)
+        or settlement.loan_principal is None
+        or settlement.emi is None
+        or settlement.tenure_months is None
+    ):
+        return None
+    principal = quantize_money(settlement.loan_principal)
+    if principal <= 0:
+        return None
+    rate = getattr(policy, "loan_interest_rate", Decimal("0")) or Decimal("0")
+    due = _first_of_next_month(ticket.travel_date)
+    loan = LoanRow(
+        employee_id=ticket.employee_id,
+        source_ticket_id=ticket.id,
+        principal=principal,
+        annual_rate=rate,
+        installments=settlement.tenure_months,
+        monthly_installment=quantize_money(
+            calculate_emi(principal, rate, settlement.tenure_months)
+        ),
+        outstanding=principal,
+        status="active",
+        first_due_date=due,
+    )
+    session.add(loan)
+    session.flush()
+    LoanRepository(session).replace_schedule(
+        loan.id,
+        build_amortization_schedule(
+            principal,
+            rate,
+            settlement.tenure_months,
+            loan.first_due_date,
+        ),
+    )
+    return loan
+
+
+def _ticket_recovery_changed(
+    *,
+    linked_loan: LoanRow | None,
+    settlement: ExcessSettlementResult,
+    money_changed: bool,
+    handling_same: bool,
+) -> bool:
+    """Whether an existing linked loan must be voided/revised for this edit."""
+    if linked_loan is None:
+        return False
+    if money_changed or not handling_same:
+        return True
+    if not is_loan_settlement(settlement.option):
+        return True
+    if settlement.loan_principal is None or settlement.tenure_months is None:
+        return True
+    return (
+        quantize_money(settlement.loan_principal) != quantize_money(linked_loan.principal)
+        or settlement.tenure_months != linked_loan.installments
+    )
 
 
 def _allocation_saved_message(ticket: TicketRow, loan: LoanRow | None) -> str:
@@ -736,6 +1093,7 @@ def _allocation_response(
         "airfare_entitlement_amount": _decimal_text(entitlement.final_entitlement_amount),
         "per_day_rate": _decimal_text(entitlement.daily_rate, 4),
         "maximum_payout": _decimal_text(entitlement.airfare_rate),
+        "policy_notes": list(getattr(entitlement, "policy_notes", ()) or ()),
     }
     if ticket is not None:
         body.update(
@@ -766,11 +1124,14 @@ def _allocation_response(
             body["date_of_joining"] = employee.join_date.isoformat()
     if preview.settlement is not None:
         settlement = preview.settlement
+        option = settlement.option
+        if not isinstance(option, str):
+            option = getattr(option, "value", option)
         body.update(
             {
                 "requested_ticket_amount": _decimal_text(settlement.requested_ticket_amount),
                 "excess_cost": _decimal_text(settlement.excess_cost),
-                "excess_option": settlement.option.value,
+                "excess_option": str(option),
                 "employee_payable": _decimal_text(settlement.employee_payable),
                 "company_payout": _decimal_text(settlement.company_payout),
                 "loan_principal": _decimal_text(settlement.loan_principal),
@@ -827,12 +1188,14 @@ def _preview_employee_import(
     """Validate employee workbook rows for preview and selection."""
     preview_rows: list[dict[str, Any]] = []
     seen_codes: set[tuple[str, str]] = set()
-    existing_codes: set[tuple[str, str]] = {
-        (employee.company_id, employee.code.casefold())
-        for employee in session.scalars(
-            select(EmployeeRow).where(EmployeeRow.deleted_at.is_(None))
-        )
-    }
+    active_codes: set[tuple[str, str]] = set()
+    soft_deleted_codes: set[tuple[str, str]] = set()
+    for employee in session.scalars(select(EmployeeRow)):
+        key = (str(employee.company_id), employee.code.casefold())
+        if employee.deleted_at is None:
+            active_codes.add(key)
+        else:
+            soft_deleted_codes.add(key)
     for record in records:
         row_number = int(record.get("_row") or 0)
         try:
@@ -840,7 +1203,8 @@ def _preview_employee_import(
                 {
                     key: value
                     for key, value in record.items()
-                    if key
+                    if value is not None
+                    and key
                     not in {
                         "_row",
                         "row",
@@ -854,7 +1218,6 @@ def _preview_employee_import(
             )
             key = (str(candidate.company_id), candidate.code.casefold())
             duplicate_file = key in seen_codes
-            duplicate_db = key in existing_codes
             if session.get(CompanyRow, str(candidate.company_id)) is None:
                 preview_rows.append(
                     {
@@ -867,16 +1230,33 @@ def _preview_employee_import(
                         "action": None,
                     }
                 )
-            elif duplicate_file or duplicate_db:
+            elif duplicate_file:
                 preview_rows.append(
                     {
                         "row": row_number,
                         **candidate.model_dump(mode="json"),
                         "severity": "ERROR",
                         "status": "ERROR",
-                        "message": "Duplicate employee code.",
+                        "message": "Duplicate employee code inside this Excel file.",
                         "selected": False,
-                        "action": "UPDATE" if duplicate_db else None,
+                        "action": None,
+                    }
+                )
+            elif key in active_codes or key in soft_deleted_codes:
+                seen_codes.add(key)
+                preview_rows.append(
+                    {
+                        "row": row_number,
+                        **candidate.model_dump(mode="json"),
+                        "severity": "READY",
+                        "status": "READY",
+                        "message": (
+                            "Ready to update existing employee."
+                            if key in active_codes
+                            else "Ready to reactivate and update soft-deleted employee."
+                        ),
+                        "selected": True,
+                        "action": "UPDATE",
                     }
                 )
             else:
@@ -930,14 +1310,22 @@ def _preview_opening_balance_import(
         employee_code = str(record.get("employee_code") or "").strip()
         try:
             balance_year = int(record["balance_year"])
+            if balance_year < 2000 or balance_year > 2200:
+                raise ValueError("balance_year must be between 2000 and 2200.")
             opening_days = Decimal(str(record["opening_days"]))
             paid_days = Decimal(str(record.get("paid_days") or "0"))
+            if opening_days < 0 or opening_days > 60:
+                raise ValueError("opening_days must be between 0 and 60.")
+            if paid_days < 0 or paid_days > 60:
+                raise ValueError("paid_days must be between 0 and 60.")
             maximum_payout = Decimal(str(record.get("maximum_payout") or rate or "150"))
             opening_amount = record.get("opening_amount")
             if opening_amount in (None, ""):
                 opening_amount = fn_atlas_airfare_amount(opening_days, maximum_payout)
             else:
                 opening_amount = Decimal(str(opening_amount))
+            if opening_amount < 0 or maximum_payout < 0:
+                raise ValueError("Amounts must be zero or greater.")
             employee = employees.get(employee_code.casefold())
             duplicate_file = (employee_code.casefold(), balance_year) in seen_keys
             if not employee_code:
@@ -967,9 +1355,17 @@ def _preview_opening_balance_import(
                     "maximum_payout": _decimal_text(maximum_payout),
                     "severity": severity,
                     "status": severity,
-                    "message": message,
+                    "message": message if severity == "ERROR" else (
+                        "Ready to update existing opening balance."
+                        if existing is not None
+                        else "Ready for import."
+                    ),
                     "selected": severity == "READY",
-                    "action": "UPDATE" if existing is not None else "INSERT",
+                    "action": (
+                        None
+                        if severity != "READY"
+                        else ("UPDATE" if existing is not None else "INSERT")
+                    ),
                 }
             )
         except Exception as exc:
@@ -1011,7 +1407,24 @@ def _ensure_employee_hcm_columns(bind: Any) -> None:
         ("designation", "VARCHAR(100) NOT NULL DEFAULT ''"),
         ("nationality", "VARCHAR(100) NOT NULL DEFAULT ''"),
         ("sub_section", "VARCHAR(100) NOT NULL DEFAULT ''"),
-        ("reporting_officer_id", "VARCHAR(36) NULL"),
+        ("reporting_officer_id", "VARCHAR(200) NULL"),
+        ("arabic_name", "VARCHAR(200) NOT NULL DEFAULT ''"),
+        ("cpr_no", "VARCHAR(40) NOT NULL DEFAULT ''"),
+        ("date_of_birth", "DATE NULL"),
+        ("gender", "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ("passport_expiry", "DATE NULL"),
+        ("visa_no", "VARCHAR(40) NOT NULL DEFAULT ''"),
+        ("visa_expiry", "DATE NULL"),
+        ("airline_sector", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("travel_class", "VARCHAR(40) NOT NULL DEFAULT ''"),
+        ("last_airticket_date", "DATE NULL"),
+        ("repair_center", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("grade", "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ("contract_type", "VARCHAR(40) NOT NULL DEFAULT ''"),
+        ("origin_country", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("employment_status", "VARCHAR(40) NOT NULL DEFAULT 'active'"),
+        ("monthly_salary", "DECIMAL(19,4) NULL"),
+        ("probation_end_date", "DATE NULL"),
     ]
     with bind.begin() as connection:
         for name, ddl in additions:
@@ -1021,6 +1434,142 @@ def _ensure_employee_hcm_columns(bind: Any) -> None:
                 connection.execute(text(f"ALTER TABLE employees ADD {name} {ddl}"))
             else:
                 connection.execute(text(f"ALTER TABLE employees ADD COLUMN {name} {ddl}"))
+        # Focus Soft "Reporting To" stores a display name, not a 36-char id.
+        if dialect == "mssql" and "reporting_officer_id" in existing:
+            connection.execute(
+                text(
+                    """
+                    IF EXISTS (
+                        SELECT 1 FROM sys.columns
+                        WHERE object_id = OBJECT_ID(N'dbo.employees')
+                          AND name = N'reporting_officer_id'
+                          AND max_length < 400
+                    )
+                    ALTER TABLE employees ALTER COLUMN reporting_officer_id VARCHAR(200) NULL
+                    """
+                )
+            )
+
+
+def _ensure_company_profile_columns(bind: Any) -> None:
+    """Add CR No. and address columns used by Settings company profile."""
+    inspector = inspect(bind)
+    if "companies" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("companies")}
+    dialect = bind.dialect.name
+    additions: list[tuple[str, str]] = [
+        ("cr_no", "VARCHAR(60) NULL"),
+        ("address", "VARCHAR(500) NULL"),
+        (
+            "logo_data",
+            "VARBINARY(MAX) NULL" if dialect == "mssql" else "BLOB NULL",
+        ),
+        ("logo_content_type", "VARCHAR(50) NULL"),
+    ]
+    with bind.begin() as connection:
+        for name, ddl in additions:
+            if name in existing:
+                continue
+            if dialect == "mssql":
+                connection.execute(text(f"ALTER TABLE companies ADD {name} {ddl}"))
+            else:
+                connection.execute(text(f"ALTER TABLE companies ADD COLUMN {name} {ddl}"))
+
+
+def _ensure_document_hr_columns(bind: Any) -> None:
+    """Add Focus-inspired HR voucher columns on existing documents tables."""
+    inspector = inspect(bind)
+    if "documents" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("documents")}
+    dialect = bind.dialect.name
+    additions: list[tuple[str, str]] = [
+        ("voucher_no", "VARCHAR(40) NULL"),
+        ("document_date", "DATE NULL"),
+        ("joining_date", "DATE NULL"),
+        ("narration", "NVARCHAR(MAX) NULL" if dialect == "mssql" else "TEXT NULL"),
+        ("employee_name_arabic", "VARCHAR(200) NULL"),
+        ("cpr_no", "VARCHAR(40) NULL"),
+        ("nature_of_employment", "VARCHAR(120) NULL"),
+        ("basic_salary", "DECIMAL(19,4) NULL"),
+        ("hra", "DECIMAL(19,4) NULL"),
+        ("petrol_allowance", "DECIMAL(19,4) NULL"),
+        ("car_allowance", "DECIMAL(19,4) NULL"),
+        ("special_duty_allowance", "DECIMAL(19,4) NULL"),
+        ("net_amount", "DECIMAL(19,4) NULL"),
+        (
+            "traveling_airfare",
+            "BIT NOT NULL DEFAULT 0" if dialect == "mssql" else "BOOLEAN NOT NULL DEFAULT 0",
+        ),
+        ("additional_details", "NVARCHAR(MAX) NULL" if dialect == "mssql" else "TEXT NULL"),
+        ("address_villa", "VARCHAR(120) NULL"),
+        ("address_street", "VARCHAR(120) NULL"),
+        ("address_block", "VARCHAR(40) NULL"),
+        ("company_id", "VARCHAR(36) NULL"),
+    ]
+    with bind.begin() as connection:
+        for name, ddl in additions:
+            if name in existing:
+                continue
+            if dialect == "mssql":
+                connection.execute(text(f"ALTER TABLE documents ADD {name} {ddl}"))
+            else:
+                connection.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {ddl}"))
+        if "voucher_no" not in existing or dialect == "mssql":
+            # Best-effort unique index; ignore if already present.
+            try:
+                if dialect == "mssql":
+                    connection.execute(
+                        text(
+                            "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_documents_voucher_no') "
+                            "CREATE UNIQUE INDEX ux_documents_voucher_no ON documents(voucher_no) "
+                            "WHERE voucher_no IS NOT NULL"
+                        )
+                    )
+                else:
+                    connection.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_voucher_no "
+                            "ON documents(voucher_no)"
+                        )
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+        # Offer/contract vouchers may exist before Employee Master — allow NULL.
+        # MSSQL refuses ALTER when a FK is present; drop/recreate the employee_id FK.
+        try:
+            if dialect == "mssql":
+                fk_rows = connection.execute(
+                    text(
+                        """
+                        SELECT fk.name AS fk_name
+                        FROM sys.foreign_keys fk
+                        JOIN sys.foreign_key_columns fkc
+                          ON fkc.constraint_object_id = fk.object_id
+                        JOIN sys.columns col
+                          ON col.object_id = fkc.parent_object_id
+                         AND col.column_id = fkc.parent_column_id
+                        WHERE fk.parent_object_id = OBJECT_ID(N'dbo.documents')
+                          AND col.name = N'employee_id'
+                        """
+                    )
+                ).fetchall()
+                for (fk_name,) in fk_rows:
+                    connection.execute(text(f"ALTER TABLE documents DROP CONSTRAINT [{fk_name}]"))
+                connection.execute(
+                    text("ALTER TABLE documents ALTER COLUMN employee_id UNIQUEIDENTIFIER NULL")
+                )
+                for (fk_name,) in fk_rows:
+                    connection.execute(
+                        text(
+                            f"IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'{fk_name}') "
+                            f"ALTER TABLE documents ADD CONSTRAINT [{fk_name}] "
+                            f"FOREIGN KEY (employee_id) REFERENCES employees(id)"
+                        )
+                    )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _first_of_next_month(anchor: date) -> date:
@@ -1028,6 +1577,38 @@ def _first_of_next_month(anchor: date) -> date:
     if anchor.month == 12:
         return date(anchor.year + 1, 1, 1)
     return date(anchor.year, anchor.month + 1, 1)
+
+
+def _employee_has_open_loan(session: Session, employee_id: UUID) -> bool:
+    """True when the employee has any active loan with a remaining balance."""
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(LoanRow)
+            .where(
+                LoanRow.employee_id == employee_id,
+                LoanRow.deleted_at.is_(None),
+                LoanRow.status == "active",
+                LoanRow.outstanding > 0,
+            )
+        )
+        or 0
+    ) > 0
+
+
+def _assert_unlocked(session: Session, created_at: datetime | None, entity: str) -> None:
+    """Enforce the transaction lock period from global preferences."""
+    settings = load_policy(session)
+    if settings.transaction_lock_days <= 0 or created_at is None:
+        return
+    age = datetime.now(UTC) - (
+        created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)
+    )
+    if age.days >= settings.transaction_lock_days:
+        raise DomainError(
+            "transaction_locked",
+            f"{entity} older than {settings.transaction_lock_days} days cannot be modified.",
+        )
 
 
 def _require_active_employee(session: Session, employee_id: UUID) -> EmployeeRow:
@@ -1046,7 +1627,7 @@ ALLOWED_ATTACHMENT_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 
 
 def _commit_employee_import(session: Session, payload: EmployeeImportCommit) -> dict[str, Any]:
-    """Persist selected employee import rows after validation."""
+    """Persist selected employee import rows after validation (insert or upsert)."""
     selected = [row for row in payload.rows if row.selected]
     if not selected:
         raise DomainError("no_rows_selected", "Select at least one valid row to import.")
@@ -1056,24 +1637,49 @@ def _commit_employee_import(session: Session, payload: EmployeeImportCommit) -> 
     )
     if any(row["severity"] != "READY" for row in preview):
         raise DomainError("invalid_import_rows", "One or more selected rows failed validation.")
+    action_by_row = {int(item["row"]): item.get("action") for item in preview}
     now = datetime.now(UTC)
     imported = 0
+    updated = 0
     for row in selected:
         fields = row.model_dump(exclude={"row", "selected"})
         fields["company_id"] = str(fields["company_id"])
-        session.add(
-            EmployeeRow(
-                id=uuid4(),
-                active=True,
-                version=1,
-                created_at=now,
-                updated_at=now,
-                deleted_at=None,
-                **fields,
+        action = action_by_row.get(row.row) or "INSERT"
+        existing = session.scalar(
+            select(EmployeeRow)
+            .where(
+                EmployeeRow.company_id == fields["company_id"],
+                func.lower(EmployeeRow.code) == fields["code"].casefold(),
+            )
+            .order_by(
+                case((EmployeeRow.deleted_at.is_(None), 0), else_=1),
+                EmployeeRow.updated_at.desc(),
             )
         )
-        imported += 1
-    return {"imported": imported, "committed": True}
+        if action == "UPDATE" or existing is not None:
+            if existing is None:
+                raise DomainError("invalid_import_rows", f"Employee {fields['code']} marked UPDATE but not found.")
+            for key, value in fields.items():
+                setattr(existing, key, value)
+            existing.active = True
+            existing.deleted_at = None
+            existing.updated_at = now
+            existing.version += 1
+            updated += 1
+        else:
+            session.add(
+                EmployeeRow(
+                    id=uuid4(),
+                    active=True,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                    deleted_at=None,
+                    **fields,
+                )
+            )
+            imported += 1
+    return {"imported": imported, "updated": updated, "committed": True}
 
 
 def _commit_opening_balance_import(
@@ -1104,6 +1710,15 @@ def _commit_opening_balance_import(
     imported = 0
     updated = 0
     for row in selected:
+        # Remove soft-deleted ghosts so import recreate does not hit unique conflicts.
+        for stale in session.scalars(
+            select(OpeningBalanceRow).where(
+                OpeningBalanceRow.employee_id == row.employee_id,
+                OpeningBalanceRow.balance_year == row.balance_year,
+                OpeningBalanceRow.deleted_at.is_not(None),
+            )
+        ):
+            session.delete(stale)
         existing = session.scalar(
             select(OpeningBalanceRow).where(
                 OpeningBalanceRow.employee_id == row.employee_id,
@@ -1143,7 +1758,15 @@ def _commit_opening_balance_import(
 def _seed_default_preferences(session: Session) -> int:
     """Restore global ATLAS cycle defaults when no live preference row exists."""
     created = 0
-    for key, value in DEFAULT_PREFERENCES:
+    all_defaults: list[tuple[str, Any]] = [
+        *DEFAULT_PREFERENCES,
+        *policy_default_rows(),
+    ]
+    seen: set[str] = set()
+    for key, value in all_defaults:
+        if key in seen:
+            continue
+        seen.add(key)
         existing = session.scalar(
             select(PreferenceRow).where(
                 PreferenceRow.scope_type == "global",
@@ -1185,6 +1808,7 @@ def _erase_operational_data(session: Session) -> dict[str, int]:
         TicketRow,
         OpeningBalanceRow,
         EssRequestRow,
+        DocumentRow,
         EntitlementRateRow,
         AttachmentRow,
         PreferenceRow,
@@ -1196,6 +1820,19 @@ def _erase_operational_data(session: Session) -> dict[str, int]:
         delete(RefreshTokenRow).where(RefreshTokenRow.revoked_at.is_(None))
     )
     counts["refresh_tokens"] = int(revoked.rowcount or 0)
+    # Bulk deletes bypass ORM audit events, so record the erasure explicitly.
+    session.add(
+        AuditRow(
+            occurred_at=datetime.now(UTC),
+            actor_id=actor_context.get(),
+            correlation_id=correlation_context.get(),
+            ip_address=ip_context.get(),
+            action="erase",
+            entity_type="OperationalData",
+            entity_id="all",
+            changes={key: {"old": value, "new": 0} for key, value in counts.items()},
+        )
+    )
     return counts
 
 
@@ -1205,10 +1842,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging(config)
     sessions = create_session_factory(config)
     engine = sessions.bind_engine
-    web_root = Path(__file__).resolve().parents[1] / "interface" / "web_client"
+    web_root = Path(__file__).resolve().parents[1] / "interface" / "web_dist"
+    _next_root = Path(__file__).resolve().parents[1] / "interface" / "web_dist_next"
+    if (_next_root / "index.html").is_file():
+        web_root = _next_root
     if config.environment == "test":
         Base.metadata.create_all(engine)
+    else:
+        ReportTemplateRow.__table__.create(bind=engine, checkfirst=True)
+        AiAgentAuditRow.__table__.create(bind=engine, checkfirst=True)
+        AiRepairLogRow.__table__.create(bind=engine, checkfirst=True)
     _ensure_employee_hcm_columns(engine)
+    _ensure_document_hr_columns(engine)
+    _ensure_company_profile_columns(engine)
     attachment_root = Path(config.attachment_root).resolve()
     attachment_root.mkdir(parents=True, exist_ok=True)
     preference_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
@@ -1221,7 +1867,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         id=DEFAULT_COMPANY_ID,
                         code="DEFAULT",
                         name="Atlas Aluminum",
-                        currency="USD",
+                        currency="BHD",
                     )
                 )
             else:
@@ -1231,6 +1877,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "default",
                 }:
                     existing.name = "Atlas Aluminum"
+                if existing is not None and (existing.currency or "").upper() != "BHD":
+                    existing.currency = "BHD"
+            # Application standard currency is Bahraini Dinar (BHD).
+            for company in session.scalars(select(CompanyRow)).all():
+                if (company.currency or "").upper() != "BHD":
+                    company.currency = "BHD"
+            try:
+                from airfare_management.ai_agent.product_knowledge import (
+                    ensure_product_knowledge_learned,
+                )
+
+                ensure_product_knowledge_learned(session, actor="system")
+            except Exception:
+                # Learning store may be unavailable during early boot; never block API.
+                pass
             if (
                 session.scalar(
                     select(UserRow).where(UserRow.username == config.bootstrap_admin_username)
@@ -1286,6 +1947,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/docs" if config.environment != "production" else None,
         redoc_url=None,
     )
+    app.state.session_factory = sessions
     app.add_middleware(PrometheusMiddleware)
     if config.cors_origins:
         app.add_middleware(
@@ -1346,6 +2008,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     authenticated = build_authenticated(config)
     authorized = build_authorized(authenticated)
     app.include_router(create_reports_router(database, authorized))
+    from airfare_management.api.routers.entitlement import create_entitlement_router
+
+    app.include_router(create_entitlement_router(database, authorized))
 
     def scoped_employee_id(session: Session, claims: Claims) -> UUID | None:
         """Return an employee restriction for non-privileged identities."""
@@ -1366,25 +2031,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("forbidden", "No employee profile is linked to this account.")
         return user.employee_id
 
-    @app.get("/assets/app.js")
-    def web_client_script() -> FileResponse:
-        """Serve the SPA script without browser caching so UI updates are visible."""
-        return FileResponse(
-            web_root / "app.js",
-            media_type="text/javascript",
-            headers={"Cache-Control": "no-store"},
-        )
+    web_assets = web_root / "assets"
+    if web_assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=web_assets), name="web-assets")
+    next_assets = web_root / "_next"
+    if next_assets.is_dir():
+        app.mount("/_next", StaticFiles(directory=next_assets), name="web-next-assets")
 
-    app.mount("/assets", StaticFiles(directory=web_root), name="web-assets")
+    def _spa_index() -> FileResponse:
+        index = web_root / "index.html"
+        if not index.is_file():
+            raise HTTPException(503, "Web client is not built. Run `npm run build` in web/.")
+        return FileResponse(index, headers={"Cache-Control": "no-store"})
 
     @app.get("/", response_class=FileResponse)
     @app.get("/app", response_class=FileResponse)
     def landing() -> FileResponse:
         """Serve the browser application shell."""
-        return FileResponse(
-            web_root / "index.html",
-            headers={"Cache-Control": "no-store"},
-        )
+        return _spa_index()
 
     @app.get("/favicon.ico")
     def favicon() -> Response:
@@ -1551,6 +2215,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ).update({RefreshTokenRow.revoked_at: datetime.now(UTC)})
         return Response(status_code=204)
 
+    @app.get("/v1/users")
+    def list_users(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> list[dict[str, Any]]:
+        rows = session.scalars(
+            select(UserRow)
+            .where(UserRow.deleted_at.is_(None))
+            .order_by(UserRow.username.asc())
+        )
+        return [
+            _row(item, "id", "username", "display_name", "roles", "active", "employee_id")
+            for item in rows
+        ]
+
     @app.post("/v1/users", status_code=201)
     def create_user(
         payload: UserCreate,
@@ -1568,6 +2247,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.flush()
         return _row(item, "id", "username", "display_name", "roles", "active", "employee_id")
 
+    @app.put("/v1/users/{user_id}")
+    def update_user(
+        user_id: str,
+        payload: UserUpdate,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        item = session.get(UserRow, user_id)
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "User not found.")
+        data = payload.model_dump(exclude_unset=True)
+        if "roles" in data and data["roles"] is not None:
+            data["roles"] = sorted(data["roles"])
+        if "password" in data:
+            password = data.pop("password")
+            if password:
+                item.password_hash = hash_password(password)
+        for key, value in data.items():
+            setattr(item, key, value)
+        session.flush()
+        return _row(item, "id", "username", "display_name", "roles", "active", "employee_id")
+
+    @app.delete("/v1/users/{user_id}", status_code=204)
+    def delete_user(
+        user_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> Response:
+        item = session.get(UserRow, user_id)
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "User not found.")
+        item.deleted_at = datetime.now(UTC)
+        item.active = False
+        session.execute(
+            update(RefreshTokenRow)
+            .where(
+                RefreshTokenRow.user_id == item.id,
+                RefreshTokenRow.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )
+        session.flush()
+        return Response(status_code=204)
+
     @app.get("/v1/auth/me")
     def me(claims: Annotated[Claims, Depends(authenticated)]) -> dict[str, Any]:
         return {"id": claims.subject, "username": claims.username, "roles": sorted(claims.roles)}
@@ -1578,19 +2301,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _: Annotated[Claims, Depends(authenticated)],
     ) -> dict[str, Any]:
         return {
-            "employees": session.scalar(select(func.count()).select_from(EmployeeRow)) or 0,
+            "employees": session.scalar(
+                select(func.count())
+                .select_from(EmployeeRow)
+                .where(EmployeeRow.deleted_at.is_(None))
+            )
+            or 0,
             "open_tickets": session.scalar(
                 select(func.count())
                 .select_from(TicketRow)
-                .where(TicketRow.status.in_(["draft", "submitted"]))
+                .where(
+                    TicketRow.status.in_(["draft", "submitted"]),
+                    TicketRow.deleted_at.is_(None),
+                )
             )
             or 0,
             "active_loans": session.scalar(
-                select(func.count()).select_from(LoanRow).where(LoanRow.status != "settled")
+                select(func.count())
+                .select_from(LoanRow)
+                .where(LoanRow.status != "settled", LoanRow.deleted_at.is_(None))
             )
             or 0,
             "outstanding_loans": session.scalar(
-                select(func.coalesce(func.sum(LoanRow.outstanding), 0))
+                select(func.coalesce(func.sum(LoanRow.outstanding), 0)).where(
+                    LoanRow.deleted_at.is_(None)
+                )
             )
             or Decimal("0"),
         }
@@ -1632,7 +2367,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> list[dict[str, Any]]:
         branding = Path(config.attachment_root).resolve() / "branding"
         rows = []
-        for item in session.scalars(select(CompanyRow).order_by(CompanyRow.code)):
+        for item in session.scalars(
+            select(CompanyRow)
+            .where(CompanyRow.deleted_at.is_(None))
+            .order_by(CompanyRow.code)
+        ):
+            has_db_logo = bool(getattr(item, "logo_data", None))
             logo_file = next(
                 (
                     branding / f"{item.id}{ext}"
@@ -1641,11 +2381,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 None,
             )
+            has_logo = has_db_logo or logo_file is not None
             rows.append(
                 {
                     **_row(item, "id", "code", "name", "currency", "active"),
-                    "has_logo": logo_file is not None,
-                    "logo_url": f"/v1/companies/{item.id}/logo" if logo_file else None,
+                    "cr_no": getattr(item, "cr_no", None),
+                    "address": getattr(item, "address", None),
+                    "has_logo": has_logo,
+                    "logo_url": f"/v1/companies/{item.id}/logo" if has_logo else None,
                 }
             )
         return rows
@@ -1660,22 +2403,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = session.get(CompanyRow, company_id)
         if item is None or item.deleted_at is not None:
             raise DomainError("company_not_found", "Company was not found.")
-        item.name = payload.name.strip()
+        if payload.name is not None:
+            item.name = payload.name.strip()
         if payload.currency is not None:
             item.currency = payload.currency.upper()
+        if payload.cr_no is not None:
+            item.cr_no = payload.cr_no.strip() or None
+        if payload.address is not None:
+            item.address = payload.address.strip() or None
         if payload.active is not None:
             item.active = payload.active
+        item.version += 1
         session.flush()
         branding = Path(config.attachment_root).resolve() / "branding"
+        has_db_logo = bool(getattr(item, "logo_data", None))
         logo_file = next(
             (branding / f"{item.id}{ext}" for ext in (".png", ".jpg", ".jpeg", ".webp")
              if (branding / f"{item.id}{ext}").exists()),
             None,
         )
+        has_logo = has_db_logo or logo_file is not None
         return {
             **_row(item, "id", "code", "name", "currency", "active"),
-            "has_logo": logo_file is not None,
-            "logo_url": f"/v1/companies/{item.id}/logo" if logo_file else None,
+            "cr_no": getattr(item, "cr_no", None),
+            "address": getattr(item, "address", None),
+            "has_logo": has_logo,
+            "logo_url": f"/v1/companies/{item.id}/logo" if has_logo else None,
         }
 
     @app.post("/v1/companies/{company_id}/logo")
@@ -1702,17 +2455,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("empty_logo", "Logo file is empty.")
         if len(payload) > 2_000_000:
             raise DomainError("logo_too_large", "Logo must be 2 MB or smaller.")
+        # Persist in MSSQL (source of truth) and mirror to disk for PDF rendering.
+        item.logo_data = payload
+        item.logo_content_type = content_type if content_type != "image/jpg" else "image/jpeg"
+        item.version += 1
         branding = Path(config.attachment_root).resolve() / "branding"
         branding.mkdir(parents=True, exist_ok=True)
         for stale in branding.glob(f"{company_id}.*"):
             stale.unlink(missing_ok=True)
         destination = branding / f"{company_id}{allowed[content_type]}"
         destination.write_bytes(payload)
+        session.flush()
         return {
             "id": company_id,
             "has_logo": True,
             "logo_url": f"/v1/companies/{company_id}/logo",
             "bytes": len(payload),
+            "stored_in": "mssql",
         }
 
     @app.get("/v1/companies/{company_id}/logo")
@@ -1720,10 +2479,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         company_id: str,
         session: Annotated[Session, Depends(database)],
         _: Annotated[Claims, Depends(authenticated)],
-    ) -> FileResponse:
+    ) -> Response:
         item = session.get(CompanyRow, company_id)
         if item is None or item.deleted_at is not None:
             raise HTTPException(status_code=404, detail="Company not found")
+        if getattr(item, "logo_data", None):
+            media = getattr(item, "logo_content_type", None) or "image/png"
+            return Response(content=bytes(item.logo_data), media_type=media)
         branding = Path(config.attachment_root).resolve() / "branding"
         for ext, media in (
             (".png", "image/png"),
@@ -1733,7 +2495,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ):
             candidate = branding / f"{company_id}{ext}"
             if candidate.exists():
-                return FileResponse(candidate, media_type=media, filename=f"company-logo{ext}")
+                # Backfill disk logos into MSSQL so everything lives in the database.
+                data = candidate.read_bytes()
+                item.logo_data = data
+                item.logo_content_type = media
+                session.flush()
+                return Response(content=data, media_type=media)
         raise HTTPException(status_code=404, detail="Company logo not uploaded")
 
     @app.delete("/v1/companies/{company_id}/logo", status_code=204)
@@ -1745,9 +2512,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = session.get(CompanyRow, company_id)
         if item is None or item.deleted_at is not None:
             raise DomainError("company_not_found", "Company was not found.")
+        item.logo_data = None
+        item.logo_content_type = None
+        item.version += 1
         branding = Path(config.attachment_root).resolve() / "branding"
         for stale in branding.glob(f"{company_id}.*"):
             stale.unlink(missing_ok=True)
+        session.flush()
         return Response(status_code=204)
 
     @app.post("/v1/companies", status_code=201)
@@ -1757,9 +2528,68 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _: Annotated[Claims, Depends(authorized("admin"))],
     ) -> dict[str, Any]:
         item = CompanyRow(**payload.model_dump())
+        if not item.currency:
+            item.currency = "BHD"
+        else:
+            item.currency = item.currency.upper()
         session.add(item)
         session.flush()
-        return _row(item, "id", "code", "name", "currency", "active")
+        return {
+            **_row(item, "id", "code", "name", "currency", "active"),
+            "cr_no": getattr(item, "cr_no", None),
+            "address": getattr(item, "address", None),
+            "has_logo": False,
+            "logo_url": None,
+        }
+
+    @app.delete("/v1/companies/{company_id}", status_code=204)
+    def delete_company(
+        company_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> Response:
+        """Soft-delete a company in MSSQL. Blocked when employees still reference it."""
+        item = session.get(CompanyRow, company_id)
+        if item is None or item.deleted_at is not None:
+            raise DomainError("company_not_found", "Company was not found.")
+        live_count = session.scalar(
+            select(func.count())
+            .select_from(CompanyRow)
+            .where(CompanyRow.deleted_at.is_(None))
+        ) or 0
+        if live_count <= 1:
+            raise DomainError(
+                "company_last_remaining",
+                "Cannot delete the last company. Create another company first.",
+            )
+        employee_count = session.scalar(
+            select(func.count())
+            .select_from(EmployeeRow)
+            .where(
+                EmployeeRow.company_id == company_id,
+                EmployeeRow.deleted_at.is_(None),
+            )
+        ) or 0
+        if employee_count:
+            raise DomainError(
+                "company_in_use",
+                f"Cannot delete: {employee_count} active employee(s) still use this company. "
+                "Reassign or deactivate those employees first.",
+            )
+        now = datetime.now(UTC)
+        # Free unique business code so a future company can reuse it (soft-delete tombstone pattern).
+        stamp = now.strftime("%Y%m%d%H%M%S")
+        freed = f"{item.code}__DEL_{stamp}"
+        item.code = freed[:30]
+        item.active = False
+        item.deleted_at = now
+        item.version += 1
+        # Keep logo_data in MSSQL for audit/restore; clear PDF disk cache.
+        branding = Path(config.attachment_root).resolve() / "branding"
+        for stale in branding.glob(f"{company_id}.*"):
+            stale.unlink(missing_ok=True)
+        session.flush()
+        return Response(status_code=204)
 
     @app.get("/v1/lookups/{lookup_type}")
     def list_lookups(
@@ -1878,6 +2708,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             query = query.where(
                 EmployeeRow.code.ilike(term)
                 | EmployeeRow.full_name.ilike(term)
+                | EmployeeRow.passport_no.ilike(term)
+                | EmployeeRow.designation.ilike(term)
+                | EmployeeRow.department.ilike(term)
+                | EmployeeRow.nationality.ilike(term)
+                | EmployeeRow.email.ilike(term)
                 | EmployeeRow.id.in_(linked_ids)
             )
         sort_column = {
@@ -1894,26 +2729,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         usernames = _employee_username_map(session, [item.id for item in items])
         return [
             {
-                **_row(
-                    item,
-                    "id",
-                    "code",
-                    "full_name",
-                    "company_id",
-                    "join_date",
-                    "department",
-                    "branch",
-                    "email",
-                    "pay_group",
-                    "designation",
-                    "nationality",
-                    "sub_section",
-                    "reporting_officer_id",
-                    "custom_airfare_rate",
-                    "max_entitlement_cap_rate",
-                    "active",
-                    "version",
-                ),
+                **_row(item, *EMPLOYEE_API_FIELDS),
                 "username": usernames.get(item.id),
             }
             for item in items
@@ -2095,6 +2911,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "summary": summary,
         }
 
+    @app.get("/v1/opening-balances/export.xlsx")
+    def export_opening_balances(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+        balance_year: Annotated[int | None, Query(ge=2000, le=2200)] = None,
+    ) -> Response:
+        query = (
+            select(OpeningBalanceRow, EmployeeRow)
+            .join(EmployeeRow, EmployeeRow.id == OpeningBalanceRow.employee_id)
+            .where(
+                OpeningBalanceRow.deleted_at.is_(None),
+                EmployeeRow.deleted_at.is_(None),
+            )
+        )
+        if balance_year is not None:
+            query = query.where(OpeningBalanceRow.balance_year == balance_year)
+        columns = (
+            "employee_code",
+            "balance_year",
+            "opening_days",
+            "paid_days",
+            "opening_amount",
+            "maximum_payout",
+        )
+        records = [
+            {
+                "employee_code": employee.code,
+                "balance_year": balance.balance_year,
+                "opening_days": balance.opening_days,
+                "paid_days": balance.paid_days,
+                "opening_amount": balance.opening_amount,
+                "maximum_payout": balance.maximum_payout,
+            }
+            for balance, employee in session.execute(
+                query.order_by(OpeningBalanceRow.balance_year.desc(), EmployeeRow.code)
+            )
+        ]
+        return Response(
+            export_workbook("Opening Balances", columns, records),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="opening-balances.xlsx"'},
+        )
+
     @app.get("/v1/opening-balances")
     def balances(
         session: Annotated[Session, Depends(database)],
@@ -2153,6 +3012,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
     ) -> dict[str, Any]:
         _require_active_employee(session, payload.employee_id)
+        # Purge soft-deleted legacy rows for the same natural key so recreate works
+        # (soft-delete + unique conflict pattern — Odoo/SQLAlchemy discussions).
+        for stale in session.scalars(
+            select(OpeningBalanceRow).where(
+                OpeningBalanceRow.employee_id == payload.employee_id,
+                OpeningBalanceRow.balance_year == payload.balance_year,
+                OpeningBalanceRow.deleted_at.is_not(None),
+            )
+        ):
+            session.delete(stale)
+        live = session.scalar(
+            select(OpeningBalanceRow).where(
+                OpeningBalanceRow.employee_id == payload.employee_id,
+                OpeningBalanceRow.balance_year == payload.balance_year,
+                OpeningBalanceRow.deleted_at.is_(None),
+            )
+        )
+        if live is not None:
+            raise DomainError(
+                "duplicate_opening_balance",
+                "An opening balance already exists for this employee and year. Edit or delete it first.",
+            )
         item = OpeningBalanceRow(**payload.model_dump())
         session.add(item)
         session.flush()
@@ -2208,8 +3089,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("not_found", "Opening balance not found.")
         if item.version != if_match:
             raise DomainError("stale_version", "The balance was modified by another user.")
-        item.deleted_at = datetime.now(UTC)
-        item.version += 1
+        _assert_unlocked(session, item.created_at, "Opening balances")
+        # Permanent delete so the employee+year key can be reused (user-requested;
+        # soft-delete left ghost rows that tripped unique / IntegrityError conflicts).
+        session.delete(item)
+        session.flush()
         return Response(status_code=204)
 
     @app.post("/v1/opening-balances/import/preview")
@@ -2367,7 +3251,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         global_cap: Decimal | None = None
         current_year_spending = Decimal("0")
         paid_days = Decimal("0")
+        ytd_spending = Decimal("0")
+        ytd_paid_days = Decimal("0")
+        spending_for_calc = Decimal("0")
         policy_resolved = False
+        # Load cycle policy first so ticket/opening windows match continuous vs calendar.
+        settings = load_policy(session)
+        alloc_policy = to_allocation_policy(settings)
         if employee_id is not None:
             employee = session.scalar(
                 select(EmployeeRow).where(
@@ -2377,16 +3267,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if employee is None:
                 raise DomainError("not_found", "Employee not found.")
             joining = joining or employee.join_date
-            year_start = date(as_of_date.year, 1, 1)
-            year_end = date(as_of_date.year, 12, 31)
+            if joining is None:
+                raise DomainError("join_date_required", "Date of joining is required.")
+            # Modern continuous (HCM industry): hire-date anniversary window.
+            # Calendar: classic ATLAS Jan 1–Dec 31 fiscal pot.
+            if alloc_policy.cycle_reset_basis == "joining_date":
+                cycle_start = _anniversary_window(joining, as_of_date)
+            else:
+                cycle_start = date(as_of_date.year, 1, 1)
+            cycle_end = as_of_date
             if last_ticket is None:
                 last_ticket = session.scalar(
                     select(func.max(TicketRow.travel_date)).where(
                         TicketRow.employee_id == employee_id,
                         TicketRow.deleted_at.is_(None),
                         TicketRow.status.in_(("approved", "paid")),
-                        TicketRow.travel_date >= year_start,
-                        TicketRow.travel_date <= as_of_date,
+                        TicketRow.travel_date >= cycle_start,
+                        TicketRow.travel_date <= cycle_end,
                         TicketRow.entitlement > 0,
                     )
                 )
@@ -2395,24 +3292,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     TicketRow.employee_id == employee_id,
                     TicketRow.deleted_at.is_(None),
                     TicketRow.status.in_(("approved", "paid")),
-                    TicketRow.travel_date >= year_start,
-                    TicketRow.travel_date <= year_end,
+                    TicketRow.travel_date >= cycle_start,
+                    TicketRow.travel_date <= cycle_end,
                     TicketRow.excess_handling != "employee_full",
                 )
             ) or Decimal("0")
+            post_ticket_spending = Decimal("0")
+            if last_ticket is not None:
+                post_ticket_spending = session.scalar(
+                    select(func.coalesce(func.sum(TicketRow.entitlement), 0)).where(
+                        TicketRow.employee_id == employee_id,
+                        TicketRow.deleted_at.is_(None),
+                        TicketRow.status.in_(("approved", "paid")),
+                        TicketRow.travel_date > last_ticket,
+                        TicketRow.travel_date <= cycle_end,
+                        TicketRow.excess_handling != "employee_full",
+                    )
+                ) or Decimal("0")
+            # Opening for this cycle: prefer cycle-start year, else as-of calendar year.
             balance = session.scalar(
                 select(OpeningBalanceRow).where(
                     OpeningBalanceRow.employee_id == employee_id,
-                    OpeningBalanceRow.balance_year == as_of_date.year,
+                    OpeningBalanceRow.balance_year == cycle_start.year,
                     OpeningBalanceRow.deleted_at.is_(None),
                 )
             )
+            if balance is None and cycle_start.year != as_of_date.year:
+                balance = session.scalar(
+                    select(OpeningBalanceRow).where(
+                        OpeningBalanceRow.employee_id == employee_id,
+                        OpeningBalanceRow.balance_year == as_of_date.year,
+                        OpeningBalanceRow.deleted_at.is_(None),
+                    )
+                )
             if balance is not None:
                 if opening_balance_days is None:
                     opening_days = balance.opening_days
                 if opening_balance_amount is None:
                     opening_amount = balance.opening_amount
                 paid_days = balance.paid_days
+            ytd_spending = Decimal(str(current_year_spending))
+            ytd_paid_days = paid_days
+            spending_for_calc = (
+                Decimal(str(post_ticket_spending))
+                if last_ticket is not None
+                else ytd_spending
+            )
             employee_policy = _effective_rate_row(
                 session, "employee", str(employee_id), as_of_date
             ) or _effective_rate_row(session, "employee", employee.code, as_of_date)
@@ -2496,7 +3421,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             excess_option=excess_option,
             tenure_months=tenure_months,
             paid_days=paid_days,
-            current_year_spending=Decimal(str(current_year_spending)),
+            current_year_spending=spending_for_calc,
+            ytd_paid_days=ytd_paid_days,
+            ytd_spending=ytd_spending,
+            policy=alloc_policy,
         )
 
     def _decorate_allocation(
@@ -2515,12 +3443,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             if employee is not None:
                 username = _employee_username_map(session, [employee.id]).get(employee.id)
-        return _allocation_response(
+        body = _allocation_response(
             preview,
             date_of_joining=query.date_of_joining,
             employee=employee,
             username=username,
         )
+        settings = load_policy(session)
+        body["policy"] = {
+            "negative_balance_allowed": settings.negative_balance_allowed,
+            "partial_claim_allowed": settings.partial_claim_allowed,
+            "advance_booking_allowed": settings.advance_booking_allowed,
+            "loan_recovery_method": settings.loan_recovery_method,
+            "loan_recovery_priority": settings.loan_recovery_priority,
+            "loan_interest_rate": str(settings.loan_interest_rate),
+            "dependent_coverage": settings.dependent_coverage,
+            "static_conversion_rate": str(settings.static_conversion_rate),
+        }
+        if (
+            employee_id is not None
+            and settings.loan_recovery_method == "auto_deduct"
+            and settings.loan_recovery_priority == "before_accrual"
+        ):
+            outstanding = session.scalar(
+                select(func.coalesce(func.sum(LoanRow.outstanding), 0)).where(
+                    LoanRow.employee_id == employee_id,
+                    LoanRow.deleted_at.is_(None),
+                    LoanRow.status == "active",
+                )
+            ) or Decimal("0")
+            outstanding = Decimal(str(outstanding))
+            if outstanding > 0:
+                gross = Decimal(str(body.get("final_entitlement_amount") or 0))
+                net = max(Decimal("0"), quantize_money(gross - outstanding))
+                body["loan_offset"] = _decimal_text(outstanding)
+                body["final_entitlement_amount"] = _decimal_text(net)
+                body["entitlement_amount"] = _decimal_text(net)
+                body["airfare_entitlement_amount"] = _decimal_text(net)
+                body["policy_notes"] = [
+                    *body.get("policy_notes", []),
+                    f"Auto-deduct: {outstanding} outstanding loan netted from entitlement",
+                ]
+        return body
 
     @app.post("/v1/allocations/preview")
     def allocation_preview(
@@ -2577,6 +3541,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         preview = AllocationQueryHandler().handle(query)
         entitlement = preview.entitlement
         settlement = preview.settlement
+        policy = load_policy(session)
         if settlement is None:
             excess = max(
                 Decimal("0"),
@@ -2592,6 +3557,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 payload.requested_ticket_amount,
                 entitlement.final_entitlement_amount,
                 ExcessSettlementOption.SELF_PAID,
+            )
+        if (
+            settlement.option is ExcessSettlementOption.ENTITLEMENT_AMOUNT
+            and entitlement.final_entitlement_amount <= 0
+        ):
+            raise DomainError(
+                "entitlement_amount_unavailable",
+                "Entitlement amount is unavailable because this employee has no "
+                "positive entitlement balance. Choose Self paid, Fully company paid, "
+                "or Make loan.",
+            )
+        excess_cost = max(
+            Decimal("0"),
+            payload.requested_ticket_amount - entitlement.final_entitlement_amount,
+        )
+        if excess_cost > 0 and not policy.negative_balance_allowed:
+            if is_loan_settlement(settlement.option):
+                raise DomainError(
+                    "negative_balance_forbidden",
+                    "Negative balances are disabled. Reduce the ticket amount or choose "
+                    "a settlement that does not create a loan.",
+                )
+        if (
+            not policy.partial_claim_allowed
+            and settlement.option
+            in {
+                ExcessSettlementOption.SELF_PAID,
+                ExcessSettlementOption.ENTITLEMENT_AMOUNT,
+            }
+            and excess_cost > 0
+        ):
+            raise DomainError(
+                "partial_claim_forbidden",
+                "Partial claims are disabled. Cover the full ticket with entitlement, "
+                "a loan, or company-paid settlement.",
+            )
+        if not policy.advance_booking_allowed and payload.as_of_date > date.today():
+            raise DomainError(
+                "advance_booking_forbidden",
+                "Advance booking is disabled. Travel date cannot be in the future.",
+            )
+        if (
+            policy.loan_recovery_method == "auto_deduct"
+            and policy.loan_recovery_priority == "after_accrual"
+            and _employee_has_open_loan(session, payload.employee_id)
+        ):
+            raise DomainError(
+                "loan_blocks_claim",
+                "An outstanding loan must be cleared before new claims "
+                "(recovery priority: after accrual).",
             )
         issued_ticket_cost = (
             entitlement.final_entitlement_amount
@@ -2625,7 +3640,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.flush()
         loan = None
         if (
-            settlement.option is ExcessSettlementOption.LOAN
+            is_loan_settlement(settlement.option)
             and settlement.loan_principal is not None
             and settlement.emi is not None
             and settlement.tenure_months is not None
@@ -2635,9 +3650,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 employee_id=payload.employee_id,
                 source_ticket_id=ticket.id,
                 principal=settlement.loan_principal,
-                annual_rate=Decimal("0"),
+                annual_rate=policy.loan_interest_rate,
                 installments=settlement.tenure_months,
-                monthly_installment=quantize_money(settlement.emi),
+                monthly_installment=quantize_money(
+                    calculate_emi(
+                        settlement.loan_principal,
+                        policy.loan_interest_rate,
+                        settlement.tenure_months,
+                    )
+                ),
                 outstanding=settlement.loan_principal,
                 status="active",
                 first_due_date=due,
@@ -2648,7 +3669,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 loan.id,
                 build_amortization_schedule(
                     settlement.loan_principal,
-                    Decimal("0"),
+                    policy.loan_interest_rate,
                     settlement.tenure_months,
                     loan.first_due_date,
                 ),
@@ -2674,11 +3695,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session: Annotated[Session, Depends(database)],
         claims: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
     ) -> Response:
-        """Generate an Atlas Leave-Application-style airfare allocation print PDF."""
+        """Generate a professional A4 airfare allocation print PDF from MSSQL."""
+        ticket: TicketRow | None = None
+        linked_loan: LoanRow | None = None
+        employee_id = payload.employee_id
+        as_of_date = payload.as_of_date
+        requested_ticket_amount = payload.requested_ticket_amount
+        excess_option = payload.excess_option
+        tenure_months = payload.tenure_months
+        origin_code = payload.origin_code.upper()
+        destination_code = payload.destination_code.upper()
+        notes = payload.notes
+        ticket_code = payload.ticket_code
+        status = payload.status
+
+        if payload.ticket_id is not None:
+            ticket = session.scalar(
+                select(TicketRow).where(
+                    TicketRow.id == str(payload.ticket_id),
+                    TicketRow.deleted_at.is_(None),
+                )
+            )
+            if ticket is None:
+                raise HTTPException(status_code=404, detail="Ticket not found")
+            linked_loan = _active_source_loan(session, ticket.id)
+            employee_id = ticket.employee_id
+            as_of_date = ticket.as_of_date or ticket.travel_date
+            requested_ticket_amount = ticket.ticket_cost
+            handling = (ticket.excess_handling or "SELF_PAID").upper()
+            if handling == "LOAN":
+                handling = "CONVERT_TO_LOAN"
+            excess_option = handling  # type: ignore[assignment]
+            tenure_months = ticket.tenure_months or tenure_months
+            origin_code = ticket.origin_code.upper()
+            destination_code = ticket.destination_code.upper()
+            notes = ticket.notes or notes
+            ticket_code = ticket.ticket_code or ticket_code
+            status = (ticket.status or status or "APPROVED").upper()
+
         query = _allocation_query(
             session,
-            employee_id=payload.employee_id,
-            as_of_date=payload.as_of_date,
+            employee_id=employee_id,
+            as_of_date=as_of_date,
             date_of_joining=payload.date_of_joining,
             last_ticket_date=payload.last_ticket_date,
             opening_balance_days=payload.opening_balance_days,
@@ -2688,32 +3746,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             global_company_preference_rate=payload.global_company_preference_rate,
             global_company_preference_days=payload.global_company_preference_days,
             max_entitlement_cap_rate=payload.max_entitlement_cap_rate,
-            requested_ticket_amount=payload.requested_ticket_amount,
-            excess_option=payload.excess_option,
-            tenure_months=payload.tenure_months,
+            requested_ticket_amount=requested_ticket_amount,
+            excess_option=excess_option,
+            tenure_months=tenure_months,
         )
         body = _decorate_allocation(
-            session, AllocationQueryHandler().handle(query), query, payload.employee_id
+            session, AllocationQueryHandler().handle(query), query, employee_id
         )
         company_name = "Atlas Aluminum"
         company_id: str | None = None
         reporting_officer = ""
         employee = None
-        if payload.employee_id is not None:
+        if employee_id is not None:
             employee = session.scalar(
                 select(EmployeeRow).where(
-                    EmployeeRow.id == payload.employee_id,
+                    EmployeeRow.id == employee_id,
                     EmployeeRow.deleted_at.is_(None),
                 )
             )
+        company: CompanyRow | None = None
         if employee is not None:
             company = session.scalar(
                 select(CompanyRow).where(CompanyRow.id == employee.company_id)
             )
-            if company is not None:
-                company_id = company.id
-                if company.name:
-                    company_name = company.name
             if employee.reporting_officer_id:
                 officer_key = str(employee.reporting_officer_id)
                 officer = None
@@ -2735,40 +3790,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                 if officer is not None:
                     reporting_officer = officer.full_name
-        if company_id is None:
-            fallback = session.scalar(
+                else:
+                    reporting_officer = officer_key
+        if company is None:
+            company = session.scalar(
                 select(CompanyRow)
-                .where(CompanyRow.deleted_at.is_(None), CompanyRow.active.is_(True))
+                .where(CompanyRow.deleted_at.is_(None), CompanyRow.active == true())
                 .order_by(CompanyRow.code)
             )
-            if fallback is not None:
-                company_id = fallback.id
-                company_name = fallback.name or company_name
-        logo_path = None
-        if company_id is not None:
-            branding = Path(config.attachment_root).resolve() / "branding"
-            for ext in (".png", ".jpg", ".jpeg", ".webp"):
-                candidate = branding / f"{company_id}{ext}"
-                if candidate.exists():
-                    logo_path = candidate
-                    break
+        if company is not None:
+            company_id = company.id
+            company_name = company.name or company_name
         body.update(
             {
-                "as_of_date": payload.as_of_date.isoformat(),
-                "origin_code": payload.origin_code.upper(),
-                "destination_code": payload.destination_code.upper(),
-                "notes": payload.notes,
-                "ticket_code": payload.ticket_code or body.get("ticket_code"),
-                "status": payload.status or body.get("status") or "APPROVED",
+                "as_of_date": as_of_date.isoformat() if as_of_date else payload.as_of_date.isoformat(),
+                "origin_code": origin_code,
+                "destination_code": destination_code,
+                "notes": notes,
+                "ticket_code": ticket_code or body.get("ticket_code"),
+                "status": status or body.get("status") or "APPROVED",
                 "reporting_officer": reporting_officer or body.get("reporting_officer"),
                 "prepared_by": claims.username,
             }
         )
-        pdf = build_allocation_print_pdf(
-            body,
-            company_name=company_name,
+        if employee is not None:
+            body.setdefault("employee_code", employee.code)
+            body.setdefault("employee_name", employee.full_name)
+            body.setdefault("arabic_name", getattr(employee, "arabic_name", None) or "")
+            body.setdefault("nationality", employee.nationality)
+            body.setdefault("department", employee.department)
+            body.setdefault("designation", employee.designation)
+            body.setdefault("pay_group", employee.pay_group)
+            body.setdefault("branch", employee.branch)
+            body.setdefault("join_date", employee.join_date.isoformat() if employee.join_date else None)
+        if ticket is not None:
+            # Saved ticket settlement is the source of truth (MSSQL), not a re-preview.
+            body.update(
+                {
+                    "ticket_id": ticket.id,
+                    **_ticket_display(ticket),
+                    **_loan_display(linked_loan),
+                    "travel_date": ticket.travel_date.isoformat(),
+                    "ticket_cost": _decimal_text(ticket.ticket_cost),
+                    "requested_ticket_amount": _decimal_text(ticket.ticket_cost),
+                    "entitlement_amount": _decimal_text(ticket.entitlement),
+                    "final_entitlement_amount": _decimal_text(ticket.entitlement),
+                    "airfare_entitlement_amount": _decimal_text(ticket.entitlement),
+                    "company_paid": _decimal_text(ticket.company_paid),
+                    "company_payout": _decimal_text(ticket.company_payout or ticket.company_paid),
+                    "employee_payable": _decimal_text(ticket.employee_payable),
+                    "excess_cost": _decimal_text(ticket.excess_cost),
+                    "excess_option": ticket.excess_handling,
+                    "excess_handling": ticket.excess_handling,
+                    "rate_source": ticket.rate_source,
+                    "daily_rate": _decimal_text(ticket.daily_rate) if ticket.daily_rate is not None else None,
+                    "per_day_rate": _decimal_text(ticket.daily_rate) if ticket.daily_rate is not None else None,
+                    "airfare_rate": _decimal_text(ticket.airfare_rate) if ticket.airfare_rate is not None else None,
+                    "maximum_payout": _decimal_text(ticket.airfare_rate) if ticket.airfare_rate is not None else None,
+                    "tenure_months": ticket.tenure_months,
+                    "scenario": ticket.scenario,
+                    "status": (ticket.status or "APPROVED").upper(),
+                    "notes": ticket.notes or notes,
+                }
+            )
+        if company_id is None:
+            raise HTTPException(status_code=400, detail="No company found for allocation print")
+        branding_root = Path(config.attachment_root).resolve() / "branding"
+        pdf = render_allocation_print_pdf(
+            session,
+            branding_root=branding_root,
+            company_id=company_id,
+            data=body,
             prepared_by=claims.username,
-            logo_path=logo_path,
         )
         code = body.get("employee_code") or "allocation"
         filename = f"airfare-allocation-{code}.pdf"
@@ -2843,6 +3936,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "version",
         )
 
+    @app.put("/v1/entitlement-rates/{rate_id}")
+    def update_entitlement_rate(
+        rate_id: UUID,
+        payload: RateUpdate,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> dict[str, Any]:
+        item = session.get(EntitlementRateRow, str(rate_id))
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "Entitlement rate not found.")
+        if item.version != if_match:
+            raise DomainError("stale_version", "The rate was modified by another user.")
+        if payload.effective_to is not None and payload.effective_to < payload.effective_from:
+            raise DomainError("invalid_date_range", "Effective-to cannot precede effective-from.")
+        item.amount = payload.amount
+        item.effective_from = payload.effective_from
+        item.effective_to = payload.effective_to
+        item.cap_amount = payload.cap_amount
+        item.version += 1
+        session.flush()
+        return _row(
+            item,
+            "id",
+            "scope_type",
+            "scope_id",
+            "amount",
+            "effective_from",
+            "effective_to",
+            "cap_amount",
+            "version",
+        )
+
     @app.delete("/v1/entitlement-rates/{rate_id}", status_code=204)
     def delete_entitlement_rate(
         rate_id: UUID,
@@ -2890,6 +4016,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "status": TicketRow.status,
         }[sort_by]
         ordering = sort_column.desc() if sort_order == "desc" else sort_column.asc()
+        items = list(
+            session.scalars(query.order_by(ordering, TicketRow.id).limit(limit).offset(offset))
+        )
+        loan_by_ticket = {
+            loan.source_ticket_id: loan
+            for loan in session.scalars(
+                select(LoanRow).where(
+                    LoanRow.deleted_at.is_(None),
+                    LoanRow.source_ticket_id.in_([item.id for item in items] or ["__none__"]),
+                )
+            )
+            if loan.source_ticket_id
+        }
         return _attach_employees(
             session,
             [
@@ -2910,12 +4049,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "version",
                     ),
                     **_ticket_display(item),
+                    **_loan_display(loan_by_ticket.get(item.id)),
+                    "tenure_months": item.tenure_months,
+                    "excess_cost": item.excess_cost,
                     "excess_amount": item.excess_amount,
                     "format": conditional_format(status=item.status, amount=item.excess_amount),
                 }
-                for item in session.scalars(
-                    query.order_by(ordering, TicketRow.id).limit(limit).offset(offset)
-                )
+                for item in items
             ],
         )
 
@@ -2955,6 +4095,105 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "excess_amount": item.excess_amount,
         }
 
+    @app.put("/v1/tickets/{ticket_id}")
+    def update_ticket(
+        ticket_id: UUID,
+        payload: TicketUpdate,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> dict[str, Any]:
+        item = session.get(TicketRow, str(ticket_id))
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "Ticket not found.")
+        if item.version != if_match:
+            raise DomainError("stale_version", "The ticket was modified by another user.")
+        if payload.origin_code.upper() == payload.destination_code.upper():
+            raise DomainError("invalid_route", "Origin and destination must differ.")
+
+        handling = "CONVERT_TO_LOAN" if payload.excess_handling == "LOAN" else payload.excess_handling
+        try:
+            settlement = settle_excess_ticket(
+                payload.ticket_cost,
+                payload.entitlement,
+                ExcessSettlementOption(handling),
+                payload.tenure_months or item.tenure_months,
+            )
+        except ValidationError as exc:
+            raise DomainError(getattr(exc, "code", "invalid_settlement"), str(exc)) from exc
+
+        linked_loan = _active_source_loan(session, item.id)
+        money_changed = (
+            payload.ticket_cost != item.ticket_cost or payload.entitlement != item.entitlement
+        )
+        loan_aliases = {"LOAN", "CONVERT_TO_LOAN"}
+        handling_same = payload.excess_handling == item.excess_handling or (
+            payload.excess_handling in loan_aliases and item.excess_handling in loan_aliases
+        )
+        revise_recovery = _ticket_recovery_changed(
+            linked_loan=linked_loan,
+            settlement=settlement,
+            money_changed=money_changed,
+            handling_same=handling_same,
+        )
+        if revise_recovery and linked_loan is not None:
+            if _loan_has_payments(session, linked_loan.id):
+                raise DomainError(
+                    "loan_has_payments",
+                    "This ticket's recovery loan has posted payments. Reverse those "
+                    "payments before changing amount, tenure, or excess handling.",
+                )
+            _soft_delete_loan(session, linked_loan)
+            linked_loan = None
+
+        item.travel_date = payload.travel_date
+        item.origin_code = payload.origin_code.upper()
+        item.destination_code = payload.destination_code.upper()
+        item.ticket_cost = payload.ticket_cost
+        item.entitlement = payload.entitlement
+        item.company_paid = settlement.company_payout
+        item.excess_handling = settlement.option.value
+        item.excess_cost = settlement.excess_cost
+        item.employee_payable = settlement.employee_payable
+        item.company_payout = settlement.company_payout
+        item.tenure_months = settlement.tenure_months
+        item.notes = payload.notes
+        item.version += 1
+
+        loan = linked_loan
+        loan_created = False
+        if loan is None:
+            policy = load_policy(session)
+            loan = _create_loan_from_settlement(
+                session, ticket=item, settlement=settlement, policy=policy
+            )
+            loan_created = loan is not None
+
+        return {
+            **_row(
+                item,
+                "id",
+                "employee_id",
+                "travel_date",
+                "origin_code",
+                "destination_code",
+                "ticket_cost",
+                "entitlement",
+                "company_paid",
+                "excess_handling",
+                "status",
+                "notes",
+                "version",
+            ),
+            **_ticket_display(item),
+            **_loan_display(loan),
+            "tenure_months": item.tenure_months,
+            "excess_cost": item.excess_cost,
+            "excess_amount": item.excess_amount,
+            "loan_revised": bool(revise_recovery and loan_created),
+            "loan_created": bool(loan_created and not revise_recovery),
+        }
+
     @app.patch("/v1/tickets/{ticket_id}/status")
     def change_ticket_status(
         ticket_id: str,
@@ -2981,31 +4220,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         item.status = payload.status
         item.version += 1
+        loan = _active_source_loan(session, item.id)
         if (
-            payload.status == "approved"
-            and item.excess_handling == "CONVERT_TO_LOAN"
-            and item.excess_amount > 0
-            and session.scalar(select(LoanRow).where(LoanRow.source_ticket_id == item.id)) is None
+            payload.status in {"approved", "paid"}
+            and item.excess_handling in {"CONVERT_TO_LOAN", "LOAN"}
+            and loan is None
         ):
-            loan = LoanRow(
-                employee_id=item.employee_id,
-                source_ticket_id=item.id,
-                principal=item.excess_amount,
-                annual_rate=Decimal("0"),
-                installments=12,
-                monthly_installment=calculate_emi(item.excess_amount, Decimal("0"), 12),
-                outstanding=item.excess_amount,
-                first_due_date=_first_of_next_month(item.travel_date),
+            tenure = item.tenure_months or 12
+            try:
+                settlement = settle_excess_ticket(
+                    item.ticket_cost,
+                    item.entitlement,
+                    ExcessSettlementOption.CONVERT_TO_LOAN,
+                    tenure,
+                )
+            except ValidationError as exc:
+                raise DomainError(getattr(exc, "code", "invalid_settlement"), str(exc)) from exc
+            policy = load_policy(session)
+            loan = _create_loan_from_settlement(
+                session, ticket=item, settlement=settlement, policy=policy
             )
-            session.add(loan)
-            session.flush()
-            LoanRepository(session).replace_schedule(
-                loan.id,
-                build_amortization_schedule(
-                    loan.principal, loan.annual_rate, loan.installments, loan.first_due_date
-                ),
-            )
-        return _row(item, "id", "status", "version")
+            if settlement.tenure_months and item.tenure_months is None:
+                item.tenure_months = settlement.tenure_months
+            if settlement.excess_cost is not None:
+                item.excess_cost = settlement.excess_cost
+        return {
+            **_row(item, "id", "status", "version"),
+            **_loan_display(loan),
+        }
 
     @app.delete("/v1/tickets/{ticket_id}", status_code=204)
     def delete_ticket(
@@ -3017,10 +4259,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = session.get(TicketRow, str(ticket_id))
         if item is None or item.deleted_at is not None:
             raise DomainError("not_found", "Ticket not found.")
-        if item.status != "draft":
-            raise DomainError("invalid_transition", "Only draft tickets may be deleted.")
         if item.version != if_match:
             raise DomainError("stale_version", "The ticket was modified by another user.")
+        linked_loan = _active_source_loan(session, item.id)
+        if linked_loan is not None:
+            if _loan_has_payments(session, linked_loan.id):
+                raise DomainError(
+                    "loan_has_payments",
+                    "This ticket's recovery loan has posted payments. Reverse those "
+                    "payments before deleting the ticket.",
+                )
+            _soft_delete_loan(session, linked_loan)
+        _assert_unlocked(session, item.created_at, "Tickets")
         item.deleted_at = datetime.now(UTC)
         item.version += 1
         return Response(status_code=204)
@@ -3255,7 +4505,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("not_found", "Loan not found.")
         if item.version != if_match:
             raise DomainError("stale_version", "The loan was modified by another user.")
-        if item.status == "settled" or payload.deferred_until <= date.today():
+        if item.status != "active" or payload.deferred_until <= date.today():
             raise DomainError(
                 "invalid_deferment", "Only active loans may be deferred to a future date."
             )
@@ -3270,6 +4520,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         )
         return _row(item, "id", "status", "deferred_until", "version")
+
+    @app.post("/v1/loans/{loan_id}/return")
+    def return_loan(
+        loan_id: UUID,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "finance"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> dict[str, Any]:
+        """Resume deferred recovery, or reopen a settled loan by reversing payments.
+
+        Pattern (Frappe/ERPNext): cancel repayment entries, then reopen the loan
+        schedule — do not silently mutate settled balances without an explicit return.
+        """
+        item = session.get(LoanRow, str(loan_id))
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "Loan not found.")
+        if item.version != if_match:
+            raise DomainError("stale_version", "The loan was modified by another user.")
+        if item.status not in {"deferred", "settled"}:
+            raise DomainError(
+                "invalid_return",
+                "Only deferred or settled loans can be returned to active recovery.",
+            )
+        reversed_payments = 0
+        if item.status == "settled":
+            reversed_payments = _reverse_loan_payments(session, item.id)
+            item.outstanding = quantize_money(item.principal)
+            resume_from = date.today()
+        else:
+            resume_from = max(date.today(), item.deferred_until or date.today())
+        item.status = "active"
+        item.deferred_until = None
+        item.first_due_date = resume_from
+        item.monthly_installment = quantize_money(
+            calculate_emi(item.outstanding, item.annual_rate, item.installments)
+        )
+        item.version += 1
+        LoanRepository(session).replace_schedule(
+            item.id,
+            build_amortization_schedule(
+                item.outstanding, item.annual_rate, item.installments, item.first_due_date
+            ),
+        )
+        return {
+            **_row(item, "id", "status", "deferred_until", "first_due_date", "outstanding", "version"),
+            "reversed_payments": reversed_payments,
+        }
 
     @app.post("/v1/loans/{loan_id}/restructure")
     def restructure_loan(
@@ -3360,10 +4657,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("not_found", "Loan not found.")
         if item.version != if_match:
             raise DomainError("stale_version", "The loan was modified by another user.")
+        _assert_unlocked(session, item.created_at, "Loans")
         has_payments = session.scalar(
             select(func.count())
             .select_from(LoanPaymentRow)
-            .where(LoanPaymentRow.loan_id == item.id)
+            .where(
+                LoanPaymentRow.loan_id == item.id,
+                LoanPaymentRow.deleted_at.is_(None),
+            )
         )
         if has_payments:
             raise DomainError("loan_has_payments", "A loan with payments cannot be deleted.")
@@ -3459,6 +4760,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             effective,
         )
         return effective
+
+    @app.get("/v1/settings")
+    def settings_catalog(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+    ) -> dict[str, Any]:
+        """Return the enterprise settings catalog with current values."""
+        return {"groups": catalog_with_values(session)}
+
+    @app.put("/v1/settings")
+    def settings_batch_update(
+        payload: SettingsBatchUpdate,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        """Persist one or more global rule-engine settings."""
+        updated: list[str] = []
+        for key, raw in payload.settings.items():
+            try:
+                value = validate_setting(key, raw)
+            except ValueError as exc:
+                raise DomainError("invalid_setting", str(exc)) from exc
+            item = session.scalar(
+                select(PreferenceRow).where(
+                    PreferenceRow.scope_type == "global",
+                    PreferenceRow.scope_id == "",
+                    PreferenceRow.preference_key == key,
+                    PreferenceRow.deleted_at.is_(None),
+                )
+            )
+            if item is None:
+                session.add(
+                    PreferenceRow(
+                        scope_type="global",
+                        scope_id="",
+                        preference_key=key,
+                        value=value if not isinstance(value, Decimal) else str(value),
+                        is_locked=False,
+                    )
+                )
+            else:
+                item.value = value if not isinstance(value, Decimal) else str(value)
+                item.version += 1
+            updated.append(key)
+        session.flush()
+        preference_cache.clear()
+        return {"updated": updated, "groups": catalog_with_values(session)}
 
     @app.post("/v1/attachments", status_code=201)
     async def upload_attachment(
@@ -3742,6 +5090,347 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             historical_ticket_costs=list(costs),
         )
 
+    @app.get("/v1/ai/support/diagnose")
+    def ai_support_diagnose(
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.application import support
+
+        return support.run_diagnostics(session, actor=claims.username)
+
+    @app.post("/v1/ai/support/remediate")
+    def ai_support_remediate(
+        payload: dict[str, str],
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        from airfare_management.application import support
+
+        check_code = str(payload.get("check_code") or "").strip()
+        if not check_code:
+            raise HTTPException(status_code=422, detail="check_code is required")
+        try:
+            return support.apply_remediation(session, check_code, actor=claims.username)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/ai/support/feedback")
+    def ai_support_feedback(
+        payload: dict[str, Any],
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.application import support
+
+        check_code = str(payload.get("check_code") or "").strip()
+        if not check_code:
+            raise HTTPException(status_code=422, detail="check_code is required")
+        return support.record_feedback(
+            session,
+            check_code=check_code,
+            worked=bool(payload.get("worked")),
+            notes=str(payload.get("notes") or ""),
+            actor=claims.username,
+        )
+
+    @app.get("/v1/ai/support/learning")
+    def ai_support_learning(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.application import support
+
+        return support.learning_stats(session)
+
+    @app.post("/v1/ai/support/train")
+    def ai_support_train(
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        """Re-seed product knowledge into ai_learning_events and return learning stats.
+
+        Local-first training loop: upsert capability docs for BM25 recall, then
+        report store size. Does not call cloud APIs.
+        """
+        from airfare_management.ai_agent.knowledge_brain import brain_stats
+        from airfare_management.ai_agent.local_llm import llm_status
+        from airfare_management.ai_agent.product_knowledge import (
+            KNOWLEDGE_VERSION,
+            ensure_product_knowledge_learned,
+        )
+        from airfare_management.application import support
+        from airfare_management.config import get_settings
+
+        touched = ensure_product_knowledge_learned(session, actor=claims.username)
+        session.commit()
+        settings = get_settings()
+        return {
+            "trained": True,
+            "knowledge_version": KNOWLEDGE_VERSION,
+            "product_knowledge_upserts": touched,
+            "learning": support.learning_stats(session),
+            "brain": brain_stats(session),
+            "llm": llm_status(
+                ollama_enabled=settings.ai_ollama_enabled,
+                ollama_base_url=settings.ai_ollama_base_url,
+                ollama_model=settings.ai_ollama_model,
+                deepseek_api_key=settings.ai_deepseek_api_key or None,
+                deepseek_base_url=settings.ai_deepseek_base_url,
+                deepseek_model=settings.ai_deepseek_model,
+                provider=settings.ai_llm_provider,
+            ),
+        }
+
+    @app.get("/v1/ai/llm/status")
+    def ai_llm_status(
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
+    ) -> dict[str, Any]:
+        """LLM provider health: Ollama (free) vs optional DeepSeek API."""
+        from airfare_management.ai_agent.local_llm import llm_status
+        from airfare_management.config import get_settings
+
+        settings = get_settings()
+        return llm_status(
+            ollama_enabled=settings.ai_ollama_enabled,
+            ollama_base_url=settings.ai_ollama_base_url,
+            ollama_model=settings.ai_ollama_model,
+            deepseek_api_key=settings.ai_deepseek_api_key or None,
+            deepseek_base_url=settings.ai_deepseek_base_url,
+            deepseek_model=settings.ai_deepseek_model,
+            provider=settings.ai_llm_provider,
+        )
+
+    @app.post("/v1/ai/agent/chat")
+    def ai_agent_chat(
+        payload: AgentChatRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.ai_agent.smart_agent import run_agent
+
+        result = run_agent(
+            session,
+            message=payload.message,
+            apply_fix=payload.apply_fix,
+            auto_repair_mode=payload.auto_repair_mode,
+            apply_token=payload.apply_token,
+            confirm=payload.confirm,
+            actor=claims.username,
+        )
+        return result.model_dump(mode="json")
+
+    @app.post("/v1/ai/agent/repair/apply")
+    def ai_agent_repair_apply(
+        payload: AgentRepairApplyRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        from airfare_management.ai_agent.smart_agent import apply_repair_token
+
+        if not payload.auto_repair_mode:
+            raise DomainError("auto_repair_off", "Auto-Repair Mode must be enabled.")
+        try:
+            return apply_repair_token(
+                session,
+                apply_token=payload.apply_token,
+                confirm=payload.confirm,
+                actor=claims.username,
+            )
+        except ValueError as exc:
+            raise DomainError("repair_rejected", str(exc)) from exc
+
+    @app.get("/v1/ai/agent/schema")
+    def ai_agent_schema(
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
+    ) -> dict[str, Any]:
+        from airfare_management.ai_agent.schema_dictionary import as_public_dict
+
+        return as_public_dict()
+
+    @app.post("/v1/ai/saa/baseline")
+    def ai_saa_baseline(
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        """Smart AI Agent OODA baseline: Focus catalog, DMVs, DQ flags, action queue."""
+        from airfare_management.ai_agent.smart_system_agent import run_baseline
+
+        return run_baseline(session, actor=claims.username).model_dump(mode="json")
+
+    @app.post("/v1/ai/saa/silent-fixes")
+    def ai_saa_silent_fixes(
+        payload: SaaSilentFixRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin"))],
+    ) -> dict[str, Any]:
+        """Apply zero-risk whitelist only (e.g. UPDATE STATISTICS)."""
+        from airfare_management.ai_agent.smart_system_agent import apply_silent_fixes
+
+        if payload.confirm != "SILENT_APPLY":
+            raise DomainError("saa_confirm_required", "confirm must be SILENT_APPLY")
+        return apply_silent_fixes(session, codes=payload.codes, actor=claims.username)
+
+    @app.get("/v1/report-templates")
+    def list_report_templates(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
+    ) -> list[dict[str, Any]]:
+        from airfare_management.application import report_templates as rt
+
+        return rt.list_templates(session)
+
+    @app.post("/v1/report-templates", status_code=201)
+    def create_report_template(
+        payload: ReportTemplateCreate,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        from airfare_management.application import report_templates as rt
+
+        definition = payload.definition or {
+            "title": payload.title,
+            "dataset": payload.dataset,
+            "bands": {"header": {"title": payload.title}, "detail": {"columns": []}, "footer": {}},
+            "parameters": {},
+            "filters": {},
+            "group_by": [],
+        }
+        item = rt.create_template(
+            session,
+            code=payload.code,
+            title=payload.title,
+            dataset=payload.dataset,
+            definition=definition,
+            actor=claims.username,
+        )
+        return {
+            "id": item.id,
+            "code": item.code,
+            "title": item.title,
+            "dataset": item.dataset,
+            "definition": item.definition,
+            "is_system": item.is_system,
+            "version": item.version,
+        }
+
+    @app.put("/v1/report-templates/{template_id}")
+    def update_report_template(
+        template_id: UUID,
+        payload: ReportTemplateUpdate,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> dict[str, Any]:
+        from airfare_management.application import report_templates as rt
+
+        item = rt.get_template(session, str(template_id))
+        if item is None:
+            raise DomainError("not_found", "Report template not found.")
+        try:
+            item = rt.update_template(
+                session,
+                item,
+                title=payload.title,
+                definition=payload.definition,
+                version=if_match,
+                actor=claims.username,
+            )
+        except ValueError as exc:
+            if str(exc) == "stale_version":
+                raise DomainError("stale_version", "The template was modified by another user.") from exc
+            raise
+        return {
+            "id": item.id,
+            "code": item.code,
+            "title": item.title,
+            "dataset": item.dataset,
+            "definition": item.definition,
+            "is_system": item.is_system,
+            "version": item.version,
+        }
+
+    @app.get("/v1/report-templates/{template_id}/run")
+    @app.post("/v1/report-templates/{template_id}/run")
+    def run_report_template(
+        template_id: UUID,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
+        format: Annotated[Literal["json", "xlsx", "pdf"], Query()] = "json",
+    ) -> Any:
+        from airfare_management.application import report_templates as rt
+
+        item = rt.get_template(session, str(template_id))
+        if item is None:
+            raise DomainError("not_found", "Report template not found.")
+        columns, rows, meta = rt.run_template(session, item)
+        if format == "json":
+            return {
+                **meta,
+                "columns": columns,
+                "rows": [list(row) for row in rows],
+                "count": len(rows),
+            }
+        if format == "xlsx":
+            records = [dict(zip(columns, row, strict=True)) for row in rows]
+            workbook = export_workbook(item.title, columns, records)
+            return Response(
+                workbook,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{item.code}.xlsx"'},
+            )
+        pdf = build_pdf_report(item.title, columns, rows)
+        return Response(
+            pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{item.code}.pdf"'},
+        )
+
+    @app.get("/v1/crystal/status")
+    def crystal_status(
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
+    ) -> dict[str, Any]:
+        from airfare_management.infrastructure.crystal_bridge import crystal_status as status
+
+        return status(config)
+
+    @app.get("/v1/crystal/opendocument")
+    def crystal_opendocument(
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
+        cuid: Annotated[str | None, Query(max_length=120)] = None,
+        doc_id: Annotated[str | None, Query(max_length=120)] = None,
+    ) -> dict[str, Any]:
+        from airfare_management.infrastructure.crystal_bridge import (
+            crystal_configured,
+            opendocument_url,
+        )
+
+        if not crystal_configured(config):
+            raise DomainError("crystal_not_configured", "SAP Crystal BIP is not configured.")
+        return {"url": opendocument_url(config, cuid=cuid, doc_id=doc_id)}
+
+    @app.post("/v1/crystal/export.pdf")
+    def crystal_export_pdf(
+        payload: CrystalExportRequest,
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> Response:
+        from airfare_management.infrastructure.crystal_bridge import (
+            crystal_configured,
+            export_report_pdf,
+        )
+
+        if not crystal_configured(config):
+            raise DomainError("crystal_not_configured", "SAP Crystal BIP is not configured.")
+        try:
+            pdf = export_report_pdf(config, report_id=payload.report_id)
+        except RuntimeError as exc:
+            raise DomainError("crystal_export_failed", str(exc)) from exc
+        return Response(
+            pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="crystal-report.pdf"'},
+        )
+
     @app.get("/v1/ess/requests")
     def ess_requests(
         session: Annotated[Session, Depends(database)],
@@ -3960,6 +5649,219 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path.unlink(missing_ok=False)
         return Response(status_code=204)
 
+    @app.get("/v1/audit")
+    def list_audit_events(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin"))],
+        entity_type: Annotated[str, Query(max_length=100)] = "",
+        action: Annotated[str, Query(max_length=20)] = "",
+        limit: Annotated[int, Query(ge=1, le=500)] = 200,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, Any]:
+        query = select(AuditRow)
+        if entity_type:
+            query = query.where(AuditRow.entity_type == entity_type)
+        if action:
+            query = query.where(AuditRow.action == action)
+        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+        rows = session.scalars(
+            query.order_by(AuditRow.occurred_at.desc(), AuditRow.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+        actors = {
+            user.id: user.username
+            for user in session.scalars(select(UserRow).where(UserRow.deleted_at.is_(None)))
+        }
+        return {
+            "total": total,
+            "events": [
+                {
+                    "id": row.id,
+                    "occurred_at": row.occurred_at.isoformat() if row.occurred_at else None,
+                    "actor": actors.get(row.actor_id or "", row.actor_id),
+                    "correlation_id": row.correlation_id,
+                    "ip_address": row.ip_address,
+                    "action": row.action,
+                    "entity_type": row.entity_type,
+                    "entity_id": row.entity_id,
+                    "changes": row.changes,
+                }
+                for row in rows
+            ],
+        }
+
+    branding_root = Path(config.attachment_root).resolve() / "branding"
+
+    @app.get("/v1/documents/templates")
+    def document_templates(
+        _: Annotated[Claims, Depends(authenticated)],
+    ) -> dict[str, Any]:
+        return {"templates": list_document_templates()}
+
+    @app.get("/v1/documents")
+    def documents(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+        kind: Literal["offer_letter", "contract"] | None = None,
+        employee_id: UUID | None = None,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, Any]:
+        return {
+            "documents": list_documents(
+                session, kind=kind, employee_id=employee_id, limit=limit, offset=offset
+            )
+        }
+
+    @app.post("/v1/documents/preview")
+    def preview_document_html(
+        payload: DocumentRequest,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> Response:
+        html = preview_document(
+            session,
+            branding_root=branding_root,
+            kind=payload.kind,
+            template_key=payload.template_key,
+            employee_id=payload.employee_id,
+            company_id=payload.company_id,
+            raw_params=payload.params,
+        )
+        return Response(html, media_type="text/html")
+
+    @app.post("/v1/documents", status_code=201)
+    def generate_document(
+        payload: DocumentRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        row = create_document(
+            session,
+            document_root=config.document_root,
+            branding_root=branding_root,
+            kind=payload.kind,
+            template_key=payload.template_key,
+            employee_id=payload.employee_id,
+            company_id=payload.company_id,
+            raw_params=payload.params,
+            actor=claims.username,
+        )
+        return {
+            "id": row.id,
+            "document_number": row.document_number,
+            "voucher_no": row.voucher_no,
+            "kind": row.kind,
+            "template_key": row.template_key,
+            "title": row.title,
+            "status": row.status,
+            "employee_id": str(row.employee_id) if row.employee_id else None,
+            "company_id": getattr(row, "company_id", None),
+            "issued_at": row.issued_at.isoformat() if row.issued_at else None,
+            "has_pdf": bool(row.pdf_key),
+            "version": row.version,
+        }
+
+    @app.get("/v1/documents/defaults/{employee_id}")
+    def document_defaults_for_employee(
+        employee_id: UUID,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        employee = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.id == employee_id, EmployeeRow.deleted_at.is_(None)
+            )
+        )
+        if employee is None:
+            raise DomainError("not_found", "Employee not found.")
+        return {
+            "employee_id": str(employee.id),
+            "employee_name": employee.full_name,
+            "employee_code": employee.code,
+            "department": employee.department,
+            "nationality": employee.nationality,
+            "passport_no": employee.passport_no,
+            "params": employee_defaults(employee),
+        }
+
+    @app.get("/v1/documents/{document_id}")
+    def get_document_detail(
+        document_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        return document_detail(session, document_id)
+
+    @app.put("/v1/documents/{document_id}")
+    def edit_document(
+        document_id: str,
+        payload: DocumentUpdateRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> dict[str, Any]:
+        row = update_document(
+            session,
+            document_id=document_id,
+            document_root=config.document_root,
+            branding_root=branding_root,
+            raw_params=payload.params,
+            actor=claims.username,
+            if_match=if_match,
+            employee_id=payload.employee_id,
+            company_id=payload.company_id,
+            template_key=payload.template_key,
+        )
+        return {
+            "id": row.id,
+            "document_number": row.document_number,
+            "voucher_no": row.voucher_no,
+            "kind": row.kind,
+            "template_key": row.template_key,
+            "title": row.title,
+            "status": row.status,
+            "employee_id": str(row.employee_id) if row.employee_id else None,
+            "company_id": getattr(row, "company_id", None),
+            "issued_at": row.issued_at.isoformat() if row.issued_at else None,
+            "has_pdf": bool(row.pdf_key),
+            "version": row.version,
+        }
+
+    @app.get("/v1/documents/{document_id}/pdf")
+    def download_document_pdf(
+        document_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+    ) -> FileResponse:
+        row = get_document(session, document_id)
+        path = document_pdf_path(config.document_root, row)
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            filename=f"{(row.voucher_no or row.title).replace(' ', '_')}.pdf",
+        )
+
+    @app.delete("/v1/documents/{document_id}", status_code=204)
+    def delete_document(
+        document_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> Response:
+        row = get_document(session, document_id)
+        if row.version != if_match:
+            raise DomainError("stale_version", "The document was modified by another user.")
+        row.deleted_at = datetime.now(UTC)
+        row.version += 1
+        if row.pdf_key:
+            path = Path(config.document_root) / row.pdf_key
+            path.unlink(missing_ok=True)
+            row.pdf_key = None
+        session.flush()
+        return Response(status_code=204)
+
     redis_client = None
     if config.environment != "test":
         try:
@@ -3971,6 +5873,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:  # noqa: BLE001
             redis_client = None
     register_health_routes(app, config, redis_client, database)
+
+    @app.get("/{full_path:path}", response_class=FileResponse, include_in_schema=False)
+    def spa_fallback(full_path: str) -> FileResponse:
+        """Client-side routes resolve to the SPA; API paths still 404 normally."""
+        if full_path.split("/", 1)[0] in {"v1", "assets", "_next", "health", "metrics", "docs", "redoc", "openapi.json"}:
+            raise HTTPException(404, "Not found.")
+        # Static-export route: serve its prerendered document when present.
+        candidate = (web_root / full_path / "index.html").resolve()
+        if full_path and candidate.is_file() and candidate.is_relative_to(web_root):
+            return FileResponse(candidate, headers={"Cache-Control": "no-store"})
+        return _spa_index()
 
     return app
 

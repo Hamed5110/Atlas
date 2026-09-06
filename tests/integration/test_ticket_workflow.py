@@ -137,7 +137,7 @@ class TestConvertToLoan:
 
 
 class TestTicketSoftDelete:
-    """Only draft tickets may be deleted."""
+    """Unpaid tickets without linked loans may be deleted."""
 
     def test_delete_draft_ticket(
         self, client: TestClient, admin_headers: dict[str, str]
@@ -150,7 +150,7 @@ class TestTicketSoftDelete:
         )
         assert deleted.status_code == 204
 
-    def test_delete_submitted_ticket_rejected(
+    def test_delete_submitted_ticket_allowed(
         self, client: TestClient, admin_headers: dict[str, str]
     ) -> None:
         employee = create_employee(client, admin_headers)
@@ -160,5 +160,145 @@ class TestTicketSoftDelete:
             f"/v1/tickets/{ticket['id']}",
             headers={**admin_headers, "If-Match": str(ticket["version"])},
         )
-        assert deleted.status_code == 422
-        assert deleted.json()["code"] == "invalid_transition"
+        assert deleted.status_code == 204
+
+    def test_delete_paid_ticket_allowed(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        ticket = create_ticket(client, admin_headers, str(employee["id"]))
+        ticket = advance_ticket(client, admin_headers, ticket, "submitted", "approved", "paid")
+        deleted = client.delete(
+            f"/v1/tickets/{ticket['id']}",
+            headers={**admin_headers, "If-Match": str(ticket["version"])},
+        )
+        assert deleted.status_code == 204
+
+
+class TestTicketLoanRecoveryEdit:
+    """Best-practice revise/recreate of excess recovery loans on ticket edit."""
+
+    def test_edit_paid_ticket_allowed(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        ticket = create_ticket(client, admin_headers, str(employee["id"]))
+        ticket = advance_ticket(client, admin_headers, ticket, "submitted", "approved", "paid")
+        updated = client.put(
+            f"/v1/tickets/{ticket['id']}",
+            headers={**admin_headers, "If-Match": str(ticket["version"])},
+            json={
+                "travel_date": "2026-06-15",
+                "origin_code": "BAH",
+                "destination_code": "DXB",
+                "ticket_cost": "510",
+                "entitlement": "400",
+                "company_paid": "400",
+                "excess_handling": "SELF_PAID",
+                "notes": "paid correction",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        body = updated.json()
+        assert body["status"] == "paid"
+        assert float(body["ticket_cost"]) == 510
+
+    def test_approve_loan_handling_creates_loan(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        ticket = create_ticket(
+            client,
+            admin_headers,
+            str(employee["id"]),
+            ticket_cost="900",
+            entitlement="600",
+            company_paid="600",
+            excess_handling="CONVERT_TO_LOAN",
+        )
+        ticket = advance_ticket(client, admin_headers, ticket, "submitted", "approved")
+        assert ticket.get("loan_id"), ticket
+
+    def test_edit_recreates_loan_after_loan_deleted(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        ticket = create_ticket(
+            client,
+            admin_headers,
+            str(employee["id"]),
+            ticket_cost="900",
+            entitlement="600",
+            company_paid="600",
+            excess_handling="CONVERT_TO_LOAN",
+        )
+        ticket = advance_ticket(client, admin_headers, ticket, "submitted", "approved")
+        loan_id = ticket["loan_id"]
+        loans = client.get("/v1/loans?limit=50", headers=admin_headers)
+        assert loans.status_code == 200
+        loan = next(item for item in loans.json() if item["id"] == loan_id)
+        deleted = client.delete(
+            f"/v1/loans/{loan_id}",
+            headers={**admin_headers, "If-Match": str(loan["version"])},
+        )
+        assert deleted.status_code == 204
+
+        listed = client.get("/v1/tickets?limit=50", headers=admin_headers)
+        current = next(item for item in listed.json() if item["id"] == ticket["id"])
+        updated = client.put(
+            f"/v1/tickets/{current['id']}",
+            headers={**admin_headers, "If-Match": str(current["version"])},
+            json={
+                "travel_date": current["travel_date"],
+                "origin_code": current["origin_code"],
+                "destination_code": current["destination_code"],
+                "ticket_cost": current["ticket_cost"],
+                "entitlement": current["entitlement"],
+                "company_paid": current["company_paid"],
+                "excess_handling": "CONVERT_TO_LOAN",
+                "tenure_months": 12,
+                "notes": current.get("notes") or "",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        body = updated.json()
+        assert body.get("loan_id"), body
+        assert body.get("loan_created") is True
+
+    def test_edit_with_linked_loan_revises_without_manual_delete(
+        self, client: TestClient, admin_headers: dict[str, str]
+    ) -> None:
+        employee = create_employee(client, admin_headers)
+        ticket = create_ticket(
+            client,
+            admin_headers,
+            str(employee["id"]),
+            ticket_cost="900",
+            entitlement="600",
+            company_paid="600",
+            excess_handling="CONVERT_TO_LOAN",
+        )
+        ticket = advance_ticket(client, admin_headers, ticket, "submitted", "approved")
+        listed = client.get("/v1/tickets?limit=50", headers=admin_headers)
+        current = next(item for item in listed.json() if item["id"] == ticket["id"])
+        old_loan = current.get("loan_id")
+        updated = client.put(
+            f"/v1/tickets/{current['id']}",
+            headers={**admin_headers, "If-Match": str(current["version"])},
+            json={
+                "travel_date": current["travel_date"],
+                "origin_code": current["origin_code"],
+                "destination_code": current["destination_code"],
+                "ticket_cost": "950",
+                "entitlement": "600",
+                "company_paid": "600",
+                "excess_handling": "CONVERT_TO_LOAN",
+                "tenure_months": 10,
+                "notes": "",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        body = updated.json()
+        assert body.get("loan_id"), body
+        assert body["loan_id"] != old_loan
+        assert body.get("loan_revised") is True

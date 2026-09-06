@@ -1,0 +1,35 @@
+{
+  "title": "Airfare Payable",
+  "dataset": "airfare-payable",
+  "bands": {
+    "header": {
+      "title": "Airfare Payable Statement",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Employee Code",
+        "Employee Name",
+        "Department",
+        "Year",
+        "Opening Days",
+        "Current Earned Days",
+        "Company Paid",
+        "Balance Days",
+        "Airfare Entitlement Amount",
+        "Payable Amount",
+        "Status"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {
+    "year": "Fiscal year",
+    "as_of_date": "As-of cut-off date"
+  },
+  "filters": {},
+  "group_by": ["Department"],
+  "sort_by": "Employee Code"
+}

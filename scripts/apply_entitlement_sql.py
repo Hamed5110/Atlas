@@ -13,6 +13,7 @@ _SCRIPTS = (
     "atlas_aluminum/02_sp_calculate_entitlement.sql",
     "atlas_aluminum/03_views.sql",
     "atlas_aluminum/04_seed_policies.sql",
+    "atlas_aluminum/05_modern_entitlement_engine.sql",
 )
 
 

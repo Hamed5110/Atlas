@@ -1,0 +1,33 @@
+{
+  "title": "Loan Statement",
+  "dataset": "loan-statement",
+  "bands": {
+    "header": {
+      "title": "Loan Statement",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Employee",
+        "Loan ID",
+        "Date",
+        "Description",
+        "Debit",
+        "Credit",
+        "Installment #",
+        "Due date",
+        "Principal",
+        "Interest",
+        "Payment",
+        "Outstanding"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Employee"
+}

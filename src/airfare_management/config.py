@@ -27,19 +27,37 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     celery_broker_url: str = "redis://127.0.0.1:6379/1"
     celery_result_backend: str = "redis://127.0.0.1:6379/2"
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = Field(default=3389, ge=1, le=65535)
     api_base_url: str = "http://127.0.0.1:3389"
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="ChangeMeNow!2026", min_length=12)
     attachment_root: str = "./var/attachments"
     max_attachment_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
+    document_root: str = "./var/documents"
     backup_root: str = "./var/backups"
     backup_retention_days: int = Field(default=14, ge=0, le=3650)
     db_user: str | None = None
     db_password: str | None = None
     db_server: str = "127.0.0.1"
     cors_origins: list[str] = Field(default_factory=list)
+    crystal_bip_url: str = ""
+    crystal_username: str = ""
+    crystal_password: str = ""
+    crystal_opendocument_base: str = ""
+    # Local AI Data Agent (privacy-first)
+    ai_research_enabled: bool = True
+    # LLM provider: auto (Ollama free → DeepSeek if key) | ollama | deepseek | off
+    ai_llm_provider: str = "auto"
+    ai_ollama_enabled: bool = True
+    ai_ollama_base_url: str = "http://127.0.0.1:11434"
+    ai_ollama_model: str = "qwen2.5:3b-instruct"
+    # Optional DeepSeek OpenAI-compatible API (not guaranteed free after trial)
+    ai_deepseek_api_key: str = ""
+    ai_deepseek_base_url: str = "https://api.deepseek.com"
+    ai_deepseek_model: str = "deepseek-v4-flash"
+    ai_deepseek_thinking: bool = True
+    ai_deepseek_reasoning_effort: str = "medium"
 
     @model_validator(mode="after")
     def _reject_insecure_defaults(self) -> Self:

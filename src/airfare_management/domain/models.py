@@ -95,11 +95,28 @@ class Employee(Entity):
     repair_center: str = ""
     designation: str = ""
     nationality: str = ""
+    passport_no: str = ""
+    arabic_name: str = ""
+    cpr_no: str = ""
+    date_of_birth: date | None = None
+    gender: str = ""
+    passport_expiry: date | None = None
+    visa_no: str = ""
+    visa_expiry: date | None = None
+    airline_sector: str = ""
+    travel_class: str = ""
+    last_airticket_date: date | None = None
     sub_section: str = ""
-    reporting_officer_id: UUID | None = None
+    reporting_officer_id: str | None = None
     email: str | None = None
     custom_airfare_rate: Decimal | None = None
     max_entitlement_cap_rate: Decimal | None = None
+    grade: str = ""
+    contract_type: str = ""
+    origin_country: str = ""
+    employment_status: str = "active"
+    monthly_salary: Decimal | None = None
+    probation_end_date: date | None = None
     active: bool = True
 
 

@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+import re
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
@@ -28,7 +29,135 @@ _ATLAS_LOGO = _PRINT_ASSETS / "atlas_logo.png"
 _ATLAS_FOOTER = _PRINT_ASSETS / "atlas_footer.png"
 _ATLAS_WATERMARK = _PRINT_ASSETS / "atlas_watermark.png"
 
-EMPLOYEE_COLUMNS = ("code", "full_name", "company_id", "join_date", "department", "branch", "email")
+EMPLOYEE_COLUMNS = (
+    "code",
+    "full_name",
+    "arabic_name",
+    "gender",
+    "date_of_birth",
+    "nationality",
+    "origin_country",
+    "cpr_no",
+    "email",
+    "company_id",
+    "join_date",
+    "department",
+    "branch",
+    "pay_group",
+    "repair_center",
+    "designation",
+    "sub_section",
+    "grade",
+    "contract_type",
+    "employment_status",
+    "monthly_salary",
+    "probation_end_date",
+    "passport_no",
+    "passport_expiry",
+    "visa_no",
+    "visa_expiry",
+    "airline_sector",
+    "travel_class",
+    "last_airticket_date",
+    "custom_airfare_rate",
+    "max_entitlement_cap_rate",
+    "reporting_officer_id",
+)
+
+EMPLOYEE_REQUIRED_COLUMNS = ("code", "full_name", "join_date")
+
+# Focus Soft / ATLAS Aluminum "Employee Information" export headers → canonical fields.
+EMPLOYEE_ALIASES: dict[str, tuple[str, ...]] = {
+    "code": ("code", "employee_code", "emp_code", "employeecode", "code_general"),
+    "full_name": ("full_name", "name", "employee_name", "emp_name", "name_general"),
+    "join_date": (
+        "join_date",
+        "date_of_joining",
+        "joining_date",
+        "doj",
+        "date_of_joining_general",
+    ),
+    "grade": (
+        "grade",
+        "job_bandcode",
+        "job_band_code",
+        "band_code",
+        "jobbandcode",
+        "job_bandcode_general",
+    ),
+    "cpr_no": (
+        "cpr_no",
+        "cpr",
+        "bahrain_id",
+        "national_identifier",
+        "national_identifier_bahrain_id",
+        "national_identifier_bahrain_id_general",
+    ),
+    "designation": ("designation", "designation_general", "job_title", "title"),
+    "nationality": (
+        "nationality",
+        "nationality_personal_information",
+        "nationality_personal",
+    ),
+    "pay_group": ("pay_group", "paygroup", "pay_group_general"),
+    "sub_section": ("sub_section", "subsection", "sub_section_general"),
+    "reporting_officer_id": (
+        "reporting_officer_id",
+        "reporting_to",
+        "report_to",
+        "reporting_to_general",
+        "reporting_officer",
+    ),
+    "department": (
+        "department",
+        "emp_department",
+        "emp_department_general",
+        "dept",
+    ),
+    "arabic_name": ("arabic_name", "name_arabic", "arabic"),
+    "gender": ("gender", "sex"),
+    "date_of_birth": ("date_of_birth", "dob", "birth_date"),
+    "email": ("email", "e_mail", "work_email"),
+    "company_id": ("company_id", "company", "company_code"),
+    "branch": ("branch", "location"),
+    "passport_no": ("passport_no", "passport", "passport_number"),
+    "origin_country": ("origin_country", "country_of_origin"),
+    "contract_type": ("contract_type", "employment_type"),
+    "employment_status": ("employment_status", "status", "emp_status"),
+    "monthly_salary": ("monthly_salary", "salary", "basic_salary"),
+}
+
+
+def _normalize_employee_header(header: str) -> str:
+    """Normalize Excel / Focus Soft headers (strip [Section] tags)."""
+    text = re.sub(r"\[[^\]]*\]", "", str(header or ""))
+    text = text.strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    return text
+
+
+def _map_employee_header(header: str) -> str | None:
+    """Return canonical employee field for a workbook header, if known."""
+    normalized = _normalize_employee_header(header)
+    if normalized in EMPLOYEE_COLUMNS:
+        return normalized
+    for canonical, aliases in EMPLOYEE_ALIASES.items():
+        if normalized in aliases:
+            return canonical
+    return None
+
+
+def _find_employee_header_row(rows: list[tuple[Any, ...]], scan_limit: int = 40) -> int:
+    """Locate the header row in Focus Soft title-banded exports."""
+    for index, values in enumerate(rows[:scan_limit]):
+        mapped = {_map_employee_header(str(v)) for v in values if v is not None and str(v).strip()}
+        if "code" in mapped and "full_name" in mapped:
+            return index
+    return 0
+
+
+DEFAULT_TEMPLATE_COMPANY_ID = "11111111-1111-1111-1111-111111111111"
+
 
 OPENING_BALANCE_ALIASES: dict[str, tuple[str, ...]] = {
     "employee_code": ("employee_code", "code", "employeecode", "employee"),
@@ -99,26 +228,66 @@ def export_workbook(title: str, columns: Sequence[str], rows: Iterable[Mapping[s
 
 
 def parse_employee_workbook(content: bytes, max_rows: int = 10_000) -> list[dict[str, Any]]:
-    """Parse and validate an employee XLSX file without formulas."""
-    workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    """Parse employee XLSX — HCM template or Focus Soft Employee Information export.
+
+    Focus Soft exports are often sparse; read_only mode drops trailing empty
+    cells mid-row and collapses header detection to a single column. Load fully.
+    """
+    workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
     sheet = workbook.active
     assert sheet is not None
-    rows = sheet.iter_rows(values_only=True)
-    try:
-        headers = tuple(str(value or "").strip().lower() for value in next(rows))
-    except StopIteration as exc:
-        raise ValueError("The workbook is empty.") from exc
-    missing = set(EMPLOYEE_COLUMNS[:4]) - set(headers)
+    raw_rows = [
+        tuple(sheet.cell(row=r, column=c).value for c in range(1, (sheet.max_column or 1) + 1))
+        for r in range(1, (sheet.max_row or 0) + 1)
+    ]
+    if not raw_rows:
+        raise ValueError("The workbook is empty.")
+
+    header_index = _find_employee_header_row(raw_rows)
+    header_values = raw_rows[header_index]
+    canonical_headers: list[str | None] = []
+    for value in header_values:
+        if value is None or str(value).strip() == "":
+            canonical_headers.append(None)
+        else:
+            canonical_headers.append(_map_employee_header(str(value)))
+
+    present = {h for h in canonical_headers if h}
+    missing = set(EMPLOYEE_REQUIRED_COLUMNS) - present
     if missing:
-        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}.")
+        raise ValueError(
+            "Missing required columns: "
+            f"{', '.join(sorted(missing))}. "
+            "Expected HCM template headers or a Focus Soft Employee Information export "
+            "(Code, Name, Date of Joining)."
+        )
+
+    allowed = set(EMPLOYEE_COLUMNS)
     result: list[dict[str, Any]] = []
-    for row_number, values in enumerate(rows, start=2):
-        if row_number > max_rows + 1:
+    for offset, values in enumerate(raw_rows[header_index + 1 :], start=header_index + 2):
+        if len(result) >= max_rows:
             raise ValueError(f"Import exceeds the {max_rows} row limit.")
-        record = dict(zip(headers, values, strict=False))
-        if not any(value is not None for value in values):
+        if not any(value is not None and str(value).strip() != "" for value in values):
             continue
-        record["_row"] = row_number
+        record: dict[str, Any] = {}
+        for header, value in zip(canonical_headers, values, strict=False):
+            if header is None or header not in allowed:
+                continue
+            if value is None or (isinstance(value, str) and value.strip() == ""):
+                continue
+            if header == "reporting_officer_id" and isinstance(value, str):
+                record[header] = value.strip()[:200]
+            else:
+                record[header] = value
+        if not record.get("code") or not record.get("full_name"):
+            continue
+        if not record.get("company_id"):
+            record["company_id"] = DEFAULT_TEMPLATE_COMPANY_ID
+        # Focus Soft dates often arrive as datetime.
+        join = record.get("join_date")
+        if hasattr(join, "date"):
+            record["join_date"] = join.date()
+        record["_row"] = offset
         result.append(record)
     return result
 
@@ -150,9 +319,6 @@ def parse_opening_balance_workbook(content: bytes, max_rows: int = 10_000) -> li
     return result
 
 
-DEFAULT_TEMPLATE_COMPANY_ID = "11111111-1111-1111-1111-111111111111"
-
-
 @dataclass(frozen=True, slots=True)
 class ImportTemplateSpec:
     """Workbook template metadata for a screen or report."""
@@ -172,42 +338,80 @@ def _template_specs(company_id: str) -> dict[str, ImportTemplateSpec]:
         "employees": ImportTemplateSpec(
             title="Employee Master Import",
             sheet_name="Employees",
-            columns=(
-                "code",
-                "full_name",
-                "company_id",
-                "join_date",
-                "department",
-                "branch",
-                "pay_group",
-                "email",
-            ),
+            columns=EMPLOYEE_COLUMNS,
             sample_rows=(
                 (
                     "EMP001",
                     "Jane Doe",
+                    "جين دو",
+                    "female",
+                    "1990-05-12",
+                    "Bahraini",
+                    "Bahrain",
+                    "900512123",
+                    "jane.doe@example.com",
                     company_id,
                     "2024-01-15",
                     "Finance",
                     "HQ",
                     "PG1",
-                    "jane.doe@example.com",
+                    "HQ",
+                    "Officer",
+                    "General",
+                    "G5",
+                    "unlimited",
+                    "active",
+                    650,
+                    "2024-04-15",
+                    "P1234567",
+                    "2030-01-01",
+                    "V998877",
+                    "2027-06-30",
+                    "BAH-DXB",
+                    "Economy",
+                    "2025-11-01",
+                    150,
+                    150,
                 ),
                 (
                     "EMP002",
                     "John Smith",
+                    "",
+                    "male",
+                    "1988-09-20",
+                    "Indian",
+                    "India",
+                    "880920456",
+                    "john.smith@example.com",
                     company_id,
                     "2025-06-01",
                     "Operations",
                     "Branch A",
                     "PG2",
-                    "john.smith@example.com",
+                    "HQ",
+                    "Supervisor",
+                    "Production",
+                    "G6",
+                    "limited",
+                    "active",
+                    720,
+                    "2025-09-01",
+                    "P7654321",
+                    "2029-12-31",
+                    "V112233",
+                    "2026-12-31",
+                    "BAH-LHR",
+                    "Economy",
+                    "",
+                    "",
+                    150,
                 ),
             ),
             instructions=(
                 "Required columns: code, full_name, company_id, join_date.",
-                "Import using Employees → Import Excel → verify → select rows → import.",
-                "Employee codes must be unique per company.",
+                "Optional Focus-style columns match the New Employee form: identity, employment, travel docs, airfare.",
+                "Dates use YYYY-MM-DD. Leave optional cells blank when unknown.",
+                "Existing employee codes UPDATE on import; new codes INSERT.",
                 "Use the bootstrap company_id unless importing for another company.",
             ),
         ),
@@ -635,14 +839,16 @@ def build_pdf_report(
     return output.getvalue()
 
 
-def _fmt_money(value: Any) -> str:
+def _fmt_money(value: Any, *, currency: str = "") -> str:
     """Format a decimal-like value for print forms (ASCII-safe)."""
     if value is None or value == "":
         return "-"
     try:
-        return f"{Decimal(str(value)):,.2f}"
+        amount = f"{Decimal(str(value)):,.2f}"
     except Exception:
         return str(value)
+    code = (currency or "").strip().upper()
+    return f"{code} {amount}" if code else amount
 
 
 def _fmt_date(value: Any) -> str:
@@ -699,15 +905,21 @@ def build_allocation_print_pdf(
     *,
     company_name: str = "Atlas Aluminum",
     company_name_ar: str = "",
+    company_cr: str = "",
+    company_address: str = "",
+    currency: str = "BHD",
     prepared_by: str = "",
     generated_at: datetime | None = None,
     logo_path: str | Path | None = None,
+    logo_bytes: bytes | None = None,
 ) -> bytes:
-    """Render a professional HCM airfare allocation print slip.
+    """Render a professional one-page A4 airfare allocation slip from MSSQL data.
 
-    Clean white letterhead (no watermark / employee photo). Optional company logo
-    is drawn only when ``logo_path`` points to an uploaded branding file.
+    Layout follows HR travel-authorization practice: letterhead, document control,
+    employee identity, trip/settlement cost breakdown, entitlement ledger, and
+    Prepared / Reviewed / Approved signature blocks.
     """
+    from reportlab.lib.utils import ImageReader
     from reportlab.pdfgen import canvas as pdf_canvas
 
     output = BytesIO()
@@ -723,69 +935,101 @@ def build_allocation_print_pdf(
     line = colors.HexColor("#D5DEE8")
     soft = colors.HexColor("#F4F7FB")
     accent = colors.HexColor("#0E7C66")
+    currency_code = (currency or "BHD").strip().upper() or "BHD"
 
-    # Clean white letterhead — logo only when the company uploaded one
-    logo = Path(logo_path) if logo_path else None
+    def money(value: Any) -> str:
+        return _fmt_money(value, currency=currency_code)
+
+    # Letterhead — logo from MSSQL bytes or uploaded branding file
     text_x = 28.0
-    if logo is not None and logo.exists():
-        page.drawImage(
-            str(logo),
-            28,
-            height - 58,
-            width=48,
-            height=48,
-            preserveAspectRatio=True,
-            mask="auto",
-        )
+    logo_drawn = False
+    if logo_bytes:
+        try:
+            page.drawImage(
+                ImageReader(BytesIO(logo_bytes)),
+                28,
+                height - 58,
+                width=48,
+                height=48,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+            logo_drawn = True
+        except Exception:
+            logo_drawn = False
+    if not logo_drawn:
+        logo = Path(logo_path) if logo_path else None
+        if logo is not None and logo.exists():
+            page.drawImage(
+                str(logo),
+                28,
+                height - 58,
+                width=48,
+                height=48,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+            logo_drawn = True
+    if logo_drawn:
         text_x = 88.0
 
     display_name = (company_name or "").strip() or "Company"
     page.setFillColor(ink)
     page.setFont("Helvetica-Bold", 13)
-    page.drawString(text_x, height - 28, display_name)
+    page.drawString(text_x, height - 26, display_name)
     page.setFillColor(slate)
-    page.setFont("Helvetica", 8)
-    page.drawString(text_x, height - 42, "HCM Airfare Management")
-    if company_name_ar:
+    page.setFont("Helvetica", 7.5)
+    letterhead_bits = ["HCM Airfare Management"]
+    if company_cr:
+        letterhead_bits.append(f"CR {company_cr}")
+    page.drawString(text_x, height - 38, "  |  ".join(letterhead_bits))
+    if company_address:
+        page.setFont("Helvetica", 7)
+        page.drawString(text_x, height - 50, company_address[:78])
+    elif company_name_ar:
         page.setFont("Helvetica", 7.5)
-        page.drawString(text_x, height - 54, company_name_ar)
+        page.drawString(text_x, height - 50, company_name_ar)
 
     page.setFillColor(ink)
     page.setFont("Helvetica-Bold", 14)
-    page.drawRightString(width - 28, height - 28, "Airfare Allocation")
+    page.drawRightString(width - 28, height - 26, "Airfare Allocation")
     page.setFont("Helvetica", 8)
     page.setFillColor(slate)
     subtitle = _fmt_text(data.get("scenario") or "Ticket Settlement").replace("_", " ").title()
-    page.drawRightString(width - 28, height - 42, subtitle)
+    page.drawRightString(width - 28, height - 40, subtitle)
+    page.drawRightString(width - 28, height - 52, f"Currency: {currency_code}")
 
     page.setStrokeColor(navy)
-    page.setLineWidth(1.6)
-    page.line(28, height - 64, width - 28, height - 64)
+    page.setLineWidth(1.8)
+    page.line(28, height - 62, width - 28, height - 62)
 
-    # Meta strip
+    # Document control strip
     page.setFillColor(soft)
-    page.rect(0, height - 96, width, 32, fill=1, stroke=0)
+    page.rect(0, height - 98, width, 36, fill=1, stroke=0)
     page.setStrokeColor(line)
     page.setLineWidth(0.6)
-    page.line(0, height - 96, width, height - 96)
+    page.line(0, height - 98, width, height - 98)
 
     doc_no = _fmt_text(data.get("ticket_code") or data.get("document_number"))
     as_of = _fmt_date(data.get("as_of_date") or stamp.date())
+    travel = _fmt_date(data.get("travel_date") or data.get("as_of_date"))
     status = _fmt_text(data.get("status") or "APPROVED").upper()
     page.setFillColor(slate)
-    page.setFont("Helvetica", 7.5)
-    page.drawString(28, height - 80, "Document No.")
-    page.drawString(160, height - 80, "As of Date")
-    page.drawString(280, height - 80, "Status")
-    page.drawString(400, height - 80, "Generated")
+    page.setFont("Helvetica", 7)
+    page.drawString(28, height - 76, "Document No.")
+    page.drawString(128, height - 76, "Travel Date")
+    page.drawString(228, height - 76, "As of Date")
+    page.drawString(328, height - 76, "Status")
+    page.drawString(428, height - 76, "Generated")
     page.setFillColor(ink)
     page.setFont("Helvetica-Bold", 9)
-    page.drawString(28, height - 92, doc_no)
-    page.drawString(160, height - 92, as_of)
-    page.setFillColor(accent if status == "APPROVED" else navy)
-    page.drawString(280, height - 92, status)
+    page.drawString(28, height - 90, doc_no)
+    page.drawString(128, height - 90, travel)
+    page.drawString(228, height - 90, as_of)
+    page.setFillColor(accent if status in {"APPROVED", "PAID"} else navy)
+    page.drawString(328, height - 90, status)
     page.setFillColor(ink)
-    page.drawString(400, height - 92, stamp.strftime("%d/%m/%Y %H:%M"))
+    page.drawString(428, height - 90, stamp.strftime("%d/%m/%Y %H:%M"))
 
     entitlement_amount = (
         data.get("entitlement_amount")
@@ -795,9 +1039,20 @@ def build_allocation_print_pdf(
     ticket_amount = data.get("ticket_cost") or data.get("requested_ticket_amount")
     origin = _fmt_text(data.get("origin_code")).upper()
     destination = _fmt_text(data.get("destination_code")).upper()
-    route = f"{origin} to {destination}" if origin != "-" and destination != "-" else "-"
+    route = f"{origin} → {destination}" if origin != "-" and destination != "-" else "-"
 
-    y = height - 118
+    excess_option = _fmt_text(
+        data.get("excess_option") or data.get("excess_handling"), fallback="SELF_PAID"
+    )
+    loan_label = _fmt_text(data.get("loan_code"), fallback="")
+    if not loan_label or loan_label == "-":
+        tenure = data.get("tenure_months")
+        if str(excess_option).upper() in {"CONVERT_TO_LOAN", "LOAN"} and tenure:
+            loan_label = f"{tenure} mo · {money(data.get('excess_cost') or data.get('emi'))}"
+        else:
+            loan_label = money(data.get("emi")) if data.get("emi") not in (None, "") else "-"
+
+    y = height - 120
     y = _section_title(page, y, "1. Employee Information", width)
 
     employee_left = [
@@ -815,7 +1070,7 @@ def build_allocation_print_pdf(
         ("Email", data.get("email")),
     ]
     for index in range(max(len(employee_left), len(employee_right))):
-        row_y = y - index * 14
+        row_y = y - index * 13
         if index < len(employee_left):
             _draw_kv(
                 page,
@@ -834,43 +1089,44 @@ def build_allocation_print_pdf(
                 label_x=310,
                 value_x=400,
             )
-    y = y - max(len(employee_left), len(employee_right)) * 14 - 16
+    y = y - max(len(employee_left), len(employee_right)) * 13 - 14
 
     y = _section_title(page, y, "2. Ticket & Entitlement", width)
 
     page.setFillColor(colors.HexColor("#E8F6F1"))
-    page.roundRect(36, y - 28, width - 72, 36, 4, fill=1, stroke=0)
+    page.roundRect(36, y - 30, width - 72, 38, 4, fill=1, stroke=0)
     page.setStrokeColor(accent)
     page.setLineWidth(1.2)
-    page.roundRect(36, y - 28, width - 72, 36, 4, fill=0, stroke=1)
+    page.roundRect(36, y - 30, width - 72, 38, 4, fill=0, stroke=1)
     page.setFillColor(slate)
-    page.setFont("Helvetica", 7.5)
+    page.setFont("Helvetica", 7)
     page.drawString(48, y - 6, "ENTITLEMENT AMOUNT")
     page.setFillColor(accent)
-    page.setFont("Helvetica-Bold", 16)
-    page.drawString(48, y - 22, _fmt_money(entitlement_amount))
+    page.setFont("Helvetica-Bold", 14)
+    page.drawString(48, y - 24, money(entitlement_amount))
     page.setFillColor(slate)
-    page.setFont("Helvetica", 7.5)
-    page.drawString(220, y - 6, "TICKET AMOUNT")
+    page.setFont("Helvetica", 7)
+    page.drawString(230, y - 6, "TICKET AMOUNT")
     page.setFillColor(ink)
     page.setFont("Helvetica-Bold", 12)
-    page.drawString(220, y - 22, _fmt_money(ticket_amount))
+    page.drawString(230, y - 24, money(ticket_amount))
     page.setFillColor(slate)
-    page.setFont("Helvetica", 7.5)
-    page.drawString(380, y - 6, "ROUTE")
+    page.setFont("Helvetica", 7)
+    page.drawString(400, y - 6, "ROUTE")
     page.setFillColor(ink)
     page.setFont("Helvetica-Bold", 11)
-    page.drawString(380, y - 22, route)
-    y -= 48
+    page.drawString(400, y - 24, route)
+    y -= 46
 
     ticket_left = [
         ("Origin", origin),
         ("Destination", destination),
+        ("Travel Date", travel),
         ("Rate Source", data.get("rate_source")),
-        ("Per-day Rate", _fmt_money(data.get("per_day_rate") or data.get("daily_rate"))),
+        ("Per-day Rate", money(data.get("per_day_rate") or data.get("daily_rate"))),
         (
             "Maximum Payout",
-            _fmt_money(
+            money(
                 data.get("maximum_payout")
                 or data.get("max_payout")
                 or data.get("airfare_rate")
@@ -878,14 +1134,15 @@ def build_allocation_print_pdf(
         ),
     ]
     ticket_right = [
-        ("Company Payout", _fmt_money(data.get("company_payout") or data.get("company_paid"))),
-        ("Employee Payable", _fmt_money(data.get("employee_payable"))),
-        ("Excess", _fmt_money(data.get("excess_cost"))),
-        ("Excess Option", data.get("excess_option") or data.get("excess_handling")),
-        ("EMI / Loan", data.get("loan_code") or _fmt_money(data.get("emi"))),
+        ("Company Payout", money(data.get("company_payout") or data.get("company_paid"))),
+        ("Employee Payable", money(data.get("employee_payable"))),
+        ("Excess", money(data.get("excess_cost"))),
+        ("Excess Option", excess_option),
+        ("EMI / Loan", loan_label),
+        ("Loan Status", data.get("loan_status") or "-"),
     ]
     for index in range(max(len(ticket_left), len(ticket_right))):
-        row_y = y - index * 14
+        row_y = y - index * 13
         if index < len(ticket_left):
             _draw_kv(
                 page,
@@ -904,7 +1161,7 @@ def build_allocation_print_pdf(
                 label_x=310,
                 value_x=420,
             )
-    y = y - max(len(ticket_left), len(ticket_right)) * 14 - 12
+    y = y - max(len(ticket_left), len(ticket_right)) * 13 - 10
 
     notes = _fmt_text(data.get("notes"), fallback="")
     if notes:
@@ -913,26 +1170,26 @@ def build_allocation_print_pdf(
         page.drawString(44, y, "Notes")
         page.setFillColor(ink)
         page.setFont("Helvetica", 8)
-        page.drawString(150, y, notes[:90])
-        y -= 16
+        page.drawString(90, y, notes[:95])
+        y -= 14
 
-    y = _section_title(page, y - 4, "3. Entitlement Balance Summary", width)
+    y = _section_title(page, y - 2, "3. Entitlement Balance Summary", width)
 
     headers = ("Metric", "Opening", "Earned", "Already Paid", "Entitlement", "Ticket")
     values = (
         "Airfare",
-        _fmt_money(data.get("opening_balance_amount")),
-        _fmt_money(data.get("current_year_earned_amount") or data.get("current_year_amount")),
-        _fmt_money(data.get("already_paid_amount")),
-        _fmt_money(entitlement_amount),
-        _fmt_money(ticket_amount),
+        money(data.get("opening_balance_amount")),
+        money(data.get("current_year_earned_amount") or data.get("current_year_amount")),
+        money(data.get("already_paid_amount")),
+        money(entitlement_amount),
+        money(ticket_amount),
     )
     table_width = width - 72
     col_w = table_width / len(headers)
     page.setFillColor(navy)
     page.roundRect(36, y - 4, table_width, 18, 2, fill=1, stroke=0)
     page.setFillColor(colors.white)
-    page.setFont("Helvetica-Bold", 7.5)
+    page.setFont("Helvetica-Bold", 7)
     for index, header in enumerate(headers):
         page.drawString(42 + index * col_w, y + 1, header)
     y -= 18
@@ -942,44 +1199,76 @@ def build_allocation_print_pdf(
     page.setLineWidth(0.5)
     page.rect(36, y - 4, table_width, 18, fill=0, stroke=1)
     page.setFillColor(ink)
-    page.setFont("Helvetica", 8)
+    page.setFont("Helvetica", 7.5)
     for index, value in enumerate(values):
-        page.drawString(42 + index * col_w, y + 1, str(value)[:16])
+        page.drawString(42 + index * col_w, y + 1, str(value)[:18])
+    y -= 28
+
+    # Settlement math strip
+    page.setFillColor(colors.HexColor("#EEF3F9"))
+    page.roundRect(36, y - 22, table_width, 28, 3, fill=1, stroke=0)
+    page.setFillColor(slate)
+    page.setFont("Helvetica", 7)
+    page.drawString(44, y - 4, "SETTLEMENT")
+    page.setFillColor(ink)
+    page.setFont("Helvetica-Bold", 8)
+    page.drawString(
+        44,
+        y - 16,
+        (
+            f"Company {money(data.get('company_payout') or data.get('company_paid'))}"
+            f"   ·   Employee {money(data.get('employee_payable'))}"
+            f"   ·   Excess {money(data.get('excess_cost'))} via {excess_option}"
+        )[:108],
+    )
     y -= 36
 
     y = _section_title(page, y, "4. Approvals Remarks", width)
     page.setStrokeColor(line)
     page.setLineWidth(0.7)
-    for _ in range(3):
+    for _ in range(2):
         page.line(44, y, width - 44, y)
-        y -= 16
+        y -= 14
+
+    # Signature blocks (Prepared / Reviewed / Approved)
+    prepared = prepared_by or _fmt_text(data.get("prepared_by") or data.get("username"))
+    sig_y = 72
+    page.setStrokeColor(line)
+    page.setLineWidth(0.8)
+    for label, name, x in (
+        ("Prepared by", prepared, 44),
+        ("Reviewed by", "", 230),
+        ("Approved by", "", 416),
+    ):
+        page.line(x, sig_y + 18, x + 120, sig_y + 18)
+        page.setFillColor(slate)
+        page.setFont("Helvetica", 7)
+        page.drawString(x, sig_y + 6, label)
+        if name:
+            page.setFillColor(ink)
+            page.setFont("Helvetica-Bold", 8)
+            page.drawString(x, sig_y - 6, str(name)[:28])
 
     page.setFillColor(slate)
-    page.setFont("Helvetica-Oblique", 8)
+    page.setFont("Helvetica-Oblique", 7)
     page.drawCentredString(
         width / 2,
-        78,
-        "*** This is a computer-generated document. No signature is required. ***",
-    )
-    page.setFont("Helvetica", 7.5)
-    page.setFillColor(ink)
-    page.drawString(44, 58, "Prepared by")
-    page.setFont("Helvetica-Bold", 8)
-    page.drawString(
-        44,
-        46,
-        prepared_by or _fmt_text(data.get("prepared_by") or data.get("username")),
+        42,
+        "*** Computer-generated allocation slip — retain with the ticket voucher. ***",
     )
 
     page.setStrokeColor(navy)
     page.setLineWidth(1.2)
-    page.line(28, 34, width - 28, 34)
+    page.line(28, 30, width - 28, 30)
     page.setFillColor(slate)
     page.setFont("Helvetica", 6.5)
     page.drawCentredString(
         width / 2,
-        18,
-        f"{display_name}  |  HCM Airfare Management  |  Computer-generated print",
+        16,
+        (
+            f"{display_name}  |  HCM Airfare Management  |  CONFIDENTIAL  |  "
+            f"Page 1 of 1  |  {currency_code}"
+        ),
     )
 
     page.showPage()

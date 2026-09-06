@@ -51,7 +51,11 @@ class CompanyRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="BHD", nullable=False)
+    cr_no: Mapped[str | None] = mapped_column(String(60))
+    address: Mapped[str | None] = mapped_column(String(500))
+    logo_data: Mapped[bytes | None] = mapped_column(LargeBinary)
+    logo_content_type: Mapped[str | None] = mapped_column(String(50))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -450,6 +454,127 @@ class EssRequestRow(Base):
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
+class ReportTemplateRow(Base):
+    """Crystal-style saved report definition (JSON bands/columns/parameters)."""
+
+    __tablename__ = "report_templates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    code: Mapped[str] = mapped_column(String(60), unique=True, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    dataset: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    definition: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    updated_by: Mapped[str | None] = mapped_column(String(36))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class AiLearningEventRow(Base):
+    """Self-support learning store: diagnoses, remediations, and feedback outcomes."""
+
+    __tablename__ = "ai_learning_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    event_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    check_code: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(20), default="info", nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    fix_applied: Mapped[str | None] = mapped_column(String(60))
+    outcome: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
+    confidence: Mapped[float] = mapped_column(Numeric(5, 4), default=0.5, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_by: Mapped[str | None] = mapped_column(String(36))
+
+
+class AiAgentAuditRow(Base):
+    """Append-only audit of schema-gated agent prompts, SQL, and outcomes."""
+
+    __tablename__ = "ai_agent_audit_log"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    schema_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    sql_text: Mapped[str | None] = mapped_column(Text)
+    result_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(5, 4), default=0.5, nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AiRepairLogRow(Base):
+    """Whitelisted auto-repair preview / apply / undo records."""
+
+    __tablename__ = "ai_repair_log"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    check_code: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    preview: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    undo_sql: Mapped[str | None] = mapped_column(Text)
+    apply_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    fixed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DocumentRow(Base):
+    """HR voucher document (offer letter / employment contract), Focus-inspired."""
+
+    __tablename__ = "documents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    document_number: Mapped[int | None] = mapped_column(Integer, unique=True)
+    voucher_no: Mapped[str | None] = mapped_column(String(40), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    # Nullable: Focus-style offer/contract vouchers may be issued before Employee Master.
+    employee_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("employees.id"), nullable=True, index=True
+    )
+    company_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("companies.id", ondelete="NO ACTION", onupdate="CASCADE"),
+        index=True,
+    )
+    template_key: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="issued", nullable=False, index=True)
+    document_date: Mapped[date | None] = mapped_column(Date)
+    joining_date: Mapped[date | None] = mapped_column(Date)
+    narration: Mapped[str | None] = mapped_column(Text)
+    employee_name_arabic: Mapped[str | None] = mapped_column(String(200))
+    cpr_no: Mapped[str | None] = mapped_column(String(40))
+    nature_of_employment: Mapped[str | None] = mapped_column(String(120))
+    basic_salary: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
+    hra: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
+    petrol_allowance: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
+    car_allowance: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
+    special_duty_allowance: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
+    net_amount: Mapped[Decimal | None] = mapped_column(Numeric(19, 4))
+    traveling_airfare: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    additional_details: Mapped[str | None] = mapped_column(Text)
+    address_villa: Mapped[str | None] = mapped_column(String(120))
+    address_street: Mapped[str | None] = mapped_column(String(120))
+    address_block: Mapped[str | None] = mapped_column(String(40))
+    params: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    pdf_key: Mapped[str | None] = mapped_column(String(500))
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    issued_by: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    updated_by: Mapped[str | None] = mapped_column(String(36))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
 def _assign_sequence(session: Session, model: type[object], attr: str) -> None:
     """Give pending rows the next integer display number in this flush."""
     pending = [obj for obj in session.new if isinstance(obj, model) and getattr(obj, attr) is None]
@@ -471,3 +596,4 @@ def assign_ticket_and_loan_numbers(
     _ = flush_context, instances
     _assign_sequence(session, TicketRow, "ticket_number")
     _assign_sequence(session, LoanRow, "loan_number")
+    _assign_sequence(session, DocumentRow, "document_number")

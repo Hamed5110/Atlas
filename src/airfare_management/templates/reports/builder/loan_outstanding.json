@@ -1,0 +1,27 @@
+{
+  "title": "Loan Outstanding",
+  "dataset": "loan-outstanding",
+  "bands": {
+    "header": {
+      "title": "Loan Outstanding",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Employee",
+        "Principal",
+        "Outstanding",
+        "Monthly installment",
+        "Installments",
+        "Status"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Employee"
+}

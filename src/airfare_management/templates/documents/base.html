@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  /*
+    A4 bilingual letterhead (EN | AR).
+    Arabic uses Traditional Arabic + arabic-reshaper + python-bidi (visual order).
+    Arabic cells: direction:ltr + text-align:right (xhtml2pdf-safe — no double reverse).
+    Latin islands: .ltr-iso / dir=ltr (skipped by reshaper).
+  */
+  @page {
+    size: A4;
+    margin: 10mm 12mm 14mm 12mm;
+    @frame footer_frame {
+      -pdf-frame-content: footer_content;
+      bottom: 5mm;
+      margin-left: 12mm;
+      margin-right: 12mm;
+      height: 9mm;
+    }
+  }
+
+  body {
+    font-family: DocSans, Tahoma, Helvetica, sans-serif;
+    font-size: 9pt;
+    color: #0f172a;
+    line-height: 1.35;
+  }
+
+  .ltr-iso, span[dir="ltr"], bdi[dir="ltr"] {
+    font-family: DocSans, Tahoma, Helvetica, sans-serif;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /*
+    Default = Chromium/Edge print (HarfBuzz + Unicode bidi): real RTL.
+    body.engine-pisa = xhtml2pdf fallback: visual-order Arabic (ltr + align right).
+  */
+  .rtl,
+  .ar,
+  .ar p,
+  .ar span,
+  td.ar,
+  th.ar,
+  .ar-side,
+  .ar-val,
+  .ar-lbl,
+  .sig-ar,
+  .ar-muted,
+  .doc-banner .ar,
+  .meta-table .ar-side,
+  .id-table .ar-val,
+  .id-table .ar-lbl,
+  .pay-table td.ar,
+  .pay-table th.ar,
+  .bi-table .ar,
+  .bi-table .ar p {
+    font-family: DocArabic, DocSans, Tahoma, sans-serif;
+    direction: rtl;
+    text-align: right;
+    unicode-bidi: plaintext;
+  }
+
+  body.engine-pisa .rtl,
+  body.engine-pisa .ar,
+  body.engine-pisa .ar p,
+  body.engine-pisa .ar span,
+  body.engine-pisa td.ar,
+  body.engine-pisa th.ar,
+  body.engine-pisa .ar-side,
+  body.engine-pisa .ar-val,
+  body.engine-pisa .ar-lbl,
+  body.engine-pisa .sig-ar,
+  body.engine-pisa .ar-muted,
+  body.engine-pisa .doc-banner .ar,
+  body.engine-pisa .meta-table .ar-side,
+  body.engine-pisa .id-table .ar-val,
+  body.engine-pisa .id-table .ar-lbl,
+  body.engine-pisa .pay-table td.ar,
+  body.engine-pisa .pay-table th.ar,
+  body.engine-pisa .bi-table .ar,
+  body.engine-pisa .bi-table .ar p {
+    direction: ltr;
+    text-align: right;
+    unicode-bidi: normal;
+  }
+
+  .brand-accent {
+    height: 2.5pt;
+    background-color: #2563eb;
+    margin-bottom: 4pt;
+  }
+  .letterhead {
+    margin-bottom: 4pt;
+    border-bottom: 1.2pt solid #1e3a5f;
+    padding-bottom: 4pt;
+  }
+  .letterhead table { width: 100%; border-collapse: collapse; }
+  .letterhead td { vertical-align: middle; padding: 0; }
+  .company-name {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #1e3a5f;
+  }
+  .company-tag {
+    font-size: 7.5pt;
+    color: #64748b;
+    margin-top: 1pt;
+  }
+
+  .doc-banner {
+    text-align: center;
+    margin: 5pt 0 4pt 0;
+    padding: 2pt 0;
+  }
+  .doc-banner .en {
+    font-size: 12pt;
+    font-weight: bold;
+    letter-spacing: 0.8pt;
+    text-transform: uppercase;
+    color: #1e3a5f;
+  }
+  .doc-banner .ar {
+    font-size: 16pt;
+    font-weight: bold;
+    margin-top: 2pt;
+    text-align: center;
+    color: #1e3a5f;
+    line-height: 1.4;
+  }
+  .doc-rule {
+    border-top: 0.6pt solid #cbd5e1;
+    margin: 0 0 4pt 0;
+  }
+
+  .meta-table, .id-table, .pay-table, .bi-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3pt 0;
+  }
+  .meta-table td, .id-table td {
+    padding: 2pt 3pt;
+    vertical-align: top;
+    font-size: 9pt;
+  }
+  .meta-table .en-side { width: 55%; text-align: left; direction: ltr; font-size: 9pt; }
+  .meta-table .ar-side { width: 45%; font-size: 11pt; white-space: nowrap; }
+
+  .id-table .lbl { width: 18%; color: #475569; text-align: left; direction: ltr; font-size: 9pt; }
+  .id-table .val { width: 32%; font-weight: bold; text-align: left; direction: ltr; font-size: 9pt; }
+  .id-table .ar-val { width: 32%; font-weight: bold; font-size: 11pt; }
+  .id-table .ar-lbl { width: 18%; color: #475569; font-size: 11pt; }
+
+  .pay-table th, .pay-table td {
+    border: 0.45pt solid #94a3b8;
+    padding: 2.5pt 4pt;
+    font-size: 8.5pt;
+  }
+  .pay-table th {
+    background: #f1f5f9;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.15pt;
+    color: #1e3a5f;
+  }
+  .pay-table th.ar {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 10pt;
+  }
+  .pay-table td.amt { text-align: right; font-weight: bold; direction: ltr; }
+  .pay-table td.ar { font-size: 10.5pt; }
+  .pay-table tr.total td { background: #eef2ff; font-weight: bold; }
+
+  .bi-table td { padding: 2pt 4pt; vertical-align: top; }
+  .bi-table .en {
+    width: 50%;
+    text-align: left;
+    direction: ltr;
+    padding-right: 5pt;
+    border-right: 0.45pt solid #e2e8f0;
+  }
+  .bi-table .ar {
+    width: 50%;
+    padding-left: 5pt;
+  }
+  .bi-table .en p {
+    margin: 1.5pt 0;
+    text-align: justify;
+    font-size: 8.5pt;
+    line-height: 1.32;
+  }
+  .bi-table .ar p {
+    margin: 1.5pt 0;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  p { margin: 2pt 0; font-size: 9pt; }
+  .clause { margin: 1.2pt 0; }
+  .muted { color: #64748b; font-size: 7.5pt; margin: 0 0 2pt 0; }
+  .ar-muted {
+    color: #64748b;
+    font-size: 10pt;
+    margin: 0 0 2pt 0;
+  }
+
+  .sig-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8pt;
+    page-break-inside: avoid;
+  }
+  .sig-table td { width: 50%; vertical-align: top; padding-top: 4pt; font-size: 8.5pt; }
+  .sig-line {
+    border-top: 0.8pt solid #0f172a;
+    width: 78%;
+    margin-top: 12pt;
+    padding-top: 2pt;
+    font-size: 7.5pt;
+    color: #475569;
+  }
+
+  .letterhead, .doc-banner, .pay-table, .sig-table {
+    page-break-inside: avoid;
+  }
+</style>
+</head>
+<body>
+  <div class="brand-accent"></div>
+  <div class="letterhead">
+    <table>
+      <tr>
+        <td style="width: 100%; text-align: center;">
+          {% if logo_src %}
+          <img src="{{ logo_src }}" width="56" height="56" />
+          {% else %}
+          <div class="company-name">{{ company.name }}</div>
+          <div class="company-tag">Confidential · Human Resources</div>
+          {% endif %}
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  {% block content %}{% endblock %}
+
+  <div id="footer_content" class="doc-footer">
+    <div style="border-top: 0.5pt solid #cbd5e1; padding-top: 2pt; font-size: 7pt; color: #94a3b8; text-align: center;">
+      <span dir="ltr" class="ltr-iso">{{ company.name }}{% if company.cr_no %} · CR {{ company.cr_no }}{% endif %}{% if company.address %} · {{ company.address }}{% endif %} · {{ doc.title }} · {{ doc.voucher_no }}</span>
+      · Page <pdf:pagenumber /> of <pdf:pagecount />
+    </div>
+  </div>
+</body>
+</html>

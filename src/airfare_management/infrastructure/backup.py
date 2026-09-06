@@ -25,6 +25,7 @@ from airfare_management.domain.models import DomainError
 from airfare_management.infrastructure.database import EmployeeRow
 from airfare_management.infrastructure.schema import (
     CompanyRow,
+    DocumentRow,
     EntitlementRateRow,
     EssRequestRow,
     LoanInstallmentRow,
@@ -180,6 +181,9 @@ def export_logical_payload(session: Session) -> dict[str, Any]:
                         "branch",
                         "pay_group",
                         "repair_center",
+                        "designation",
+                        "nationality",
+                        "passport_no",
                         "email",
                         "custom_airfare_rate",
                         "max_entitlement_cap_rate",
@@ -333,6 +337,28 @@ def export_logical_payload(session: Session) -> dict[str, Any]:
                 )
                 for item in session.scalars(
                     select(EssRequestRow).where(EssRequestRow.deleted_at.is_(None))
+                )
+            ],
+            "documents": [
+                _row_dict(
+                    item,
+                    (
+                        "id",
+                        "document_number",
+                        "kind",
+                        "employee_id",
+                        "template_key",
+                        "title",
+                        "status",
+                        "params",
+                        "pdf_key",
+                        "issued_at",
+                        "issued_by",
+                        "version",
+                    ),
+                )
+                for item in session.scalars(
+                    select(DocumentRow).where(DocumentRow.deleted_at.is_(None))
                 )
             ],
         },
@@ -596,6 +622,9 @@ def restore_logical_backup(
             "branch": raw.get("branch") or "",
             "pay_group": raw.get("pay_group") or "",
             "repair_center": raw.get("repair_center") or "",
+            "designation": raw.get("designation") or "",
+            "nationality": raw.get("nationality") or "",
+            "passport_no": raw.get("passport_no") or "",
             "email": raw.get("email"),
             "custom_airfare_rate": (
                 Decimal(str(raw["custom_airfare_rate"]))
@@ -614,6 +643,7 @@ def restore_logical_backup(
         }
 
     _load(EmployeeRow, tables.get("employees") or [], _employee)
+    session.flush()
 
     def _balance(raw: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -690,6 +720,7 @@ def restore_logical_backup(
         }
 
     _load(TicketRow, tables.get("tickets") or [], _ticket)
+    session.flush()
 
     def _loan(raw: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -716,6 +747,7 @@ def restore_logical_backup(
         }
 
     _load(LoanRow, tables.get("loans") or [], _loan)
+    session.flush()
 
     def _payment(raw: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -768,6 +800,30 @@ def restore_logical_backup(
         }
 
     _load(EssRequestRow, tables.get("ess_requests") or [], _ess)
+
+    def _document(raw: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        issued_at = raw.get("issued_at")
+        return {
+            "id": str(raw["id"]),
+            "document_number": raw.get("document_number"),
+            "kind": raw["kind"],
+            "employee_id": UUID(str(raw["employee_id"])),
+            "template_key": raw["template_key"],
+            "title": raw["title"],
+            "status": raw.get("status") or "issued",
+            "params": dict(raw.get("params") or {}),
+            "pdf_key": raw.get("pdf_key"),
+            "issued_at": (
+                datetime.fromisoformat(str(issued_at)) if issued_at else now
+            ),
+            "issued_by": raw.get("issued_by"),
+            "version": int(raw.get("version") or 1),
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    _load(DocumentRow, tables.get("documents") or [], _document)
     seed_preferences_fn(session)
     session.flush()
     return {

@@ -1,0 +1,28 @@
+{
+  "title": "Excess Recovery",
+  "dataset": "excess-recovery",
+  "bands": {
+    "header": {
+      "title": "Excess Recovery",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Travel date",
+        "Employee",
+        "Route",
+        "Ticket cost",
+        "Entitlement",
+        "Excess",
+        "Status"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Travel date"
+}

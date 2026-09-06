@@ -1,0 +1,27 @@
+{
+  "title": "Entitlements",
+  "dataset": "entitlements",
+  "bands": {
+    "header": {
+      "title": "Entitlements",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Scope",
+        "Scope ID",
+        "Amount",
+        "Effective from",
+        "Effective to",
+        "Cap"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Scope"
+}

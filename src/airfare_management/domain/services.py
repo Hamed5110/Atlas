@@ -3,8 +3,15 @@
 from calendar import isleap, monthrange
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
-from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
+from datetime import date, timedelta
+from decimal import (
+    ROUND_DOWN,
+    ROUND_HALF_EVEN,
+    ROUND_HALF_UP,
+    ROUND_UP,
+    Decimal,
+    InvalidOperation,
+)
 from enum import StrEnum
 from typing import Any
 
@@ -323,12 +330,26 @@ class AllocationScenario(StrEnum):
 
 
 class ExcessSettlementOption(StrEnum):
-    """User-selected excess ticket settlement route."""
+    """User-selected excess ticket settlement route.
+
+    ``LOAN`` and ``CONVERT_TO_LOAN`` are accepted interchangeably — the UI and
+    ticket register use ``CONVERT_TO_LOAN``; the desktop client historically
+    sent ``LOAN``.
+    """
 
     LOAN = "LOAN"
+    CONVERT_TO_LOAN = "CONVERT_TO_LOAN"
     COMPANY_PAID = "COMPANY_PAID"
     SELF_PAID = "SELF_PAID"
     ENTITLEMENT_AMOUNT = "ENTITLEMENT_AMOUNT"
+
+
+def is_loan_settlement(option: ExcessSettlementOption) -> bool:
+    """Return True when excess is recovered via installment loan."""
+    return option in {
+        ExcessSettlementOption.LOAN,
+        ExcessSettlementOption.CONVERT_TO_LOAN,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,6 +375,11 @@ class AllocationEntitlementResult:
     already_paid_amount: Decimal
     current_year_remaining: Decimal
     total_available_funds: Decimal
+    loan_offset: Decimal = Decimal("0")
+    outstanding_loan: Decimal = Decimal("0")
+    vesting_factor: Decimal = Decimal("1")
+    carry_forward_forfeited: Decimal = Decimal("0")
+    policy_notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +408,210 @@ def atlas_round(value: Decimal, digits: int) -> Decimal:
     """Match SQL Server ROUND() half-up for positive airfare amounts."""
     quant = Decimal(10) ** -digits
     return value.quantize(quant, rounding=ROUND_HALF_UP)
+
+
+def policy_round(value: Decimal, digits: int, rule: str = "nearest") -> Decimal:
+    """Round according to the configured rounding preference."""
+    quant = Decimal(10) ** -digits
+    if rule == "up":
+        return value.quantize(quant, rounding=ROUND_UP)
+    if rule == "down":
+        return value.quantize(quant, rounding=ROUND_DOWN)
+    return value.quantize(quant, rounding=ROUND_HALF_UP)
+
+
+@dataclass(frozen=True, slots=True)
+class PolicySettings:
+    """Global preference rule engine for airfare entitlement behavior.
+
+    Defaults deliberately reproduce the legacy ATLAS calculation so existing
+    datasets behave identically until an administrator changes a preference.
+    """
+
+    accrual_frequency: str = "daily"  # daily | monthly | immediate
+    accrual_cap_multiplier: Decimal | None = None  # e.g. Decimal("2") = 2x rate
+    negative_balance_allowed: bool = True
+    advance_booking_allowed: bool = True
+    partial_claim_allowed: bool = True
+    vesting_type: str = "pro_rata"  # pro_rata | cliff | graded
+    vesting_cliff_days: int | None = None  # default: rate_days
+    graded_vesting_steps: tuple[tuple[int, Decimal], ...] = ()  # (days, percent)
+    probation_days: int = 0
+    carry_forward_limit_type: str = "unlimited"  # unlimited | fixed | percentage
+    carry_forward_limit: Decimal = Decimal("0")
+    carry_forward_expiry_months: int | None = None
+    carry_forward_grace_days: int = 0
+    dependent_coverage: str = "self"  # self | self_plus_one | family
+    cycle_reset_basis: str = "joining_date"  # joining_date (modern continuous) | calendar | promotion_date
+    rate_change_handling: str = "prorate"  # prorate | restart | ignore
+    rounding_rule: str = "nearest"  # nearest | up | down
+    loan_recovery_method: str = "manual"  # auto_deduct | manual | salary
+    loan_recovery_priority: str = "before_accrual"  # before_accrual | after_accrual
+    loan_interest_rate: Decimal = Decimal("0")  # annual percent
+    transaction_lock_days: int = 0  # 0 = no lock
+    recredit_on_cancel: bool = True
+    currency_conversion: str = "static"  # static | daily
+    static_conversion_rate: Decimal = Decimal("1")
+
+
+def _pref_bool(raw: Any, default: bool) -> bool:
+    """Coerce a stored preference value to bool."""
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _pref_decimal(raw: Any, default: Decimal) -> Decimal:
+    """Coerce a stored preference value to Decimal."""
+    if raw is None or raw == "":
+        return default
+    try:
+        return Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return default
+
+
+def _pref_int(raw: Any, default: int) -> int:
+    """Coerce a stored preference value to int."""
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(float(str(raw)))
+    except (TypeError, ValueError):
+        return default
+
+
+def policy_from_preferences(preferences: Mapping[str, Any]) -> PolicySettings:
+    """Build a typed PolicySettings from the resolved preference dictionary."""
+    def text(key: str, default: str) -> str:
+        raw = preferences.get(key)
+        value = str(raw).strip().lower() if raw is not None and str(raw).strip() else default
+        return value
+
+    steps: list[tuple[int, Decimal]] = []
+    raw_steps = preferences.get("graded_vesting_steps")
+    if isinstance(raw_steps, str) and raw_steps.strip():
+        for part in raw_steps.split(","):
+            if ":" not in part:
+                continue
+            days_raw, pct_raw = part.split(":", 1)
+            try:
+                steps.append((int(days_raw.strip()), Decimal(pct_raw.strip())))
+            except (InvalidOperation, ValueError):
+                continue
+    elif isinstance(raw_steps, Sequence) and not isinstance(raw_steps, str):
+        for entry in raw_steps:
+            if isinstance(entry, Mapping):
+                days_raw = entry.get("days", 0)
+                pct_raw = entry.get("percent", 0)
+                try:
+                    steps.append((int(days_raw), Decimal(str(pct_raw))))
+                except (InvalidOperation, ValueError, TypeError):
+                    continue
+    steps.sort(key=lambda item: item[0])
+
+    cap_raw = preferences.get("accrual_cap_multiplier")
+    cap_multiplier = None
+    if cap_raw not in (None, "", "0", 0):
+        cap_multiplier = _pref_decimal(cap_raw, Decimal("1"))
+        if cap_multiplier <= 0:
+            cap_multiplier = None
+
+    expiry_raw = preferences.get("carry_forward_expiry_months")
+    expiry_months = None if expiry_raw in (None, "", 0, "0") else _pref_int(expiry_raw, 0)
+    if expiry_months is not None and expiry_months <= 0:
+        expiry_months = None
+
+    cliff_raw = preferences.get("vesting_cliff_days")
+    cliff_days = None if cliff_raw in (None, "") else _pref_int(cliff_raw, 0)
+
+    return PolicySettings(
+        accrual_frequency=text("accrual_frequency", "daily"),
+        accrual_cap_multiplier=cap_multiplier,
+        negative_balance_allowed=_pref_bool(preferences.get("negative_balance_allowed"), True),
+        advance_booking_allowed=_pref_bool(preferences.get("advance_booking_allowed"), True),
+        partial_claim_allowed=_pref_bool(preferences.get("partial_claim_allowed"), True),
+        vesting_type=text("vesting_type", "pro_rata"),
+        vesting_cliff_days=cliff_days,
+        graded_vesting_steps=tuple(steps),
+        probation_days=_pref_int(preferences.get("probation_days"), 0),
+        carry_forward_limit_type=text("carry_forward_limit_type", "unlimited"),
+        carry_forward_limit=_pref_decimal(
+            preferences.get("carry_forward_limit"), Decimal("0")
+        ),
+        carry_forward_expiry_months=expiry_months,
+        carry_forward_grace_days=_pref_int(preferences.get("carry_forward_grace_days"), 0),
+        dependent_coverage=text("dependent_coverage", "self"),
+        cycle_reset_basis=text("cycle_reset_basis", "joining_date"),
+        rate_change_handling=text("rate_change_handling", "prorate"),
+        rounding_rule=text("rounding_rule", "nearest"),
+        loan_recovery_method=text("loan_recovery_method", "manual"),
+        loan_recovery_priority=text("loan_recovery_priority", "before_accrual"),
+        loan_interest_rate=_pref_decimal(preferences.get("loan_interest_rate"), Decimal("0")),
+        transaction_lock_days=_pref_int(preferences.get("transaction_lock_days"), 0),
+        recredit_on_cancel=_pref_bool(preferences.get("recredit_on_cancel"), True),
+        currency_conversion=text("currency_conversion", "static"),
+        static_conversion_rate=_pref_decimal(
+            preferences.get("static_conversion_rate"), Decimal("1")
+        ),
+    )
+
+
+_ROUNDING_MODES = {
+    "nearest": ROUND_HALF_UP,
+    "up": ROUND_UP,
+    "down": ROUND_DOWN,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationPolicy:
+    """Global rule-engine switches applied around the ATLAS calculation.
+
+    Every default reproduces the proven ATLAS behavior exactly; admins opt into
+    enterprise rules from the Settings console.
+    """
+
+    accrual_frequency: str = "daily"  # daily | monthly | immediate
+    accrual_cap_multiple: Decimal = Decimal("0")  # 0 = uncapped
+    vesting_type: str = "prorata"  # prorata | cliff | graded
+    vesting_cliff_days: int = 360
+    probation_days: int = 0
+    carry_forward_limit_type: str = "unlimited"  # unlimited | fixed | percent
+    carry_forward_limit_value: Decimal = Decimal("0")
+    cycle_reset_basis: str = "joining_date"  # joining_date (modern continuous) | calendar
+    rate_change_handling: str = "prorate"  # prorate | restart | ignore
+    rounding_rule: str = "nearest"  # nearest | up | down
+
+    def round_money(self, value: Decimal, digits: int = 2) -> Decimal:
+        """Round money according to the configured rounding rule."""
+        quant = Decimal(10) ** -digits
+        return value.quantize(quant, rounding=_ROUNDING_MODES.get(self.rounding_rule, ROUND_HALF_UP))
+
+
+def _working_days_window(start: date, end: date) -> int:
+    """30/360 day count between two dates that may span a year boundary."""
+    if start > end:
+        return 0
+    start_serial = (start.year * 360) + (start.month - 1) * 30 + start.day
+    end_serial = (end.year * 360) + (end.month - 1) * 30 + end.day
+    return min(360, max(0, end_serial - start_serial + 1))
+
+
+def _anniversary_window(effective_join: date, as_of: date) -> date:
+    """Latest joining-anniversary cycle start on or before the as-of date."""
+    try:
+        candidate = date(as_of.year, effective_join.month, effective_join.day)
+    except ValueError:  # 29 Feb join on a non-leap year
+        candidate = date(as_of.year, effective_join.month, effective_join.day - 1)
+    if candidate > as_of:
+        try:
+            candidate = date(as_of.year - 1, effective_join.month, effective_join.day)
+        except ValueError:
+            candidate = date(as_of.year - 1, effective_join.month, effective_join.day - 1)
+    return candidate
 
 
 def fn_atlas_airfare_amount(
@@ -447,62 +677,173 @@ def calculate_allocation_entitlement(
     rate_days: Decimal = AIRFARE_CYCLE_DAYS,
     paid_days: Decimal = Decimal("0"),
     current_year_spending: Decimal = Decimal("0"),
+    policy: AllocationPolicy | None = None,
+    rate_effective_from: date | None = None,
+    ytd_paid_days: Decimal | None = None,
+    ytd_spending: Decimal | None = None,
 ) -> AllocationEntitlementResult:
-    """Port of dbo.sp_ATLAS_CalcPolicyEntitlement (30/360 + cycle 60)."""
+    """Port of dbo.sp_ATLAS_CalcPolicyEntitlement (30/360 + cycle 60).
+
+    When ``policy`` is supplied, the global rule engine (accrual frequency,
+    vesting, carry-forward, cycle basis, rate-change handling, caps, rounding)
+    is applied around the proven ATLAS math.
+
+    After a same-year previous ticket, opening is treated as settled. Entitlement
+    uses post-ticket accrual/spend so Current-year remaining and Total available
+    funds follow accrued days (not stuck at 0 after the annual pot was used).
+    """
     if min(opening_balance_days, opening_balance_amount, paid_days, current_year_spending) < 0:
         raise ValidationError("negative_value", "Opening balance values cannot be negative.")
     if airfare_rate < 0:
         raise ValidationError("negative_rate", "Airfare rate cannot be negative.")
     if max_entitlement_cap_rate is not None and max_entitlement_cap_rate < 0:
         raise ValidationError("negative_cap", "Entitlement cap cannot be negative.")
+    rules = policy or AllocationPolicy()
+    notes: list[str] = []
+    round2 = rules.round_money
     max_payout = DEFAULT_AIRFARE_POLICY_AMOUNT if airfare_rate <= 0 else airfare_rate
     # dbo.sp_ATLAS_CalcPolicyEntitlement hard-codes MaxPayout / 60.0.
     cycle_days = AIRFARE_CYCLE_DAYS
     _ = rate_days
+
+    # Probation shifts the first-year eligibility start.
+    effective_join = date_of_joining
+    if rules.probation_days > 0:
+        effective_join = date.fromordinal(date_of_joining.toordinal() + rules.probation_days)
+        notes.append(f"Probation: accrual starts {rules.probation_days} days after joining")
+
     previous_ticket = last_ticket_date
-    if previous_ticket is not None and previous_ticket.year != as_of_date.year:
-        previous_ticket = None
+    if rules.cycle_reset_basis == "joining_date":
+        cycle_start = _anniversary_window(effective_join, as_of_date)
+        if previous_ticket is not None and previous_ticket < cycle_start:
+            previous_ticket = None
+        notes.append("Rolling cycle anchored on joining anniversary")
+    else:
+        cycle_start = date(as_of_date.year, 1, 1)
+        if previous_ticket is not None and previous_ticket.year != as_of_date.year:
+            previous_ticket = None
+
+    if rules.rate_change_handling == "restart" and rate_effective_from is not None:
+        if rate_effective_from > cycle_start:
+            cycle_start = rate_effective_from
+            previous_ticket = None
+            opening_balance_days = Decimal("0")
+            opening_balance_amount = Decimal("0")
+            notes.append("Cycle restarted at mid-cycle rate change")
+
     cap_rate = max_payout if max_entitlement_cap_rate is None else max_entitlement_cap_rate
     per_day = max_payout / cycle_days
-    working_days = allocation_working_days(
-        as_of_date, as_of_date.year, date_of_joining, previous_ticket
-    )
-    accrued_days = atlas_round(
-        (Decimal(working_days) / WORKING_DAYS_PER_AIRFARE_DAY) * AIRFARE_DAYS_PER_MONTH, 4
-    )
+
+    if rules.cycle_reset_basis == "joining_date":
+        start = max(cycle_start, effective_join)
+        if previous_ticket is not None:
+            start = max(start, date.fromordinal(previous_ticket.toordinal() + 1))
+        working_days = _working_days_window(start, as_of_date)
+    else:
+        working_days = allocation_working_days(
+            as_of_date, as_of_date.year, effective_join, previous_ticket
+        )
+
+    if rules.accrual_frequency == "immediate":
+        accrued_days = cycle_days
+        notes.append("Immediate accrual: full cycle granted up front")
+    elif rules.accrual_frequency == "monthly":
+        completed_months = working_days // 30
+        accrued_days = atlas_round(Decimal(completed_months) * AIRFARE_DAYS_PER_MONTH, 4)
+    else:
+        accrued_days = atlas_round(
+            (Decimal(working_days) / WORKING_DAYS_PER_AIRFARE_DAY) * AIRFARE_DAYS_PER_MONTH, 4
+        )
+
+    if rules.vesting_type != "prorata":
+        service_days = max(0, (as_of_date - effective_join).days + 1)
+        if rules.vesting_type == "cliff" and service_days < rules.vesting_cliff_days:
+            accrued_days = Decimal("0")
+            notes.append(
+                f"Cliff vesting: 0 accrual until {rules.vesting_cliff_days} service days"
+            )
+        elif rules.vesting_type == "graded":
+            if service_days < rules.vesting_cliff_days:
+                accrued_days = Decimal("0")
+                notes.append(
+                    f"Graded vesting: 0% until {rules.vesting_cliff_days} service days"
+                )
+            elif service_days < rules.vesting_cliff_days * 2:
+                accrued_days = atlas_round(accrued_days * Decimal("0.5"), 4)
+                notes.append("Graded vesting: 50% tier")
+
     opening_amount_used = opening_balance_amount
     if opening_amount_used == 0 and opening_balance_days > 0:
         opening_amount_used = fn_atlas_airfare_amount(opening_balance_days, max_payout)
-    current_year_amount = atlas_round(per_day * accrued_days, 2)
-    total = atlas_round(opening_amount_used + current_year_amount, 2)
-    if total > max_payout:
-        total = atlas_round(max_payout, 2)
-    paid_amount = atlas_round(paid_days * per_day, 2) + atlas_round(current_year_spending, 2)
-    policy = atlas_round(total - paid_amount, 2)
-    if policy < 0:
-        policy = Decimal("0.00")
+    if rules.carry_forward_limit_type != "unlimited" and opening_amount_used > 0:
+        if rules.carry_forward_limit_type == "fixed":
+            limited = min(opening_amount_used, rules.carry_forward_limit_value)
+        else:
+            limited = round2(opening_amount_used * rules.carry_forward_limit_value / 100)
+        if limited < opening_amount_used:
+            forfeited = round2(opening_amount_used - limited)
+            notes.append(f"Carry-forward capped at {limited} (forfeited {forfeited})")
+            opening_amount_used = limited
+
+    display_opening_days = opening_balance_days
+    display_opening_amount = opening_amount_used
+    paid_days_for_calc = paid_days
+    opening_for_total = opening_amount_used
+    if previous_ticket is not None:
+        # Prior ticket settled the opening / pre-ticket pot. New claimable funds are
+        # only what accrued after that ticket (caller passes post-ticket spending).
+        opening_for_total = Decimal("0.00")
+        paid_days_for_calc = Decimal("0")
+        notes.append("Post-ticket window: opening excluded from entitlement total")
+
+    current_year_amount = round2(per_day * accrued_days)
+    total = round2(opening_for_total + current_year_amount)
+    if rules.accrual_cap_multiple > 0:
+        liability_cap = round2(max_payout * rules.accrual_cap_multiple)
+        if total > liability_cap:
+            total = liability_cap
+            notes.append(f"Accrual cap applied at {rules.accrual_cap_multiple}x rate")
+    if total > max_payout and rules.accrual_cap_multiple <= 0:
+        total = round2(max_payout)
+    paid_amount = round2(paid_days_for_calc * per_day) + round2(current_year_spending)
+    entitlement_amount = round2(total - paid_amount)
+    if entitlement_amount < 0:
+        entitlement_amount = Decimal("0.00")
     remaining_days = (
-        atlas_round(policy / per_day, 4) if per_day > 0 else Decimal("0")
+        atlas_round(entitlement_amount / per_day, 4) if per_day > 0 else Decimal("0")
     )
     remaining_days = min(cycle_days, max(Decimal("0"), remaining_days))
-    final = atlas_round(min(policy, cap_rate), 2)
-    already_paid_amount = paid_amount
+    final = round2(min(entitlement_amount, cap_rate))
+
+    display_paid_days = paid_days if ytd_paid_days is None else ytd_paid_days
+    display_spending = current_year_spending if ytd_spending is None else ytd_spending
+    already_paid_amount = round2(display_paid_days * per_day) + round2(display_spending)
     already_paid_days = (
         atlas_round(already_paid_amount / per_day, 4) if per_day > 0 else Decimal("0")
     )
-    current_year_remaining = atlas_round(max_payout - atlas_round(current_year_spending, 2), 2)
-    if current_year_remaining < 0:
-        current_year_remaining = Decimal("0.00")
-    total_available_funds = atlas_round(
-        atlas_round(opening_balance_amount, 2) + current_year_remaining, 2
-    )
+    if previous_ticket is not None:
+        # Money that matches Accrued Days in the post-ticket window.
+        current_year_remaining = round2(current_year_amount - round2(current_year_spending))
+        if current_year_remaining < 0:
+            current_year_remaining = Decimal("0.00")
+        total_available_funds = current_year_remaining
+    else:
+        current_year_remaining = round2(max_payout - round2(display_spending))
+        if current_year_remaining < 0:
+            current_year_remaining = Decimal("0.00")
+        # Use derived opening BHD (days→amount), not raw zero opening rows.
+        total_available_funds = round2(display_opening_amount + current_year_remaining)
     if previous_ticket is not None:
         scenario = AllocationScenario.PREVIOUS_TICKET
     elif date_of_joining.year == as_of_date.year:
         scenario = AllocationScenario.NEW_JOINEE
     else:
         scenario = AllocationScenario.OPENING_BALANCE_ACCRUAL
-    accrual_start = _accrual_start(as_of_date, date_of_joining, previous_ticket)
+    accrual_start = max(cycle_start, effective_join)
+    if previous_ticket is not None:
+        accrual_start = max(
+            accrual_start, date.fromordinal(previous_ticket.toordinal() + 1)
+        )
     return AllocationEntitlementResult(
         scenario=scenario,
         accrual_start=accrual_start,
@@ -511,11 +852,11 @@ def calculate_allocation_entitlement(
         airfare_rate=max_payout,
         rate_source=rate_source,
         rate_days=cycle_days,
-        calculated_entitlement_amount=policy,
+        calculated_entitlement_amount=entitlement_amount,
         current_year_amount=current_year_amount,
         total_entitlement_days=remaining_days,
-        opening_balance_days=opening_balance_days,
-        opening_balance_amount=opening_amount_used,
+        opening_balance_days=display_opening_days,
+        opening_balance_amount=display_opening_amount,
         final_entitlement_amount=final,
         max_entitlement_cap_rate=max_entitlement_cap_rate,
         last_ticket_date=previous_ticket,
@@ -523,6 +864,7 @@ def calculate_allocation_entitlement(
         already_paid_amount=already_paid_amount,
         current_year_remaining=current_year_remaining,
         total_available_funds=total_available_funds,
+        policy_notes=tuple(notes),
     )
 
 
@@ -622,7 +964,7 @@ def settle_excess_ticket(
             tenure_months=None,
             loan_status=None,
         )
-    if option is ExcessSettlementOption.LOAN:
+    if is_loan_settlement(option):
         if tenure_months is None or tenure_months <= 0:
             raise ValidationError(
                 "invalid_loan_terms", "LOAN settlement requires a positive tenure in months."
@@ -632,7 +974,7 @@ def settle_excess_ticket(
             requested_ticket_amount=requested_ticket_amount,
             final_entitlement_amount=final_entitlement_amount,
             excess_cost=excess,
-            option=option,
+            option=ExcessSettlementOption.CONVERT_TO_LOAN,
             employee_payable=excess,
             company_payout=final_entitlement_amount,
             loan_principal=excess,
@@ -654,6 +996,12 @@ def settle_excess_ticket(
             loan_status=None,
         )
     if option is ExcessSettlementOption.ENTITLEMENT_AMOUNT:
+        if final_entitlement_amount <= 0:
+            raise ValidationError(
+                "entitlement_amount_unavailable",
+                "Entitlement amount settlement requires a positive entitlement balance. "
+                "Choose Self paid, Fully company paid, or Make loan.",
+            )
         # Cap issue to entitlement: company pays entitlement only; excess is not recovered.
         return ExcessSettlementResult(
             requested_ticket_amount=requested_ticket_amount,

@@ -21,6 +21,9 @@ REPORT_NAMES = (
     "loan-statement",
     "excess-recovery",
     "liability-projections",
+    "airfare-payable",
+    "airfare-payable-summary",
+    "airfare-payable-exceptions",
 )
 
 

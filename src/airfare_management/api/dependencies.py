@@ -44,8 +44,12 @@ def build_authenticated(config: Settings) -> Callable[..., Claims]:
         if not authorization or not authorization.startswith("Bearer "):
             raise DomainError("invalid_token", "A Bearer access token is required.")
         payload = decode_access_token(authorization[7:], config)
+        try:
+            subject = UUID(payload["sub"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DomainError("invalid_token", "Access token subject is invalid.") from exc
         claims = Claims(
-            subject=UUID(payload["sub"]),
+            subject=subject,
             roles=set(payload.get("roles", ())),
             username=payload.get("username"),
         )

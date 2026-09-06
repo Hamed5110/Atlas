@@ -1,0 +1,174 @@
+{% extends "documents/base.html" %}
+{% block content %}
+<div class="doc-banner">
+  <div class="en">Airfare Allocation</div>
+  <div class="ar">تخصيص بدل تذاكر السفر</div>
+</div>
+<div class="doc-rule"></div>
+
+<table class="meta-table">
+  <tr>
+    <td class="en-side"><strong>Document No.</strong> <span dir="ltr" class="ltr-iso">{{ doc.voucher_no }}</span></td>
+    <td class="ar-side">رقم الوثيقة <span dir="ltr" class="ltr-iso">{{ doc.voucher_no }}</span></td>
+  </tr>
+  <tr>
+    <td class="en-side"><strong>Travel Date :</strong> <span dir="ltr" class="ltr-iso">{{ allocation.travel_date }}</span></td>
+    <td class="ar-side">تاريخ السفر <span dir="ltr" class="ltr-iso">{{ allocation.travel_date }}</span></td>
+  </tr>
+  <tr>
+    <td class="en-side"><strong>As of Date :</strong> <span dir="ltr" class="ltr-iso">{{ allocation.as_of_date }}</span></td>
+    <td class="ar-side">اعتبارًا من <span dir="ltr" class="ltr-iso">{{ allocation.as_of_date }}</span></td>
+  </tr>
+  <tr>
+    <td class="en-side"><strong>Status :</strong> <span dir="ltr" class="ltr-iso">{{ allocation.status }}</span></td>
+    <td class="ar-side">الحالة <span dir="ltr" class="ltr-iso">{{ allocation.status }}</span></td>
+  </tr>
+</table>
+
+<table class="id-table">
+  <tr>
+    <td class="lbl">Employee ID :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ employee.code }}</span></td>
+    <td class="ar-lbl">رقم الموظف</td>
+  </tr>
+  <tr>
+    <td class="lbl">Name :</td>
+    <td class="val"><span dir="ltr" class="ltr-iso">{{ employee.full_name }}</span></td>
+    <td class="ar-val">{% if employee.arabic_name %}{{ employee.arabic_name }}{% else %}—{% endif %}</td>
+    <td class="ar-lbl">الاسم</td>
+  </tr>
+  <tr>
+    <td class="lbl">Nationality :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ employee.nationality or "—" }}</span></td>
+    <td class="ar-lbl">الجنسية</td>
+  </tr>
+  <tr>
+    <td class="lbl">Department :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ employee.department or "—" }}</span></td>
+    <td class="ar-lbl">القسم</td>
+  </tr>
+  <tr>
+    <td class="lbl">Designation :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ employee.designation or "—" }}</span></td>
+    <td class="ar-lbl">المسمى الوظيفي</td>
+  </tr>
+  <tr>
+    <td class="lbl">Date of Joining :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ allocation.join_date }}</span></td>
+    <td class="ar-lbl">تاريخ الالتحاق</td>
+  </tr>
+  <tr>
+    <td class="lbl">Reporting To :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ allocation.reporting_officer }}</span></td>
+    <td class="ar-lbl">المدير المباشر</td>
+  </tr>
+  <tr>
+    <td class="lbl">Pay Group :</td>
+    <td class="val" colspan="2"><span dir="ltr" class="ltr-iso">{{ employee.pay_group or "—" }}</span></td>
+    <td class="ar-lbl">مجموعة الرواتب</td>
+  </tr>
+</table>
+
+<table class="pay-table" style="margin-top:6pt;">
+  <tr>
+    <th style="width:40%; text-align:left;">Ticket &amp; Entitlement</th>
+    <th style="width:30%; text-align:right;">Amount ({{ company.currency }})</th>
+    <th class="ar" style="width:30%;">التذكرة والاستحقاق</th>
+  </tr>
+  <tr>
+    <td>Route</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.route }}</span></td>
+    <td class="ar">المسار</td>
+  </tr>
+  <tr>
+    <td>Entitlement Amount</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.entitlement_fmt }}</span></td>
+    <td class="ar">مبلغ الاستحقاق</td>
+  </tr>
+  <tr>
+    <td>Ticket Amount</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.ticket_fmt }}</span></td>
+    <td class="ar">مبلغ التذكرة</td>
+  </tr>
+  <tr>
+    <td>Company Payout</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.company_payout_fmt }}</span></td>
+    <td class="ar">حصة الشركة</td>
+  </tr>
+  <tr>
+    <td>Employee Payable</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.employee_payable_fmt }}</span></td>
+    <td class="ar">المبلغ المستحق على الموظف</td>
+  </tr>
+  <tr>
+    <td>Excess / Handling</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.excess_fmt }} / {{ allocation.excess_option }}</span></td>
+    <td class="ar">الفائض / المعالجة</td>
+  </tr>
+  {% if allocation.loan_label and allocation.loan_label != "—" %}
+  <tr>
+    <td>Recovery Loan</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.loan_label }}</span></td>
+    <td class="ar">قرض الاسترداد</td>
+  </tr>
+  {% endif %}
+  <tr class="total">
+    <td>Settlement</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.settlement_summary }}</span></td>
+    <td class="ar">التسوية</td>
+  </tr>
+</table>
+
+<table class="pay-table" style="margin-top:5pt;">
+  <tr>
+    <th style="text-align:left;">Balance</th>
+    <th style="text-align:right;">Opening</th>
+    <th style="text-align:right;">Earned</th>
+    <th style="text-align:right;">Already Paid</th>
+    <th style="text-align:right;">Entitlement</th>
+    <th style="text-align:right;">Ticket</th>
+  </tr>
+  <tr>
+    <td>Airfare</td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.opening_fmt }}</span></td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.earned_fmt }}</span></td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.already_paid_fmt }}</span></td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.entitlement_fmt }}</span></td>
+    <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.ticket_fmt }}</span></td>
+  </tr>
+</table>
+
+{% if allocation.notes %}
+<p style="margin-top:4pt;"><strong>Notes:</strong> {{ allocation.notes }}</p>
+<p class="ar-muted">ملاحظات</p>
+{% endif %}
+
+<table class="bi-table" style="margin-top:4pt;">
+  <tr>
+    <td class="en">
+      <p class="clause muted">
+        Computer-generated allocation slip — retain with the ticket voucher.
+        Prepared by {{ allocation.prepared_by }}.
+      </p>
+    </td>
+    <td class="ar">
+      <p class="clause ar-muted">
+        سند تخصيص مُنشأ آليًا — يُحفظ مع قسيمة التذكرة.
+        أعدّه <span dir="ltr" class="ltr-iso">{{ allocation.prepared_by }}</span>
+      </p>
+    </td>
+  </tr>
+</table>
+
+<table class="sig-table">
+  <tr>
+    <td>
+      <div class="sig-line">Prepared by / أعدّه</div>
+      <div><span dir="ltr" class="ltr-iso">{{ allocation.prepared_by }}</span></div>
+    </td>
+    <td style="text-align:right;">
+      <div class="sig-line" style="margin-left:auto;">Approved by / اعتمد من</div>
+    </td>
+  </tr>
+</table>
+{% endblock %}

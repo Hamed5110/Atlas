@@ -36,7 +36,11 @@ POLICY_150 = Decimal("150")
 DAILY_150 = POLICY_150 / Decimal("60")
 
 
-def _client():
+def _client(*, cycle_reset_basis: str = "calendar"):
+    """Test client; default calendar preserves classic ATLAS regression fixtures.
+
+    Pass cycle_reset_basis='joining_date' to exercise modern continuous entitlement.
+    """
     settings = Settings(
         environment="test",
         database_url="sqlite+pysqlite:///:memory:",
@@ -50,7 +54,15 @@ def _client():
         {"admin", "hr", "manager", "finance"},
         settings,
     )
-    return TestClient(app), {"Authorization": f"Bearer {token}"}
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {token}"}
+    seeded = client.put(
+        "/v1/settings",
+        headers=headers,
+        json={"settings": {"cycle_reset_basis": cycle_reset_basis}},
+    )
+    assert seeded.status_code == 200, seeded.text
+    return client, headers
 
 
 def _create_employee_with_opening(
@@ -137,7 +149,10 @@ def test_scenario_1_previous_ticket_ignores_opening_balance() -> None:
     body = preview.json()
     assert body["scenario"] == AllocationScenario.PREVIOUS_TICKET.value
     assert Decimal(body["opening_balance_days"]) == Decimal("20")
-    assert Decimal(body["final_entitlement_amount"]) == Decimal("1.87")
+    # Post-ticket window: opening settled; claimable = accrued since ticket (~Jan 2–11).
+    assert Decimal(body["final_entitlement_amount"]) == Decimal("2.08")
+    assert Decimal(body["current_year_remaining"]) == Decimal("2.08")
+    assert Decimal(body["total_available_funds"]) == Decimal("2.08")
 
 
 def test_scenario_2_new_joiner_ignores_opening_balance() -> None:
@@ -617,6 +632,12 @@ def test_mssql_scenario_3_preview_persists_and_cleanup() -> None:
         )
         assert opening.status_code == 201, opening.text
 
+        client.put(
+            "/v1/settings",
+            headers=headers,
+            json={"settings": {"cycle_reset_basis": "joining_date"}},
+        )
+
         preview = client.post(
             "/v1/allocations/preview",
             headers=headers,
@@ -630,7 +651,11 @@ def test_mssql_scenario_3_preview_persists_and_cleanup() -> None:
         assert preview.status_code == 200, preview.text
         body = preview.json()
         assert body["scenario"] == AllocationScenario.OPENING_BALANCE_ACCRUAL.value
-        assert Decimal(body["final_entitlement_amount"]) == Decimal("42.29")
+        # Joining-date continuous: anniversary 2025-06-01 → as_of 2026-01-11
+        assert body["accrual_start"] == "2025-06-01"
+        assert Decimal(body["final_entitlement_amount"]) == Decimal("86.04")
+        notes = " ".join(body.get("policy_notes") or [])
+        assert "anniversary" in notes.lower() or "Rolling cycle" in notes
     finally:
         if employee_id is not None:
             current = client.get(f"/v1/employees/{employee_id}", headers=headers)
@@ -832,4 +857,34 @@ def test_erase_all_data_removes_employees_and_restores_defaults() -> None:
     effective = client.get("/v1/preferences/effective", headers=headers).json()
     assert effective["global_company_preference_rate"] == "150"
     assert effective["airfare_rate_days"] == "60"
+
+
+def test_modern_continuous_joining_date_api_preview() -> None:
+    """API preview with joining_date: cycle starts on anniversary, not 1 Jan."""
+    client, headers = _client(cycle_reset_basis="joining_date")
+    employee_id = _create_employee_with_opening(
+        client,
+        headers,
+        code="CONT-01",
+        join_date="2020-04-16",
+        custom_rate=POLICY_150,
+        max_cap=Decimal("150"),
+        opening_days=Decimal("0"),
+        opening_amount=Decimal("0"),
+    )
+    preview = client.post(
+        "/v1/allocations/preview",
+        headers=headers,
+        json={
+            "employee_id": str(employee_id),
+            "as_of_date": "2026-09-06",
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["accrual_start"] == "2026-04-16"
+    notes = " ".join(body.get("policy_notes") or [])
+    assert "joining anniversary" in notes.lower() or "Rolling cycle" in notes
+    assert Decimal(body["final_entitlement_amount"]) > 0
+    assert Decimal(body["final_entitlement_amount"]) < Decimal("150")
 

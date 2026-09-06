@@ -11,6 +11,7 @@ from airfare_management.domain.models import Employee, Entity
 from airfare_management.domain.services import (
     AIRFARE_CYCLE_DAYS,
     AllocationEntitlementResult,
+    AllocationPolicy,
     EntitlementResult,
     ExcessSettlementOption,
     ExcessSettlementResult,
@@ -198,6 +199,10 @@ class PreviewAllocation:
     tenure_months: int | None = None
     paid_days: Decimal = Decimal("0")
     current_year_spending: Decimal = Decimal("0")
+    ytd_paid_days: Decimal | None = None
+    ytd_spending: Decimal | None = None
+    policy: AllocationPolicy = AllocationPolicy()
+    rate_effective_from: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,16 +251,28 @@ class AllocationQueryHandler:
             paid_days=query.paid_days,
             current_year_spending=query.current_year_spending,
             prefer_mssql=False,
+            policy=query.policy,
+            rate_effective_from=query.rate_effective_from,
+            ytd_paid_days=query.ytd_paid_days,
+            ytd_spending=query.ytd_spending,
         )
         settlement = None
         ticket = query.requested_ticket_amount
         if ticket is not None and query.excess_option is not None:
-            settlement = settle_excess_ticket(
-                ticket,
-                entitlement.final_entitlement_amount,
-                query.excess_option,
-                query.tenure_months,
-            )
+            # Entitlement-cap settlement is invalid with a zero balance (hard-stop
+            # pattern used by travel-advance systems when a bucket has no funds).
+            if (
+                query.excess_option is ExcessSettlementOption.ENTITLEMENT_AMOUNT
+                and entitlement.final_entitlement_amount <= 0
+            ):
+                settlement = None
+            else:
+                settlement = settle_excess_ticket(
+                    ticket,
+                    entitlement.final_entitlement_amount,
+                    query.excess_option,
+                    query.tenure_months,
+                )
         elif ticket is not None and ticket <= entitlement.final_entitlement_amount:
             settlement = settle_excess_ticket(
                 ticket,

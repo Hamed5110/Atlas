@@ -115,7 +115,7 @@ def test_employee_import_invalid_company_caught_in_dry_run(
     assert body["errors"]
 
 
-def test_employee_import_duplicate_code_rejected(
+def test_employee_import_duplicate_code_updates(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     existing = create_employee(client, admin_headers)
@@ -123,7 +123,7 @@ def test_employee_import_duplicate_code_rejected(
         [
             (
                 existing["code"],
-                "Duplicate Row",
+                "Updated Via Import",
                 DEFAULT_COMPANY_ID,
                 "2025-01-01",
                 "FIN",
@@ -132,17 +132,41 @@ def test_employee_import_duplicate_code_rejected(
             )
         ]
     )
-    response = client.post(
+    preview = client.post(
         "/v1/employees/import/preview",
         headers=admin_headers,
         files={"file": ("employees.xlsx", payload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
-    assert response.status_code == 200
-    rows = response.json()["rows"]
-    assert any(row["severity"] == "ERROR" for row in rows)
+    assert preview.status_code == 200
+    rows = preview.json()["rows"]
+    assert rows[0]["severity"] == "READY"
+    assert rows[0]["action"] == "UPDATE"
+    commit = client.post(
+        "/v1/employees/import/commit",
+        headers=admin_headers,
+        json={
+            "rows": [
+                {
+                    "row": rows[0]["row"],
+                    "code": existing["code"],
+                    "full_name": "Updated Via Import",
+                    "company_id": DEFAULT_COMPANY_ID,
+                    "join_date": "2025-01-01",
+                    "department": "FIN",
+                    "branch": "HQ",
+                    "selected": True,
+                }
+            ]
+        },
+    )
+    assert commit.status_code == 200, commit.text
+    assert commit.json()["updated"] == 1
+    detail = client.get(f"/v1/employees/{existing['id']}", headers=admin_headers)
+    assert detail.status_code == 200
+    assert detail.json()["full_name"] == "Updated Via Import"
 
 
-def test_opening_balance_import_leap_year_and_cap(
+def test_opening_balance_import_rejects_days_over_cap(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     employee = create_employee(client, admin_headers)
@@ -150,6 +174,7 @@ def test_opening_balance_import_leap_year_and_cap(
         [
             (employee["code"], 2024, 366, 0, 900, 150),
             (employee["code"], 2025, 90, 0, 200, 150),
+            (employee["code"], 2026, 30, 0, 75, 150),
         ]
     )
     preview = client.post(
@@ -165,8 +190,36 @@ def test_opening_balance_import_leap_year_and_cap(
     )
     assert preview.status_code == 200, preview.text
     rows = preview.json()["rows"]
-    assert rows[0]["severity"] == "READY"
-    assert rows[1]["severity"] == "READY"
+    assert rows[0]["severity"] == "ERROR"
+    assert rows[1]["severity"] == "ERROR"
+    assert rows[2]["severity"] == "READY"
+    assert "60" in rows[0]["message"]
+
+
+def test_opening_balance_export_round_trip(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    employee = create_employee(client, admin_headers)
+    created = client.post(
+        "/v1/opening-balances",
+        headers=admin_headers,
+        json={
+            "employee_id": employee["id"],
+            "balance_year": 2026,
+            "opening_days": "12",
+            "paid_days": "0",
+            "opening_amount": "30",
+            "maximum_payout": "150",
+        },
+    )
+    assert created.status_code == 201, created.text
+    exported = client.get("/v1/opening-balances/export.xlsx", headers=admin_headers)
+    assert exported.status_code == 200
+    assert (
+        exported.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert len(exported.content) > 100
 
 
 def test_opening_balance_import_rejects_soft_deleted_employee(

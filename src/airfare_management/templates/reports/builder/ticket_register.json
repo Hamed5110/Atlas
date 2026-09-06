@@ -1,0 +1,29 @@
+{
+  "title": "Ticket Register",
+  "dataset": "ticket-register",
+  "bands": {
+    "header": {
+      "title": "Ticket Register",
+      "show_date": true
+    },
+    "detail": {
+      "columns": [
+        "Travel date",
+        "Employee",
+        "Route",
+        "Ticket cost",
+        "Entitlement",
+        "Company paid",
+        "Excess",
+        "Status"
+      ]
+    },
+    "footer": {
+      "show_count": true
+    }
+  },
+  "parameters": {},
+  "filters": {},
+  "group_by": [],
+  "sort_by": "Travel date"
+}

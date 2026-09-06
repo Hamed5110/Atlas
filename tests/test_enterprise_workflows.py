@@ -387,12 +387,16 @@ def test_rates_ess_reports_rbac_and_expired_token(client: TestClient) -> None:
         },
     )
     assert user.status_code == 201
+    users = client.get("/v1/users", headers=headers)
+    assert users.status_code == 200
+    assert any(row["username"] == "employee.user" for row in users.json())
     employee_login = client.post(
         "/v1/auth/login",
         json={"username": "employee.user", "password": "EmployeePass!2026"},
     ).json()
     employee_headers = {"Authorization": f"Bearer {employee_login['access_token']}"}
     assert client.get("/v1/employees", headers=employee_headers).status_code == 200
+    assert client.get("/v1/users", headers=employee_headers).status_code == 403
     assert (
         client.post(
             "/v1/lookups/departments",
@@ -628,3 +632,100 @@ def test_validation_and_security_failure_branches(client: TestClient) -> None:
     )
     assert locked.status_code == 403
     assert locked.json()["code"] == "account_locked"
+
+
+class TestAiSelfSupport:
+    """Self-support loop: diagnose → remediate → verify → learn."""
+
+    def test_diagnose_remediate_and_learn(self, client: TestClient) -> None:
+        """Locked accounts are detected, auto-fixed, verified, and recorded."""
+        headers, _ = _login(client)
+        for _ in range(5):
+            client.post(
+                "/v1/auth/login",
+                json={"username": "admin", "password": "DefinitelyWrong!2026"},
+            )
+        # Unlock the admin through the remediation path requires a second admin;
+        # instead diagnose with a fresh login after lockout expiry is complex, so
+        # create a second admin first, then lock the bootstrap admin.
+        client.post(
+            "/v1/users",
+            headers=headers,
+            json={
+                "username": "support.admin",
+                "password": "SupportAdmin!2026",
+                "display_name": "Support Admin",
+                "roles": ["SYSTEM_ADMIN"],
+            },
+        )
+        for _ in range(5):
+            client.post(
+                "/v1/auth/login",
+                json={"username": "support.admin", "password": "Wrong!2026"},
+            )
+        diagnosed = client.get("/v1/ai/support/diagnose", headers=headers)
+        assert diagnosed.status_code == 200
+        findings = diagnosed.json()["findings"]
+        locked_finding = next(
+            (item for item in findings if item["check_code"] == "locked_users"), None
+        )
+        assert locked_finding is not None
+        assert locked_finding["auto_fixable"] is True
+        assert "support.admin" in locked_finding["details"]["usernames"]
+
+        denied = client.post(
+            "/v1/ai/support/remediate",
+            headers=headers,
+            json={"check_code": "unknown_check"},
+        )
+        assert denied.status_code == 422
+
+        fixed = client.post(
+            "/v1/ai/support/remediate",
+            headers=headers,
+            json={"check_code": "locked_users"},
+        )
+        assert fixed.status_code == 200
+        assert fixed.json()["outcome"] == "success"
+        assert fixed.json()["fixed"] >= 1
+        assert fixed.json()["verified"] is True
+
+        # The unlocked user can sign in again.
+        relief = client.post(
+            "/v1/auth/login",
+            json={"username": "support.admin", "password": "SupportAdmin!2026"},
+        )
+        assert relief.status_code == 200
+
+        feedback = client.post(
+            "/v1/ai/support/feedback",
+            headers=headers,
+            json={"check_code": "locked_users", "worked": True, "notes": "unlock worked"},
+        )
+        assert feedback.status_code == 200
+        assert feedback.json()["recorded"] is True
+
+        learning = client.get("/v1/ai/support/learning", headers=headers)
+        assert learning.status_code == 200
+        stats = learning.json()
+        assert stats["total_events"] >= 3
+        assert stats["by_type"]["diagnosis"] >= 1
+        assert stats["by_type"]["remediation"] >= 1
+        assert stats["by_outcome"]["success"] >= 1
+        assert stats["per_check"]["locked_users"]["remediation_success_rate"] == 1.0
+
+        # A second diagnosis now reports learned confidence from history.
+        again = client.get("/v1/ai/support/diagnose", headers=headers)
+        assert again.status_code == 200
+        assert again.json()["healthy"] is True
+
+    def test_support_endpoints_require_auth(self, client: TestClient) -> None:
+        """All self-support endpoints reject anonymous callers."""
+        assert client.get("/v1/ai/support/diagnose").status_code == 401
+        assert client.get("/v1/ai/support/learning").status_code == 401
+        assert client.post(
+            "/v1/ai/support/remediate", json={"check_code": "locked_users"}
+        ).status_code == 401
+        assert client.post(
+            "/v1/ai/support/feedback", json={"check_code": "x", "worked": True}
+        ).status_code == 401

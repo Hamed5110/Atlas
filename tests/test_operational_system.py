@@ -39,31 +39,21 @@ def _authenticated_client() -> tuple[TestClient, dict[str, str]]:
 
 
 def test_web_application_is_served_from_root() -> None:
-    """Serve the JavaScript browser client without replacing API routes."""
+    """Serve the built web shell (Vite SPA or Next static export) without replacing API routes."""
     client, headers = _authenticated_client()
     landing = client.get("/")
     assert landing.status_code == 200
     assert landing.headers["content-type"].startswith("text/html")
-    assert "/assets/app.js" in landing.text
-    assert "defer" in landing.text
-    script = client.get("/assets/app.js")
-    assert script.status_code == 200
-    assert "javascript" in script.headers["content-type"]
-    assert 'const API_ROOT = "/v1"' in script.text
-    assert "Airfare Allocation" in script.text
-    assert "Backup & Restore" in script.text
-    assert "/admin/backups" in script.text
-    assert "native_credentials_ready" in script.text
-    assert "typeof value === \"boolean\"" in script.text
-    assert "Airfare amount policies" in script.text
-    assert "ERASE_ALL_DATA" in script.text
-    assert "function renderEntitlement" not in script.text
-    assert "/entitlements/preview" not in script.text
-    assert "Entitlement review" in script.text
-    assert "Ticket settlement" in script.text
-    assert "employee_label" in script.text
-    assert "/allocations/preview" in script.text
-    assert "/allocations/issue" in script.text
+    # Vite build mounts at id="root"; the Next static export streams via __next_f.
+    assert 'id="root"' in landing.text or "__next_f" in landing.text
+    # Client-side routes fall back to the shell.
+    spa_route = client.get("/allocation")
+    assert spa_route.status_code == 200
+    assert 'id="root"' in spa_route.text or "__next_f" in spa_route.text
+    # Unknown API paths still return JSON 404s, not HTML.
+    missing_api = client.get("/v1/no-such-endpoint", headers=headers)
+    assert missing_api.status_code == 404
+    assert missing_api.headers["content-type"].startswith("application/json")
     assert client.get("/health").status_code == 200
     assert client.get("/v1/employees", headers=headers).status_code == 200
 

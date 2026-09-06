@@ -18,7 +18,7 @@ def ensure_company(client: TestClient, headers: dict[str, str]) -> str:
     created = client.post(
         "/v1/companies",
         headers=headers,
-        json={"code": f"C{uuid4().hex[:6].upper()}", "name": "Test Co", "currency": "USD"},
+        json={"code": f"C{uuid4().hex[:6].upper()}", "name": "Test Co", "currency": "BHD"},
     )
     assert created.status_code == 201, created.text
     return str(created.json()["id"])
@@ -37,6 +37,7 @@ def create_employee(
     payload: dict[str, object] = {
         "code": code or f"E{uuid4().hex[:6].upper()}",
         "full_name": "Pyramid Test Employee",
+        "nationality": "BAHRAINI",
         "company_id": company_id or DEFAULT_COMPANY_ID or ensure_company(client, headers),
         "join_date": join_date,
     }
