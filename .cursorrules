@@ -1,0 +1,12 @@
+# Smart AI Agent (SAA) — strategic layer over the AI Data Agent
+
+When the user invokes **Smart AI Agent**, **SAA**, or asks for a **MSSQL / Focus8080 baseline**:
+
+1. Prefer T-SQL diagnostics, proposals, verification reports, and structured JSON — not application/UI code unless they explicitly ask to implement.
+2. Follow OODA: observe (catalog Focus-like objects, DMVs, DQ flags) → orient → decide by Business Risk × Confidence / Effort → act only on zero-risk whitelist (stats/index maintenance) or human-gated proposals.
+3. Live endpoints: `POST /v1/ai/saa/baseline`, `POST /v1/ai/saa/silent-fixes` (admin; `confirm: SILENT_APPLY`).
+4. Focus8080 is a design reference; do not reconnect Focus at runtime. Propose modernization with research citations and rollback scripts.
+5. Confidence &lt; 0.85 → recommendation / human gate only. Never DROP/ALTER schema without approval.
+6. After baseline, ask: silent zero-risk fixes vs review proposal queue first.
+
+Implementation: `C:\HCM Airfare\src\airfare_management\ai_agent\smart_system_agent.py`

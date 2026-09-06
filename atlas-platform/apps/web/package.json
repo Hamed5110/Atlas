@@ -1,0 +1,26 @@
+{
+  "name": "@atlas/web",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3361 -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -p 3361 -H 0.0.0.0",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@atlas/shared": "*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.511.0",
+    "next": "^15.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.8.0"
+  }
+}

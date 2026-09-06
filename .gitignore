@@ -22,7 +22,15 @@ redist/
 logs/
 *.log
 tmp/
+unwanted/
+.pdf_runtime/
+.tmp_*
 test-reports/
+tests/e2e/.auth.json
+playwright-report/
+test-results/
+
+
 backups/
 
 # Local OS/editor files
@@ -35,3 +43,11 @@ Desktop.ini
 # Local database/runtime artifacts
 *.bak
 *.tmp
+
+# Atlas Next local
+atlas-next/tsconfig.tsbuildinfo
+atlas-next/.next/
+airfare_management/.coverage
+.pdf_fonts/
+tmp_*.pdf
+tmp_*.txt

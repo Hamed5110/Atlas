@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-background: hsl(220 20% 97%);
+  --color-foreground: hsl(222 47% 11%);
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(222 47% 11%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(222 47% 11%);
+  --color-primary: hsl(243 75% 59%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-primary-muted: hsl(243 75% 97%);
+  --color-secondary: hsl(220 14% 96%);
+  --color-secondary-foreground: hsl(222 47% 11%);
+  --color-muted: hsl(220 14% 96%);
+  --color-muted-foreground: hsl(220 9% 46%);
+  --color-accent: hsl(262 83% 58%);
+  --color-accent-foreground: hsl(0 0% 100%);
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-success: hsl(142 71% 39%);
+  --color-success-foreground: hsl(0 0% 100%);
+  --color-warning: hsl(38 92% 44%);
+  --color-warning-foreground: hsl(0 0% 100%);
+  --color-info: hsl(217 91% 55%);
+  --color-info-foreground: hsl(0 0% 100%);
+  --color-border: hsl(220 13% 91%);
+  --color-input: hsl(220 13% 91%);
+  --color-ring: hsl(243 75% 59%);
+  --color-sidebar: hsl(222 47% 9%);
+  --color-sidebar-foreground: hsl(220 14% 75%);
+  --color-sidebar-active: hsl(0 0% 100%);
+  --color-sidebar-accent: hsl(222 40% 14%);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+
+  --shadow-card: 0 1px 2px hsl(222 47% 11% / 0.04), 0 4px 16px -4px hsl(222 47% 11% / 0.06);
+  --shadow-pop: 0 8px 30px -6px hsl(222 47% 11% / 0.18);
+
+  --animate-fade-in: fade-in 0.25s ease-out;
+  --animate-slide-up: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+  }
+  ::selection {
+    background: hsl(243 75% 59% / 0.18);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(220 13% 82%);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(220 13% 70%);
+    background-clip: content-box;
+    border: 2px solid transparent;
+  }
+}
+
+@layer utilities {
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(243 75% 59%) 0%, hsl(262 83% 58%) 55%, hsl(292 72% 51%) 100%);
+  }
+  .gradient-sidebar {
+    background: linear-gradient(180deg, hsl(222 47% 9%) 0%, hsl(231 45% 12%) 100%);
+  }
+  .text-gradient {
+    background: linear-gradient(90deg, hsl(243 75% 59%), hsl(262 83% 58%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glass {
+    background: hsl(0 0% 100% / 0.75);
+    backdrop-filter: blur(12px);
+  }
+}
+
+@media print {
+  body {
+    background: white;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-page {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+  .allocation-print-a4 {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    padding: 0 !important;
+  }
+  /* Hide chrome around the A4 slip while printing from the preview dialog */
+  [role="dialog"] > .absolute {
+    display: none !important;
+  }
+  [role="dialog"] {
+    position: static !important;
+    inset: auto !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  [role="dialog"] > .relative {
+    max-width: none !important;
+    max-height: none !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  @page {
+    size: A4;
+    margin: 10mm 10mm;
+  }
+}
+.allocation-print-a4 {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 10mm 10mm;
+  box-sizing: border-box;
+  overflow: hidden;
+}

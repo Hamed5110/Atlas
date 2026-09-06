@@ -4,7 +4,7 @@ const path = require('node:path');
 const sql = require('mssql');
 require('dotenv').config();
 
-const BASE_URL = process.env.ATLAS_TEST_BASE_URL || 'http://localhost:3355/api';
+const BASE_URL = process.env.ATLAS_TEST_BASE_URL || 'http://127.0.0.1:3389/v1';
 const USERNAME = process.env.ATLAS_TEST_USERNAME || 'sa';
 const PASSWORD = process.env.ATLAS_TEST_PASSWORD || 'Atlas@25';
 const reportDir = path.join(__dirname, '..', 'test-reports');
