@@ -10,14 +10,23 @@ from uuid import UUID, uuid4
 class DomainError(Exception):
     """Base error carrying a stable machine-readable code."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        error_class: str | None = None,
+    ) -> None:
         """Initialize an error.
 
         Args:
             code: Stable error code.
             message: Safe human-readable detail.
+            error_class: Optional override — ``business_rule`` or
+                ``infrastructure_retryable`` (Red Team surface H).
         """
         self.code = code
+        self.error_class = error_class
         super().__init__(message)
 
 

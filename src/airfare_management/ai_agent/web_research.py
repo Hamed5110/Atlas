@@ -137,6 +137,38 @@ def fetch_allowlisted(url: str, *, max_chars: int = 4000) -> dict[str, Any]:
     return {"ok": True, "url": final_url, "chars": len(text), "text": text}
 
 
+def wikipedia_summary(title: str) -> dict[str, Any]:
+    """Fetch a short extract for a Wikipedia title (enriches empty OpenSearch descriptions)."""
+    cleaned = (title or "").strip()
+    if not cleaned:
+        return {"ok": False, "error": "empty_title"}
+    params = urllib.parse.urlencode(
+        {
+            "action": "query",
+            "prop": "extracts",
+            "exintro": 1,
+            "explaintext": 1,
+            "redirects": 1,
+            "titles": cleaned,
+            "format": "json",
+        }
+    )
+    url = f"https://en.wikipedia.org/w/api.php?{params}"
+    _, body = _http_get(url)
+    data = json.loads(body)
+    pages = ((data.get("query") or {}).get("pages") or {})
+    for page in pages.values():
+        extract = (page.get("extract") or "").strip()
+        if extract:
+            return {
+                "ok": True,
+                "title": page.get("title") or cleaned,
+                "extract": extract[:800],
+                "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(str(page.get('title') or cleaned).replace(' ', '_'))}",
+            }
+    return {"ok": False, "error": "no_extract", "title": cleaned}
+
+
 def research_online(query: str, *, fetch_url: str | None = None) -> dict[str, Any]:
     """Run online research for a question; never includes HCM database rows."""
     citations: list[dict[str, str]] = []
@@ -146,8 +178,62 @@ def research_online(query: str, *, fetch_url: str | None = None) -> dict[str, An
     wiki: dict[str, Any] = {}
     fetched: dict[str, Any] | None = None
 
-    try:
-        ddg = duckduckgo_instant(query)
+    queries = [query]
+    # Fallback: drop filler words if Instant Answer returns empty (common for long queries).
+    simplified = re.sub(
+        r"\b(what|is|are|the|a|an|how|to|for|of|online|research|please|explain)\b",
+        " ",
+        query,
+        flags=re.IGNORECASE,
+    )
+    simplified = _WS.sub(" ", simplified).strip()
+    if simplified and simplified.casefold() != query.casefold():
+        queries.append(simplified)
+
+    for q_try in queries:
+        try:
+            ddg = duckduckgo_instant(q_try)
+            if ddg.get("abstract") or ddg.get("answer") or ddg.get("related"):
+                break
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+            errors.append(f"duckduckgo: {exc}")
+            ddg = {}
+
+    # Last-chance: use first meaningful token (e.g. "Ollama" from a long noisy query).
+    if not (ddg.get("abstract") or ddg.get("answer") or ddg.get("related")):
+        tokens = [
+            t
+            for t in re.findall(r"[A-Za-z][A-Za-z0-9._-]{2,}", query)
+            if t.casefold()
+            not in {
+                "what",
+                "the",
+                "how",
+                "for",
+                "and",
+                "api",
+                "compatible",
+                "localhost",
+                "online",
+                "research",
+                "openai",
+                "please",
+                "explain",
+            }
+        ]
+        for tok in tokens[:3]:
+            if tok in queries:
+                continue
+            try:
+                ddg = duckduckgo_instant(tok)
+                if ddg.get("abstract") or ddg.get("answer") or ddg.get("related"):
+                    queries.append(tok)
+                    break
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                errors.append(f"duckduckgo_token:{tok}: {exc}")
+                ddg = {}
+
+    if ddg:
         if ddg.get("abstract"):
             sections.append(f"DuckDuckGo: {ddg['abstract']}")
             if ddg.get("abstract_url"):
@@ -159,19 +245,33 @@ def research_online(query: str, *, fetch_url: str | None = None) -> dict[str, An
                 sections.append(rel["text"])
             if rel.get("url"):
                 citations.append({"title": "Related", "url": rel["url"]})
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-        errors.append(f"duckduckgo: {exc}")
 
-    try:
-        wiki = wikipedia_opensearch(query)
-        for item in wiki.get("results") or []:
-            bit = f"{item.get('title')}: {item.get('description') or ''}".strip()
-            if bit:
-                sections.append(bit)
-            if item.get("url"):
-                citations.append({"title": str(item.get("title") or "Wikipedia"), "url": item["url"]})
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-        errors.append(f"wikipedia: {exc}")
+    for q_try in queries:
+        try:
+            wiki = wikipedia_opensearch(q_try)
+            if wiki.get("results"):
+                break
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+            errors.append(f"wikipedia: {exc}")
+            wiki = {}
+
+    for item in wiki.get("results") or []:
+        desc = (item.get("description") or "").strip()
+        title = str(item.get("title") or "")
+        if not desc and title:
+            try:
+                summ = wikipedia_summary(title)
+                if summ.get("ok"):
+                    desc = str(summ.get("extract") or "")
+                    if summ.get("url"):
+                        item["url"] = summ["url"]
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                errors.append(f"wikipedia_summary: {exc}")
+        bit = f"{title}: {desc}".strip(": ").strip()
+        if bit:
+            sections.append(bit)
+        if item.get("url"):
+            citations.append({"title": title or "Wikipedia", "url": item["url"]})
 
     if fetch_url:
         try:

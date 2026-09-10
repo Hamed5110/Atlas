@@ -51,6 +51,7 @@ class CompanyRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    arabic_name: Mapped[str | None] = mapped_column(String(200))
     currency: Mapped[str] = mapped_column(String(3), default="BHD", nullable=False)
     cr_no: Mapped[str | None] = mapped_column(String(60))
     address: Mapped[str | None] = mapped_column(String(500))

@@ -137,6 +137,45 @@ def build_plan(
             confidence=0.9,
         )
 
+    # Red-team / TRUE MODE: block prompt injection and secret exfil before any tool.
+    security_probes = (
+        "ignore previous",
+        "ignore all previous",
+        "disregard previous",
+        "jailbreak",
+        "system prompt",
+        "dump all",
+        "dump sql",
+        "dump password",
+        "dump passwords",
+        "print your system",
+        "reveal your prompt",
+        "api keys",
+        "api key",
+        "secret key",
+        "exfiltrat",
+    )
+    if any(t in lowered for t in security_probes) or (
+        "password" in lowered
+        and any(t in lowered for t in ("dump", "print", "show", "reveal", "give me"))
+    ):
+        thoughts.append("Security probe / prompt injection — TRUE MODE refuse (no tools).")
+        return AgentPlan(
+            thoughts=thoughts,
+            steps=[
+                PlanStep(
+                    id="1",
+                    thought="Refuse credential dump and instruction override.",
+                    action="refuse",
+                    risk="refuse",
+                )
+            ],
+            primary_action="refuse",
+            risk="refuse",
+            confidence=0.99,
+            mode="true_mode",
+        )
+
     # Hard refuses
     if any(t in lowered for t in ("fix everything", "repair all", "fix all")):
         thoughts.append("Detected bulk-fix language — refuse; require per-check confirm.")
@@ -580,6 +619,45 @@ def build_plan(
             confidence=0.85,
         )
 
+    # Explicit canned-SQL intent before product matching (word "sql" alone is not enough).
+    sql_markers = (
+        "select ",
+        "run sql",
+        "show sql",
+        "canned sql",
+        "schema-gated",
+        "preview sql",
+        "detect sql",
+        "sql preview",
+        "query for duplicate",
+        "query orphans",
+        "query locked",
+    )
+    if any(t in lowered for t in sql_markers) or (
+        "sql" in lowered
+        and any(
+            t in lowered
+            for t in ("duplicate", "orphan", "overlap", "locked", "schedule", "attachment", "detect")
+        )
+    ):
+        thoughts.append("SQL intent — only canned detect queries, never arbitrary user SQL.")
+        steps.append(
+            PlanStep(
+                id="1",
+                thought="Run schema-gated canned SELECT if a check code is inferred.",
+                action="sql",
+                tool="_DETECT_SQL",
+                risk="read",
+            )
+        )
+        return AgentPlan(
+            thoughts=thoughts,
+            steps=steps,
+            primary_action="sql",
+            risk="read",
+            confidence=0.75,
+        )
+
     caps = match_capabilities(message)
     if caps:
         thoughts.append(
@@ -601,25 +679,6 @@ def build_plan(
             primary_action="product",
             risk="none",
             confidence=0.92,
-        )
-
-    if any(t in lowered for t in ("sql", "select ", "query")):
-        thoughts.append("SQL intent — only canned detect queries, never arbitrary user SQL.")
-        steps.append(
-            PlanStep(
-                id="1",
-                thought="Run schema-gated canned SELECT if a check code is inferred.",
-                action="sql",
-                tool="_DETECT_SQL",
-                risk="read",
-            )
-        )
-        return AgentPlan(
-            thoughts=thoughts,
-            steps=steps,
-            primary_action="sql",
-            risk="read",
-            confidence=0.75,
         )
 
     thoughts.append("No specialized tool match — explain agent scope and how to ask.")

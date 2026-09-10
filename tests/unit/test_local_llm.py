@@ -129,11 +129,80 @@ def test_synthesize_cascade_uses_settings_provider():
     ds.assert_called_once()
 
 
+def test_synthesize_openai_compat_lmstudio_shape():
+    fake = _FakeResp(
+        {
+            "choices": [{"message": {"content": "### Think\n- ok\n### Logic\n- ok\n### Answer\nLM\n### Next\n- ok"}}],
+        }
+    )
+    with patch.object(llm, "list_openai_compat_models", return_value=["qwen2.5-3b"]):
+        with patch("urllib.request.urlopen", return_value=fake):
+            out = llm.synthesize_openai_compat(
+                user_message="hi",
+                tool_context={"x": 1},
+                base_url="http://127.0.0.1:1234",
+                model="missing",
+            )
+    assert out["ok"] is True
+    assert out["provider"] == "openai_compat"
+    assert out["model"] == "qwen2.5-3b"
+    assert "LM" in out["reply"]
+
+
+def test_openai_compat_endpoint_shapes():
+    assert (
+        llm.openai_compat_endpoint("http://127.0.0.1:1234", "models")
+        == "http://127.0.0.1:1234/v1/models"
+    )
+    assert (
+        llm.openai_compat_endpoint("http://127.0.0.1:1234/v1", "chat/completions")
+        == "http://127.0.0.1:1234/v1/chat/completions"
+    )
+    assert (
+        llm.openai_compat_endpoint("http://127.0.0.1:3001/api/v1/openai", "models")
+        == "http://127.0.0.1:3001/api/v1/openai/models"
+    )
+
+
+def test_anythingllm_models_sends_bearer():
+    fake = _FakeResp({"data": [{"id": "atlas-docs"}]})
+    captured: dict = {}
+
+    def _urlopen(req, timeout=3):  # noqa: ARG001
+        captured["url"] = req.full_url
+        captured["headers"] = dict(req.headers)
+        return fake
+
+    with patch("urllib.request.urlopen", side_effect=_urlopen):
+        models = llm.list_openai_compat_models(
+            "http://127.0.0.1:3001/api/v1/openai",
+            api_key="ALLM-TEST-KEY",
+        )
+    assert models == ["atlas-docs"]
+    assert captured["url"].endswith("/api/v1/openai/models")
+    assert "Bearer ALLM-TEST-KEY" in captured["headers"].get("Authorization", "")
+
+
+def test_resolve_provider_anythingllm_pref():
+    with patch.object(llm, "ollama_available", return_value=True):
+        with patch.object(llm, "openai_compat_available", return_value=True) as compat:
+            assert (
+                llm.resolve_provider(
+                    preferred="anythingllm",
+                    openai_compat_enabled=True,
+                    openai_compat_api_key="k",
+                )
+                == "openai_compat"
+            )
+            compat.assert_called()
+
+
 def test_llm_status_shape():
     with patch.object(llm, "ollama_available", return_value=False):
         status = llm.llm_status(deepseek_api_key="", provider="auto")
     assert status["free_path"] == "ollama"
     assert status["active_provider"] is None
     assert status["ollama"]["online"] is False
+    assert "anythingllm" in status["openai_compat"]["examples"]
     assert "metrics_to_track" in status
     assert "inference_latency_ms" in status["metrics_to_track"]

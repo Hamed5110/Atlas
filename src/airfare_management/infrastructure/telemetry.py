@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -49,6 +50,8 @@ def configure_logging(settings: Settings) -> None:
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
+        redact_sensitive,
+        sanitize_log_event_values,
     ]
     if settings.environment == "production":
         processors = [*shared, structlog.processors.dict_tracebacks, structlog.processors.JSONRenderer()]
@@ -68,6 +71,22 @@ def redact_sensitive(_: object, __: str, event_dict: dict[str, object]) -> dict[
         lowered = key.lower()
         if any(token in lowered for token in ("password", "token", "secret", "sqlcmdpassword")):
             event_dict[key] = "***"
+    return event_dict
+
+
+_LOG_CRLF_RE = re.compile(r"[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+")
+_LOG_FORMAT_RE = re.compile(r"%[0-9.#\-+ ]*[sdnxXfFeEgGc%]")
+
+
+def sanitize_log_event_values(
+    _: object, __: str, event_dict: dict[str, object]
+) -> dict[str, object]:
+    """Neutralize CR/LF and format tokens in string log values (forensic integrity)."""
+    for key, value in list(event_dict.items()):
+        if isinstance(value, str):
+            cleaned = _LOG_CRLF_RE.sub(" ", value)
+            cleaned = _LOG_FORMAT_RE.sub("", cleaned)
+            event_dict[key] = " ".join(cleaned.split())
     return event_dict
 
 

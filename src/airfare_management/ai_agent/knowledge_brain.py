@@ -72,11 +72,12 @@ DOMAIN_FACTS: list[dict[str, str]] = [
         "title": "Airfare allocation A4 print",
         "text": (
             "Allocation Download A4 PDF calls POST /v1/allocations/print.pdf with ticket_id. "
-            "Saved ticket amounts are source of truth. Print sheet and PDF use bilingual "
-            "letterhead; identity rows show each value once (EN label | value | AR label). "
+            "Saved ticket amounts are source of truth. Print sheet and PDF share the full bilingual "
+            "slip (meta + employee master + ticket table + settlement + balance grid). "
+            "Identity values appear once per row. "
             "ENTITLEMENT_AMOUNT settlement is blocked when entitlement is 0."
         ),
-        "tags": "allocation print pdf ticket_id letterhead arabic duplicate",
+        "tags": "allocation print pdf ticket_id letterhead arabic duplicate preview",
     },
     {
         "id": "fact_airports",
@@ -200,14 +201,14 @@ DOMAIN_FACTS: list[dict[str, str]] = [
         "id": "fact_modern_entitlement",
         "title": "Modern entitlement method",
         "text": (
-            "Atlas HCM uses continuous modern entitlement — NOT a fiscal period-end / year-close wipe. "
-            "Default cycle_reset_basis is joining_date (rolling hire anniversary). "
-            "Primary path: Entitlement Rates (/rates, table entitlement_rates, BHD) + Airfare Allocation "
-            "(/allocation, POST /v1/allocations/preview). Ticket/opening windows follow the anniversary "
-            "cycle (Workday/SF hire-date pattern). Opening balances and tickets feed remaining/available. "
-            "Period-end UI and year-close buttons were removed from the product path."
+            "Atlas HCM airfare entitlement uses continuous accrual within the airfare cycle — "
+            "NOT a fiscal period-end / year-close wipe. Default cycle_reset_basis is calendar "
+            "(1 Jan–31 Dec): tickets in the year reset accrual (post-ticket window). "
+            "Optional joining_date uses hire anniversary (tickets before anniversary ignored). "
+            "Primary path: Entitlement Rates (/rates) + Airfare Allocation "
+            "(/allocation, POST /v1/allocations/preview). Period-end UI was removed."
         ),
-        "tags": "modern entitlement continuous joining date rates allocation no year end period end removed",
+        "tags": "modern entitlement continuous calendar joining date rates allocation no year end period end removed",
     },
     {
         "id": "fact_airfare_payable_report",
@@ -232,6 +233,51 @@ DOMAIN_FACTS: list[dict[str, str]] = [
             "ai_learning_events; GET /v1/ai/support/learning shows training memory."
         ),
         "tags": "teach learn tutorial how to ollama ai insights training knowledge brain",
+    },
+    {
+        "id": "fact_ess_easy_path",
+        "title": "ESS Requests easy path",
+        "text": (
+            "Open ESS Requests (/ess). Click New request: choose employee, travel date, "
+            "origin/destination, notes. Submit. From the list: Approve, Reject, or Mark paid. "
+            "Table ess_requests. Sentiment on notes is optional (POST /v1/ai/ess-sentiment) — "
+            "not required for day-to-day approval."
+        ),
+        "tags": "ess ess requests self service approve reject mark paid easy path",
+    },
+    {
+        "id": "fact_whole_process",
+        "title": "Whole airfare process",
+        "text": (
+            "End-to-end easy path: Employees → Opening Balances → Entitlement Rates → "
+            "Airfare Allocation (Calculate entitlement → settle excess → Issue ticket) → "
+            "Loans if Make loan → Finance Ledger (trial balance + Export Excel/PDF) → "
+            "Reports (Airfare Payable). Currency BHD. Continuous entitlement — no year-end wipe."
+        ),
+        "tags": "whole process end to end workflow learn all step by step allocation finance",
+    },
+    {
+        "id": "fact_ui_arabic_locale",
+        "title": "UI English / Arabic switch",
+        "text": (
+            "ATLAS HCM chrome supports English and Arabic without URL locale prefixes. "
+            "Use the EN | ع language switcher on login and in the sidebar footer (also on "
+            "AI Insights). Choosing Arabic sets html lang=ar, dir=rtl, and Noto Sans Arabic; "
+            "choice is stored in localStorage key atlas.locale. Tiered i18n: shell, login, "
+            "page headers, dashboard stats, password dialog, and AI Insights chrome translate "
+            "first; dense form bodies expand later — no next-intl rewrite required."
+        ),
+        "tags": "arabic language locale rtl switch ui en ar اللغة العربية i18n",
+    },
+    {
+        "id": "fact_finance_export_easy",
+        "title": "Finance Ledger export easy path",
+        "text": (
+            "Open Finance Ledger (/finance). If empty: Seed chart of accounts, then Backfill "
+            "from tickets/loans. Confirm Trial balance is balanced (BHD). Click Export Excel "
+            "or Export PDF. Journals post automatically on ticket issue and loan activity."
+        ),
+        "tags": "finance ledger export excel pdf trial balance gl easy path",
     },
 ]
 

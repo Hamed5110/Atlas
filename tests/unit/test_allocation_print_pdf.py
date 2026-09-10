@@ -66,7 +66,7 @@ def test_render_allocation_print_pdf_uses_offer_letterhead(tmp_path: Path) -> No
             "opening_balance_amount": "150",
             "current_year_earned_amount": "0",
             "already_paid_amount": "150",
-            "status": "APPROVED",
+            "status": "PAID",
             "reporting_officer": "NAVEEN KUMAR KAMMARI",
         },
         prepared_by="admin",
@@ -77,7 +77,18 @@ def test_render_allocation_print_pdf_uses_offer_letterhead(tmp_path: Path) -> No
     assert "Document No" in text
     assert "T-000100" in text
     assert "VIJAYKUMAR" in text
+    assert "05/09/2026" in text or "5/09/2026" in text
+    assert "PAID" in text
+    assert "مدفوع" in text  # الحالة: مدفوع on Arabic status row
+    assert "الرصيد" in text  # bilingual Balance header
+    assert "Already Paid" in text or "ALREADY PAID" in text
+    # pymupdf often reshapes Arabic (المدفوع → املدفوع); assert a stable stem
+    assert "مدفوع" in text and ("مسبق" in text or "الرصيد" in text)
+    assert "Nationality" in text
+    assert "Department" in text
+    assert "Employee Payable" in text
     assert "Prepared by" in text
+    assert "L-000008" in text
     images = pymupdf.open(stream=pdf, filetype="pdf")[0].get_images()
     assert images, "company logo must be embedded like offer letter"
 

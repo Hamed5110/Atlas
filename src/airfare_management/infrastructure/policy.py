@@ -245,15 +245,16 @@ SETTINGS_CATALOG: tuple[SettingGroup, ...] = (
                 key="cycle_reset_basis",
                 label="Cycle reset basis",
                 type="select",
-                default="joining_date",
+                default="calendar",
                 description=(
-                    "Joining date (modern continuous): rolling anniversary cycle — "
-                    "no fiscal year-end wipe (Workday/SF hire-date pattern). "
-                    "Calendar resets every 1 January (classic ATLAS)."
+                    "Calendar (ATLAS airfare): cycle is 1 Jan–31 Dec; tickets in the year "
+                    "reset accrual (post-ticket window). Joining date uses each employee's "
+                    "hire anniversary — tickets before that anniversary are ignored. "
+                    "No fiscal year-end wipe in either mode."
                 ),
                 options=(
+                    ("calendar", "Global calendar (1 Jan) — ATLAS airfare"),
                     ("joining_date", "Joining date (rolling anniversary)"),
-                    ("calendar", "Global calendar (1 Jan)"),
                 ),
             ),
             SettingSpec(

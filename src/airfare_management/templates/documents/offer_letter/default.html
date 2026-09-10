@@ -1,212 +1,200 @@
-{% extends "documents/base.html" %}
+{% extends "documents/contract/focus_base.html" %}
 {% block content %}
-<div class="doc-banner">
-  <div class="en">Offer Letter</div>
-  <div class="ar">خطاب العرض</div>
+
+<div class="doc-title">
+  <p class="ar">خطاب عرض وظيفي</p>
+  <p class="en">Job Offer Letter</p>
+  <span class="ornament"></span>
 </div>
-<div class="doc-rule"></div>
 
-<table class="meta-table">
+<table class="meta-grid" style="border-spacing:0 4pt;margin:2pt 0 8pt 0;">
   <tr>
-    <td class="en-side"><strong>Document No.</strong> <span dir="ltr" class="ltr-iso">{{ doc.voucher_no }}</span></td>
-    <td class="ar-side">رقم الوثيقة <span dir="ltr" class="ltr-iso">{{ doc.voucher_no }}</span></td>
-  </tr>
-  <tr>
-    <td class="en-side"><strong>Date :</strong> <span dir="ltr" class="ltr-iso">{{ doc.issue_date_long }}</span></td>
-    <td class="ar-side">التاريخ <span dir="ltr" class="ltr-iso">{{ doc.issue_date_long }}</span></td>
-  </tr>
-</table>
-
-<table class="id-table">
-  <tr>
-    <td class="lbl">Name :</td>
-    <td class="val"><span dir="ltr" class="ltr-iso">{{ employee.full_name }}</span></td>
-    <td class="ar-val">{% if employee.arabic_name %}{{ employee.arabic_name }}{% else %}—{% endif %}</td>
-    <td class="ar-lbl">الاسم</td>
-  </tr>
-  <tr>
-    <td class="lbl">Nationality :</td>
-    <td class="val"><span dir="ltr" class="ltr-iso">{{ employee.nationality or "—" }}</span></td>
-    <td class="ar-val"><span dir="ltr" class="ltr-iso">{{ employee.nationality or "—" }}</span></td>
-    <td class="ar-lbl">الجنسية</td>
-  </tr>
-  <tr>
-    <td class="lbl">CPR Number :</td>
-    <td class="val"><span dir="ltr" class="ltr-iso">{{ employee.cpr_no or "—" }}</span></td>
-    <td class="ar-val"><span dir="ltr" class="ltr-iso">{{ employee.cpr_no or "—" }}</span></td>
-    <td class="ar-lbl">الرقم الشخصي</td>
-  </tr>
-  <tr>
-    <td class="lbl">Passport No. :</td>
-    <td class="val"><span dir="ltr" class="ltr-iso">{{ employee.passport_no or "—" }}</span></td>
-    <td class="ar-val"><span dir="ltr" class="ltr-iso">{{ employee.passport_no or "—" }}</span></td>
-    <td class="ar-lbl">رقم جواز السفر</td>
-  </tr>
-</table>
-
-<table class="bi-table">
-  <tr>
-    <td class="en"><p>Dear MR/Ms.,</p></td>
-    <td class="ar"><p>عزيزي السيد / السيدة،</p></td>
-  </tr>
-  <tr>
-    <td class="en">
-      <p>
-        On behalf of <strong>{{ company.name }}</strong> W.L.L., I am pleased to offer you
-        the position of <strong>{{ params.nature_of_employment }}</strong>.
-      </p>
-    </td>
-    <td class="ar">
-      <p>
-        نيابةً عن شركة <span dir="ltr" class="ltr-iso">{{ company.name }}</span> ذ.م.م، يسعدني أن أقدم لكم عرض عمل لوظيفة
-        <span dir="ltr" class="ltr-iso">{{ params.nature_of_employment }}</span>.
-      </p>
+    <td class="k">التاريخ</td>
+    <td><span class="field" dir="rtl">{{ params.document_date_focus_ar or params.document_date_focus or doc.issue_date_long }}</span>
+      <span class="lead-en" style="margin:2pt 0 0 0;display:block;">EN: {{ params.document_date_focus or doc.issue_date_long }}</span>
     </td>
   </tr>
   <tr>
-    <td class="en">
-      <p>Your monthly compensation package for this position will be as follows:</p>
-    </td>
-    <td class="ar">
-      <p>سيكون حزمة الراتب الشهري لهذه الوظيفة على النحو التالي:</p>
-    </td>
+    <td class="k">الاسم / Name</td>
+    <td><span class="field">{% if employee.arabic_name %}{{ employee.arabic_name }} — {% endif %}<span class="ltr" dir="ltr">{{ employee.full_name }}</span></span></td>
+  </tr>
+  <tr>
+    <td class="k">الجنسية</td>
+    <td><span class="field">{% if params.nationality_ar and params.nationality_ar != employee.nationality %}{{ params.nationality_ar }}{% else %}<span class="ltr" dir="ltr">{{ employee.nationality or "—" }}</span>{% endif %}</span></td>
+  </tr>
+  <tr>
+    <td class="k">الرقم الشخصي / جواز السفر</td>
+    <td><span class="field ltr-field" dir="ltr">CPR {{ employee.cpr_no or "—" }} · Passport {{ employee.passport_no or "—" }}</span></td>
+  </tr>
+  <tr>
+    <td class="k">تاريخ المباشرة</td>
+    <td><span class="field ltr-field" dir="ltr">{{ params.joining_date_long or doc.joining_date_long or "—" }}</span></td>
   </tr>
 </table>
 
-<table class="pay-table">
-  <tr>
-    <th style="width:40%; text-align:left;">Component</th>
-    <th style="width:30%; text-align:right;">Amount ({{ company.currency }})</th>
-    <th class="ar" style="width:30%;">البند</th>
-  </tr>
-  <tr>
-    <td>Basic</td>
-    <td class="amt">{{ params.basic_fmt }}</td>
-    <td class="ar">الراتب الأساسي</td>
-  </tr>
-  {% if params.hra and params.hra|float > 0 %}
-  <tr>
-    <td>HRA</td>
-    <td class="amt">{{ params.hra_fmt }}</td>
-    <td class="ar">علاوة السكن</td>
-  </tr>
+<p class="lead" style="margin-bottom:6pt;">عزيزي السيد/السيدة، <span class="ltr" dir="ltr" style="color:#5a6577;font-size:9pt;">Dear MR/Ms.,</span></p>
+
+<p class="lead" style="margin-bottom:4pt;">
+  نيابةً عن
+  {% if company.arabic_name and company.arabic_name != company.name %}
+  <strong>{{ company.arabic_name }}</strong> ذ.م.م،
+  {% else %}
+  شركة <span class="ltr" dir="ltr">{{ company.name }}</span> ذ.م.م،
   {% endif %}
-  {% if params.car_allowance and params.car_allowance|float > 0 %}
-  <tr>
-    <td>Car Allowance</td>
-    <td class="amt">{{ params.car_allowance_fmt }}</td>
-    <td class="ar">علاوة السيارة</td>
-  </tr>
+  يسعدنا أن نقدم لكم عرضاً وظيفياً لشغل منصب
+  {% if params.nature_of_employment_arabic %}
+  <strong>{{ params.nature_of_employment_arabic }}</strong>.
+  {% else %}
+  <strong><span class="ltr" dir="ltr">{{ params.nature_of_employment }}</span></strong>.
   {% endif %}
-  {% if params.petrol_allowance and params.petrol_allowance|float > 0 %}
-  <tr>
-    <td>Petrol Allowance</td>
-    <td class="amt">{{ params.petrol_allowance_fmt }}</td>
-    <td class="ar">علاوة بترول</td>
-  </tr>
-  {% endif %}
-  {% if params.special_duty_allowance and params.special_duty_allowance|float > 0 %}
-  <tr>
-    <td>Special Duty Allowance</td>
-    <td class="amt">{{ params.special_duty_allowance_fmt }}</td>
-    <td class="ar">علاوة خاصة</td>
-  </tr>
-  {% endif %}
-  <tr class="total">
-    <td>Total Amount ({{ company.currency }})</td>
-    <td class="amt">{{ params.net_fmt }}</td>
-    <td class="ar">المبلغ الإجمالي</td>
-  </tr>
+</p>
+<p class="lead-en" style="margin-bottom:8pt;">
+  On behalf of
+  <strong>{{ company.name }}{% if company.name and 'W.L.L' not in company.name|upper %} W.L.L.{% endif %}</strong>,
+  we are pleased to offer you the position of
+  <strong>{{ params.nature_of_employment }}</strong>.
+</p>
+
+<p class="lead" style="margin-bottom:4pt;">فيما يلي تفاصيل الراتب والمزايا الشهرية:</p>
+
+<table class="salary" dir="ltr">
+  <thead>
+    <tr>
+      <th class="c-en">Component</th>
+      <th class="c-amt">BHD / المبلغ (د.ب)</th>
+      <th class="c-ar">البند</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="c-en">Basic</td>
+      <td class="c-amt"><span dir="rtl">{{ params.basic_fmt_focus_ar or params.basic_fmt_focus or params.basic_fmt }}</span></td>
+      <td class="c-ar">الراتب الأساسي</td>
+    </tr>
+    {% if params.hra and params.hra|float > 0 %}
+    <tr>
+      <td class="c-en">HRA</td>
+      <td class="c-amt"><span dir="rtl">{{ params.hra_fmt_focus_ar or params.hra_fmt_focus or params.hra_fmt }}</span></td>
+      <td class="c-ar">علاوة السكن</td>
+    </tr>
+    {% endif %}
+    {% if params.car_allowance and params.car_allowance|float > 0 %}
+    <tr>
+      <td class="c-en">Car Allowance</td>
+      <td class="c-amt"><span dir="rtl">{{ params.car_allowance_fmt_focus_ar or params.car_allowance_fmt_focus or params.car_allowance_fmt }}</span></td>
+      <td class="c-ar">علاوة السيارة</td>
+    </tr>
+    {% endif %}
+    {% if params.petrol_allowance and params.petrol_allowance|float > 0 %}
+    <tr>
+      <td class="c-en">Petrol Allowance</td>
+      <td class="c-amt"><span dir="rtl">{{ params.petrol_allowance_fmt_focus_ar or params.petrol_allowance_fmt_focus or params.petrol_allowance_fmt }}</span></td>
+      <td class="c-ar">علاوة بترول</td>
+    </tr>
+    {% endif %}
+    {% if params.special_duty_allowance and params.special_duty_allowance|float > 0 %}
+    <tr>
+      <td class="c-en">Special Duty Allowance</td>
+      <td class="c-amt"><span dir="rtl">{{ params.special_duty_allowance_fmt_focus_ar or params.special_duty_allowance_fmt_focus or params.special_duty_allowance_fmt }}</span></td>
+      <td class="c-ar">علاوة خاصة</td>
+    </tr>
+    {% endif %}
+    <tr class="total">
+      <td class="c-en">Total Amount (BD)</td>
+      <td class="c-amt"><span dir="rtl">{{ params.net_fmt_focus_ar or params.net_fmt_focus or params.net_fmt }}</span></td>
+      <td class="c-ar">المبلغ الإجمالي (د.ب)</td>
+    </tr>
+  </tbody>
 </table>
 
-<p><strong>Total amount in Words:</strong> <span dir="ltr" class="ltr-iso">{{ params.net_in_words }}</span></p>
-<p class="ar-muted">المبلغ الإجمالي بالدينار البحريني — بالحروف</p>
+<div class="words-box">
+  <span class="lbl">المبلغ الإجمالي بالحروف (د.ب):</span>
+  {{ params.net_in_words_ar }}
+  <span class="en">Total amount in Words (BHD): {{ params.net_in_words_focus or params.net_in_words }}</span>
+</div>
 
-<table class="bi-table">
-  <tr>
-    <td class="en"><p><strong>This offer is subject to the following conditions:</strong></p></td>
-    <td class="ar"><p><strong>يخضع هذا العرض للشروط التالية:</strong></p></td>
-  </tr>
-  <tr>
-    <td class="en"><p class="clause">1- The first {{ params.probation_months }} months will be considered as probationary period.</p></td>
-    <td class="ar"><p class="clause">١ - تُعتبر الأشهر الأولى فترة تجريبية (<span dir="ltr" class="ltr-iso">{{ params.probation_months }}</span> أشهر).</p></td>
-  </tr>
-  <tr>
-    <td class="en"><p class="clause"><strong>Other compensation Details:</strong></p></td>
-    <td class="ar"><p class="clause"><strong>تفاصيل التعويضات الأخرى:</strong></p></td>
-  </tr>
-  <tr>
-    <td class="en"><p class="clause">- SIO contribution: as per the rules of Social Insurance Organization.</p></td>
-    <td class="ar"><p class="clause">- هيئة التأمينات الاجتماعية: حسب قوانين هيئة التأمينات الاجتماعية.</p></td>
-  </tr>
-  <tr>
-    <td class="en"><p class="clause">- Annual Leave: {{ params.annual_leave_days }} calendar days per year.</p></td>
-    <td class="ar"><p class="clause">- الإجازة السنوية: <span dir="ltr" class="ltr-iso">{{ params.annual_leave_days }}</span> يومًا تقويميًا في السنة.</p></td>
-  </tr>
+<div class="article">
+  <p class="h-ar">الشروط الأساسية</p>
+  <span class="h-en">Key Conditions</span>
+  <p>
+    ١- تُعتبر
+    {% if params.probation_months == 3 %}الأشهر الثلاثة الأولى{% elif params.probation_months == 1 %}الشهر الأول{% else %}الأشهر الأولى (<span class="ltr" dir="ltr">{{ params.probation_months }}</span>){% endif %}
+    فترة تجريبية.
+  </p>
+  <p class="en-body">1- The first {{ params.probation_months_en }} will be considered as probationary period.</p>
+  <p>٢- هيئة التأمينات الاجتماعية: حسب قوانين هيئة التأمينات الاجتماعية.</p>
+  <p class="en-body">- SIO contribution: as per the rules of Social Insurance Organization.</p>
+  <p>٣- الإجازة السنوية: <span class="ltr" dir="ltr">{{ params.annual_leave_days }}</span> يومًا تقويميًا في السنة.</p>
+  <p class="en-body">- Annual Leave: {{ params.annual_leave_days }} calendar days per year.</p>
   {% if params.traveling_airfare %}
-  <tr>
-    <td class="en"><p class="clause">- Traveling / Airfare: as per company airfare policy.</p></td>
-    <td class="ar"><p class="clause">- تذكرة السفر: وفق سياسة بدل تذاكر الطيران بالشركة.</p></td>
-  </tr>
+  <p>٤- تذكرة السفر: وفق سياسة بدل تذاكر الطيران بالشركة.</p>
+  <p class="en-body">- Traveling / Airfare: as per company airfare policy.</p>
   {% endif %}
-  <tr>
-    <td class="en">
-      <p class="clause">
-        - The rest of terms and conditions will be in accordance with the company's internal human
-        resources policies, labor law, and social insurance law of Kingdom of Bahrain.
-      </p>
-    </td>
-    <td class="ar">
-      <p class="clause">
-        - بقية الشروط والأحكام ستكون وفقًا لسياسات الموارد البشرية الداخلية للشركة، وقانون العمل وقانون
-        التأمينات الاجتماعية لمملكة البحرين.
-      </p>
-    </td>
-  </tr>
-</table>
+  <p>
+    {% if params.traveling_airfare %}٥{% else %}٤{% endif %}- بقية الشروط والأحكام ستكون وفقًا لسياسات الموارد البشرية الداخلية للشركة، وقانون العمل وقانون التأمينات الاجتماعية لمملكة البحرين.
+  </p>
+  <p class="en-body">
+    - The rest of terms and conditions will be in accordance with the company's internal human
+    resources policies, labor law, and social insurance law of Kingdom of Bahrain.
+  </p>
+</div>
+
+<div class="article">
+  <p class="h-ar">يخضع هذا العرض للشروط التالية</p>
+  <span class="h-en">This offer is subject to the following conditions</span>
+  <p>- تقارير خبرة مرضية من الشركات التي عملت معها سابقاً.</p>
+  <p class="en-body">- Satisfactory experience reports from companies that you have worked with in the past.</p>
+  <p>
+    يرجى قراءة عرض العمل هذا، وبمجرد استلام تأكيد كتابي بالموافقة خلال
+    <span class="ltr" dir="ltr">7</span> أيام من تاريخ هذه الرسالة{% if params.offer_valid_until_long %}
+    (ساري حتى <span class="ltr" dir="ltr">{{ params.offer_valid_until_long }}</span>){% endif %}،
+    سنقوم بترتيب إكمال الإجراءات الرسمية. سيتواصل قسم الموارد البشرية خلال الفترة القادمة.
+  </p>
+  <p class="en-body">
+    Please read this job offer and once we receive a confirmation in writing on acceptance
+    within 7 days from the date of this letter{% if params.offer_valid_until_long %}
+    (valid until <span class="ltr" dir="ltr">{{ params.offer_valid_until_long }}</span>){% endif %},
+    we will arrange to complete the formalities. HR will be in touch during the coming period.
+  </p>
+</div>
 
 {% if params.additional_details %}
-<p><strong>Additional Details:</strong> {{ params.additional_details }}</p>
+<p class="lead"><strong>تفاصيل إضافية:</strong> {{ params.additional_details }}</p>
 {% endif %}
 {% if params.narration or params.special_terms %}
-<p><strong>Narration:</strong> {{ params.narration or params.special_terms }}</p>
+<p class="lead"><strong>ملاحظات:</strong> {{ params.narration or params.special_terms }}</p>
 {% endif %}
 
-<table class="bi-table">
-  <tr>
-    <td class="en">
-      <p>
-        Please confirm acceptance in writing within 7 days (valid until
-        {{ params.offer_valid_until_long }}). HR will contact you to complete formalities.
-      </p>
-      <p>Many thanks and best regards,</p>
-    </td>
-    <td class="ar">
-      <p>
-        يرجى تأكيد القبول كتابيًا خلال <span dir="ltr" class="ltr-iso">7</span> أيام
-        {% if params.offer_valid_until_long %}(ساري حتى <span dir="ltr" class="ltr-iso">{{ params.offer_valid_until_long }}</span>){% endif %}.
-        سيتواصل قسم الموارد البشرية لإكمال الإجراءات.
-      </p>
-      <p>مع جزيل الشكر والتقدير،</p>
-    </td>
-  </tr>
-</table>
+<p class="closing">مع جزيل الشكر والتقدير،</p>
+<p class="closing">
+  {% if company.arabic_name and company.arabic_name != company.name %}
+  <strong>{{ company.arabic_name }}</strong>
+  {% else %}
+  <strong><span class="ltr" dir="ltr">{{ company.name }}</span></strong>
+  {% endif %}
+</p>
+<p class="lead-en">Many thanks and best regards,<br/>{{ company.name }}</p>
 
-<table class="sig-table">
-  <tr>
-    <td>
-      <div><strong>On behalf of the Company</strong></div>
-      <div class="ar" style="margin-top:1pt;">نيابةً عن الشركة</div>
-      <div class="sig-line">
-        Signature (Employer)<br/>
-        {{ params.signatory_name }}{% if params.signatory_title %}, {{ params.signatory_title }}{% endif %}
-      </div>
-    </td>
-    <td>
-      <div><strong>Signature (Employee)</strong></div>
-      <div class="ar" style="margin-top:1pt;">توقيع الموظف</div>
-      <div class="sig-line"><span dir="ltr" class="ltr-iso">{{ employee.full_name }}</span></div>
-    </td>
-  </tr>
-</table>
+<div class="sig-grid" dir="ltr" style="page-break-inside: avoid;">
+  <div class="sig-box employee">
+    <p class="ttl">توقيع المرشح</p>
+    <span class="ttl-en">Candidate Signature</span>
+    <div class="space"></div>
+    <div class="uline">
+      <span class="ltr" dir="ltr">{{ employee.full_name }}</span>
+    </div>
+    <div class="stamp-box" style="border-style: solid; opacity: 0.55;">تاريخ القبول · Acceptance Date</div>
+  </div>
+  <div class="sig-box employer">
+    <p class="ttl">نيابةً عن الشركة</p>
+    <span class="ttl-en">On behalf of the Company</span>
+    <div class="space"></div>
+    <div class="uline">
+      {% if params.signatory_name %}{{ params.signatory_name }}{% else %}التوقيع{% endif %}
+      {% if params.signatory_title %}<br/>{{ params.signatory_title }}{% endif %}
+    </div>
+    <div class="stamp-box">ختم الشركة · Company Stamp</div>
+  </div>
+</div>
+
 {% endblock %}

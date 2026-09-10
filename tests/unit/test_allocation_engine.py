@@ -278,7 +278,7 @@ class TestModernContinuousJoiningDate:
         assert result.opening_balance_amount == Decimal("25")  # display
         assert any("Post-ticket" in n for n in result.policy_notes)
 
-    def test_default_policy_uses_joining_date(self) -> None:
+    def test_default_policy_uses_calendar_airfare_year(self) -> None:
         result = calculate_allocation_entitlement(
             as_of_date=date(2026, 9, 6),
             date_of_joining=date(2020, 4, 16),
@@ -289,5 +289,26 @@ class TestModernContinuousJoiningDate:
             rate_source=RateSource.GLOBAL,
             max_entitlement_cap_rate=None,
         )
-        assert result.accrual_start == date(2026, 4, 16)
-        assert any("joining anniversary" in n for n in result.policy_notes)
+        assert result.accrual_start == date(2026, 1, 1)
+        assert result.policy_notes == ()
+
+    def test_naveen_style_prior_ticket_in_calendar_year_is_seen(self) -> None:
+        """Join anniversary mid-year must not hide a Jan ticket under calendar mode."""
+        policy = AllocationPolicy(cycle_reset_basis="calendar")
+        result = calculate_allocation_entitlement(
+            as_of_date=date(2026, 9, 7),
+            date_of_joining=date(2009, 7, 30),
+            last_ticket_date=date(2026, 1, 1),
+            opening_balance_days=Decimal("30"),
+            opening_balance_amount=Decimal("75"),
+            airfare_rate=POLICY_150,
+            rate_source=RateSource.GLOBAL,
+            max_entitlement_cap_rate=None,
+            current_year_spending=Decimal("0"),
+            ytd_spending=Decimal("75.21"),
+            policy=policy,
+        )
+        assert result.last_ticket_date == date(2026, 1, 1)
+        assert result.accrual_start == date(2026, 1, 2)
+        assert result.scenario is AllocationScenario.PREVIOUS_TICKET
+        assert result.final_entitlement_amount == Decimal("51.25")

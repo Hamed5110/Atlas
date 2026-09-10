@@ -1,28 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8" />
 <style>
   /*
-    Focus Soft–class bilingual contract (EN left | AR right).
-    Verified: Fabric/Canva editors (yft-design, vue-fabric-editor) are wrong for
-    legal dual-column PDF — keep Jinja + Chromium print CSS.
-    Gold reference: Focus Soft Contract of employee.pdf
+    Focus dual-column Contract layout + professional accent system.
+    EN LEFT | AR RIGHT · grid · visual hierarchy · restrained color.
+    Palette (corporate print): paper white, navy hierarchy, soft gold rules,
+    cool slate secondary, warm field highlight (not loud).
   */
   :root {
-    --en: 50%;
-    --ar: 50%;
-    --ink: #000;
-    --muted: #333;
-    --rule: #000;
-    --brand: #0b4f8a;
-    --lh-h: 48pt;
-    --ft-h: 28pt;
+    --ink: #15202b;
+    --muted: #5a6577;
+    --rule: #c5ced9;
+    --rule-strong: #0a2540;
+    --navy: #0a2540;
+    --navy-soft: #e8eef5;
+    --gold: #b8953d;
+    --gold-soft: #f3ead2;
+    --field: #fff6e8;
+    --field-border: #e6d3a8;
+    --paper: #ffffff;
+    --brand: #0a2540;
   }
 
+  /*
+    Top: modest margin (letterhead repeats via thead).
+    Bottom: ≥ stamp band so dual borders never cross footer text.
+  */
   @page {
     size: A4 portrait;
-    margin: 10mm 10mm 11mm 10mm;
+    margin: 10mm 12mm 32mm 12mm;
   }
 
   * { box-sizing: border-box; }
@@ -31,385 +39,560 @@
     margin: 0;
     padding: 0;
     color: var(--ink);
-    background: #fff;
-    font-family: DocSerif, "Times New Roman", Times, serif;
+    background: var(--paper);
+    font-family: "Times New Roman", Times, DocArabic, "Segoe UI", Tahoma, serif;
     font-size: 9.5pt;
-    line-height: 1.28;
+    line-height: 1.4;
+    direction: ltr;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  .ltr, span[dir="ltr"], bdi[dir="ltr"] {
-    font-family: DocSans, Arial, Helvetica, sans-serif;
+  .ltr, [dir="ltr"] {
     direction: ltr !important;
     unicode-bidi: isolate;
-    display: inline;
   }
-  /* Keep DD/MM/YYYY runs visually LTR inside RTL Arabic cells */
-  .ar .ltr, .ar span[dir="ltr"] {
+  .rtl, [dir="rtl"] {
+    direction: rtl !important;
     unicode-bidi: isolate;
-    direction: ltr !important;
   }
 
-  /* Outer frame on every printed page (Focus Soft) */
-  .page-frame {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    border: 0.75pt solid var(--rule);
-    pointer-events: none;
-    z-index: 40;
-  }
-
-  /* Letterhead repeats every page */
-  .page-header {
-    position: fixed;
-    top: 4pt;
-    left: 6pt;
-    right: 6pt;
-    height: var(--lh-h);
-    z-index: 30;
-    background: #fff;
-  }
-  .page-header .letterhead {
+  /* Chromium repeats thead on every printed page — reliable letterhead. */
+  .print-shell {
     width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
+    border-spacing: 0;
   }
-  .page-header .letterhead td { vertical-align: middle; padding: 0; }
-  .lh-brand { width: 58%; }
-  .lh-brand img {
-    height: 46px;
+  .print-shell > thead { display: table-header-group; }
+  .print-shell > tbody { display: table-row-group; }
+  .print-shell > thead > tr > th,
+  .print-shell > tbody > tr > td {
+    padding: 0;
+    vertical-align: top;
+    border: none;
+  }
+
+  /*
+    Letterhead: 3-column grid — balance | centered logo | Document No.
+    Print research (bilingual A4): modest header (~top 15–20%), logo
+    often centered between identity zones; keep body clear.
+  */
+  .page-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    direction: ltr;
+    align-items: center;
+    column-gap: 10pt;
+    padding: 3pt 2pt 8pt;
+    background: #f7f9fc;
+    border-bottom: 2.2pt solid var(--navy);
+    box-shadow: 0 2pt 0 0 var(--gold);
+  }
+  .lh-left {
+    grid-column: 1;
+    min-width: 0;
+    text-align: left;
+  }
+  .lh-logo {
+    grid-column: 2;
+    justify-self: center;
+    text-align: center;
+    min-width: 0;
+  }
+  .lh-logo img {
+    /* Modest bump for print letterhead lockups (icon + AR/EN wordmark). */
+    height: 56px;
     width: auto;
-    max-width: 150px;
+    max-width: 200px;
+    max-height: 58px;
     object-fit: contain;
     display: block;
+    margin: 0 auto;
+  }
+  .lh-logo .mono {
+    display: inline-flex;
+    width: 34pt;
+    height: 34pt;
+    align-items: center;
+    justify-content: center;
+    background: var(--navy);
+    color: #f7efe0;
+    border: 1pt solid var(--gold);
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-weight: 700;
+    font-size: 12pt;
+    letter-spacing: 0.3pt;
+    margin: 0 auto 2pt;
+  }
+  .lh-logo .co-ar {
+    display: block;
+    font-size: 9.5pt;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+    color: var(--navy);
+    direction: rtl;
+    text-align: center;
+  }
+  .lh-logo .co-en {
+    display: block;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 7.5pt;
+    line-height: 1.15;
+    margin: 1pt 0 0;
+    color: var(--muted);
+    letter-spacing: 0.2pt;
+    text-align: center;
+  }
+  /* When company logo lockup is present, names live in the artwork — avoid duplicate. */
+  .page-header.has-logo .lh-logo .co-ar,
+  .page-header.has-logo .lh-logo .co-en {
+    display: none;
   }
   .lh-meta {
-    width: 42%;
+    grid-column: 3;
+    justify-self: end;
     text-align: right;
-    font-family: DocSans, Arial, Helvetica, sans-serif;
+    direction: ltr;
     font-size: 8.5pt;
-    line-height: 1.25;
-  }
-  .lh-meta .ar {
-    display: block;
-    font-family: DocArabic, "Simplified Arabic", Arial, sans-serif;
-    direction: rtl;
-    font-weight: bold;
-    font-size: 10.5pt;
-  }
-  .lh-meta .voucher {
-    font-weight: bold;
-    font-size: 11.5pt;
-    margin-top: 1pt;
-  }
-  .page-header .head-rule {
-    border: none;
-    border-top: 0.9pt solid var(--rule);
-    margin: 3pt 0 0 0;
-  }
-
-  /* Compact company strip — keep short so Chromium does not orphan last page */
-  .page-footer {
-    position: fixed;
-    left: 6pt;
-    right: 6pt;
-    bottom: 3pt;
-    height: var(--ft-h);
-    padding: 2pt 0 0 0;
-    border-top: 0.7pt solid var(--rule);
-    font-size: 6.5pt;
     line-height: 1.2;
     color: var(--muted);
-    background: #fff;
-    z-index: 30;
-    font-family: DocSans, Arial, Helvetica, sans-serif;
+    min-width: 0;
   }
-  .page-footer .ft-grid {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
+  .lh-meta .meta-ar {
+    direction: rtl;
+    unicode-bidi: isolate;
+    font-weight: 700;
+    font-size: 10pt;
+    color: var(--navy);
   }
-  .page-footer .ft-grid td { vertical-align: top; padding: 0; }
-  .page-footer .ft-brand { width: 48%; }
-  .page-footer .ft-mid { width: 32%; text-align: center; }
-  .page-footer .ft-page { width: 20%; text-align: right; color: transparent; font-size: 1pt; }
-  .page-footer .co {
-    font-weight: bold;
-    color: var(--brand);
-    font-size: 7.5pt;
+  .lh-meta .voucher {
+    font-weight: 700;
+    font-size: 11pt;
+    margin-top: 1pt;
+    line-height: 1.15;
+    color: var(--navy);
+    letter-spacing: 0.3pt;
   }
+
+  .page-footer { display: none !important; }
+  .page-label-sample { display: none !important; }
 
   .sheet {
-    width: 100%;
-    padding: calc(var(--lh-h) + 6pt) 4pt calc(var(--ft-h) + 4pt) 4pt;
+    padding-top: 8pt;
   }
 
-  /* Continuous bilingual frame */
-  .pair {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    margin: 0;
-  }
-  .pair > tbody > tr { page-break-inside: avoid; }
-  .pair > tbody > tr > td {
-    vertical-align: top;
-    padding: 1.6pt 6pt;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-  }
-  .pair .en {
-    width: var(--en);
-    text-align: left;
+  .titles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     direction: ltr;
-    font-family: DocSerif, "Times New Roman", Times, serif;
-    font-size: 9.5pt;
-    line-height: 1.28;
-    border-right: 0.65pt solid var(--rule);
+    border: 0.8pt solid var(--navy);
+    background: var(--navy);
+    color: #f7efe0;
   }
-  .pair .ar {
-    width: var(--ar);
-    text-align: right;
-    direction: rtl;
-    font-family: DocArabic, "Simplified Arabic", Arial, sans-serif;
-    font-size: 10pt;
-    line-height: 1.32;
-    unicode-bidi: isolate;
-  }
-
-  .title-en, .title-ar {
+  .titles .en {
+    border-right: 0.6pt solid rgba(184, 149, 61, 0.55);
     text-align: center;
-    font-size: 12.5pt;
-    font-weight: bold;
-    text-decoration: underline;
+    font-weight: 700;
+    font-size: 11.5pt;
+    letter-spacing: 0.6pt;
+    padding: 8pt 6pt;
+    color: #f7efe0;
+  }
+  .titles .ar {
+    text-align: center;
+    font-weight: 700;
+    font-size: 13.5pt;
+    padding: 8pt 6pt;
+    direction: rtl;
+    color: #f3ead2;
+  }
+
+  .dual {
+    border: 0.8pt solid var(--navy);
+    border-top: none;
+    background: var(--paper);
+    /* Clone outer border on each printed fragment so bottom rule is not lost. */
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    direction: ltr;
+    align-items: stretch;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .pair:nth-child(even) {
+    background: var(--navy-soft);
+  }
+  .pair + .pair {
+    border-top: 0.4pt solid var(--rule);
+  }
+  .col-en {
+    border-right: 0.7pt solid var(--rule);
+    padding: 7pt 9pt;
+    direction: ltr;
+    text-align: left;
+    font-size: 9pt;
+  }
+  .col-ar {
+    padding: 7pt 9pt;
+    direction: rtl;
+    text-align: right;
+    font-size: 9.5pt;
+  }
+  .col-en .h, .col-ar .h {
+    font-weight: 700;
+    margin: 0 0 4pt 0;
+    color: var(--navy);
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+  .col-en p, .col-ar p {
+    margin: 0 0 4pt 0;
+    text-align: justify;
+    color: var(--ink);
+  }
+  .col-en p:last-child, .col-ar p:last-child { margin-bottom: 0; }
+
+  /* First Party / Employer — equal columns, centered, mirrored address highlight */
+  .pair-employer {
+    align-items: stretch;
+  }
+  .pair-employer .col-en,
+  .pair-employer .col-ar {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    gap: 3pt;
+  }
+  .pair-employer .col-en p,
+  .pair-employer .col-ar p {
+    text-align: center;
     margin: 0;
-    padding: 1pt 0 4pt 0;
-    line-height: 1.15;
-  }
-  .title-ar { font-family: DocArabic, "Simplified Arabic", Arial, sans-serif; }
-
-  .h {
-    font-size: 9.8pt;
-    font-weight: bold;
-    margin: 0 0 0.5pt 0;
-    line-height: 1.25;
-  }
-
-  p { margin: 0; text-align: justify; }
-  .ar p { text-align: right; }
-
-  .fld {
     width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
   }
-  .fld td {
-    padding: 1pt 0;
-    vertical-align: top;
-    border: none;
-    line-height: 1.28;
+  .pair-employer .co-line {
+    font-size: 9.5pt;
+    color: var(--ink);
   }
-  .fld .k {
-    width: 34%;
-    font-weight: bold;
+  .pair-employer .addr-lab {
+    font-size: 8pt;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.2pt;
+  }
+  .pair-employer .addr-field {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    white-space: normal;
+    text-align: center;
+    padding: 4pt 6pt;
+    margin: 2pt 0 4pt;
+    line-height: 1.35;
+  }
+  .pair-employer .party-tag {
+    font-size: 8.5pt;
+    color: var(--ink);
+  }
+
+  .field {
+    display: inline;
+    background: var(--field);
+    border: 0.5pt solid var(--field-border);
+    border-bottom: 1.1pt solid var(--gold);
+    padding: 0 4pt;
+    font-weight: 700;
+    color: var(--navy);
+    unicode-bidi: isolate;
     white-space: nowrap;
-    padding-right: 3pt;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }
-  .fld .v { width: 66%; font-weight: bold; }
-  .ar .fld .k { text-align: right; padding-right: 0; padding-left: 3pt; }
-  .ar .fld .v { text-align: right; }
+  .words .field {
+    display: block;
+    white-space: normal;
+    margin-top: 3pt;
+    width: 100%;
+  }
+
+  .party-row {
+    display: grid;
+    grid-template-columns: 88pt 1fr;
+    gap: 4pt;
+    margin: 3pt 0;
+    align-items: baseline;
+  }
+  .col-ar .party-row {
+    grid-template-columns: 1fr 88pt;
+  }
+  .party-row .lab { font-weight: 700; color: var(--muted); }
+  .party-row .val { font-weight: 700; color: var(--navy); }
 
   .salary {
     width: 100%;
-    border-collapse: collapse;
     table-layout: fixed;
-    margin: 2pt 0 4pt 0;
+    border-collapse: collapse;
+    border-spacing: 0;
+    margin: 4pt 0 0;
     font-size: 9pt;
-    page-break-inside: avoid;
+    direction: ltr;
+    border: 0.7pt solid var(--rule);
   }
-  .salary th, .salary td {
-    border: 0.5pt solid var(--rule);
-    padding: 2pt 3.5pt;
+  .salary td {
+    padding: 4pt 6pt;
     vertical-align: middle;
-    line-height: 1.2;
+    border: none;
+    border-bottom: 0.45pt solid var(--rule);
   }
-  .salary th { font-weight: bold; }
-  .salary .c-en { width: 32%; text-align: left; font-family: DocSerif, "Times New Roman", Times, serif; }
-  .salary .c-amt-en {
-    width: 18%;
-    text-align: right;
-    direction: ltr;
-    font-family: DocSans, Arial, sans-serif;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .salary .c-amt-ar {
-    width: 18%;
+  .salary tr:last-child td { border-bottom: none; }
+  .salary .c-en {
+    width: 36%;
     text-align: left;
-    direction: ltr;
-    font-family: DocSans, Arial, sans-serif;
+    color: var(--muted);
+  }
+  .salary .c-amt {
+    width: 28%;
+    text-align: center;
+    background: var(--field);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
+    color: var(--navy);
     white-space: nowrap;
   }
   .salary .c-ar {
-    width: 32%;
+    width: 36%;
     text-align: right;
     direction: rtl;
-    font-family: DocArabic, "Simplified Arabic", Arial, sans-serif;
+    color: var(--ink);
   }
-  .salary tr.total td { font-weight: bold; }
+  .salary tr.total td {
+    font-weight: 700;
+    background: var(--navy-soft);
+    border-top: 1pt solid var(--navy);
+    color: var(--navy);
+  }
+  .salary tr.total .c-amt {
+    background: var(--gold-soft);
+  }
+
+  /* Full-bleed salary band inside dual frame (one table, shared row lines). */
+  .pair-amount {
+    grid-template-columns: 1fr;
+  }
+  .pair-amount .amount-span {
+    padding: 7pt 9pt;
+  }
+  .amount-heads {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    direction: ltr;
+    align-items: baseline;
+    margin-bottom: 5pt;
+    font-weight: 700;
+    color: var(--navy);
+  }
+  .amount-heads .en {
+    text-align: left;
+    direction: ltr;
+  }
+  .amount-heads .ar {
+    text-align: right;
+    direction: rtl;
+  }
+  .words-dual {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    direction: ltr;
+    gap: 10pt;
+    margin-top: 6pt;
+    align-items: start;
+  }
+  .words-dual .words-en {
+    text-align: left;
+    direction: ltr;
+    font-size: 8.5pt;
+    color: var(--muted);
+  }
+  .words-dual .words-ar {
+    text-align: right;
+    direction: rtl;
+    font-size: 8.5pt;
+    color: var(--muted);
+  }
+  .words-dual .field {
+    display: block;
+    white-space: normal;
+    margin-top: 3pt;
+    width: 100%;
+  }
 
   .words {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    margin: 0 0 2pt 0;
-  }
-  .words td {
-    padding: 1.5pt 6pt;
-    vertical-align: top;
-    font-size: 9pt;
-  }
-  .words .en {
-    width: var(--en);
-    border-right: 0.65pt solid var(--rule);
-    font-family: DocSerif, "Times New Roman", Times, serif;
-  }
-  .words .ar {
-    width: var(--ar);
-    text-align: right;
-    direction: rtl;
-    font-family: DocArabic, "Simplified Arabic", Arial, sans-serif;
-  }
-  .words .lbl { font-weight: bold; }
-
-  /* Focus Soft signatures: AR title + EN subtitle, open ink space */
-  .sig-band {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    margin-top: 8pt;
-    page-break-inside: avoid;
-    page-break-before: avoid;
-  }
-  .sig-band td {
-    vertical-align: top;
-    padding: 2pt 6pt 0 0;
-    font-size: 8pt;
-    line-height: 1.25;
-  }
-  .sig-band .en {
-    width: 38%;
-    border-right: none;
-    padding-right: 6pt;
-    font-family: DocSans, Arial, Helvetica, sans-serif;
-  }
-  .sig-band .mid {
-    width: 24%;
-    text-align: center;
-    font-family: DocSans, Arial, Helvetica, sans-serif;
-    padding-top: 22pt;
-    font-size: 7.5pt;
-  }
-  .sig-band .ar {
-    width: 38%;
-    text-align: right;
-    padding-left: 6pt;
-    font-family: DocSans, Arial, Helvetica, sans-serif;
-  }
-  .sig-band .ttl-ar {
-    display: block;
-    font-family: DocArabic, "Simplified Arabic", Arial, sans-serif;
-    direction: rtl;
-    font-weight: bold;
-    font-size: 9pt;
-  }
-  .sig-band .ttl {
-    display: block;
-    font-weight: bold;
-    font-size: 8pt;
-    margin-top: 1pt;
-  }
-  .sig-band .space { height: 22pt; }
-  .sig-band .uline {
-    border-top: 0.6pt solid var(--ink);
-    width: 92%;
-    padding-top: 3pt;
+    margin-top: 5pt;
     font-size: 8.5pt;
-  }
-  .sig-band .ar .uline {
-    margin-left: auto;
-    direction: ltr;
-    text-align: right;
-  }
-  .sig-band .mid .d-en { display: block; margin-bottom: 2pt; }
-  .sig-band .mid .d-ar {
-    display: block;
-    font-family: DocArabic, "Simplified Arabic", Arial, sans-serif;
-    direction: rtl;
+    color: var(--muted);
   }
 
-  body.engine-pisa .ar,
-  body.engine-pisa .ar p,
-  body.engine-pisa .lh-meta .ar,
-  body.engine-pisa .salary .c-ar,
-  body.engine-pisa .page-footer .addr-ar {
+  .sig-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     direction: ltr;
-    text-align: right;
-    unicode-bidi: normal;
+    column-gap: 14pt;
+    margin-top: 16pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
+  .sig-block .employer,
+  .sig-block .employee {
+    border: 0.9pt solid var(--navy);
+    border-top: 2.4pt solid var(--navy);
+    border-bottom: 0.9pt solid var(--navy);
+    background: linear-gradient(180deg, var(--navy-soft) 0%, var(--paper) 22%);
+    padding: 10pt 10pt 12pt;
+    min-height: 168pt;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+  .sig-block .employer {
+    grid-column: 1;
+    text-align: left;
+    direction: ltr;
+  }
+  .sig-block .employee {
+    grid-column: 2;
+    text-align: right;
+    direction: ltr;
+  }
+  .sig-block .ttl {
+    font-weight: 700;
+    font-size: 9.5pt;
+    margin: 0 0 2pt 0;
+    color: var(--navy);
+  }
+  .sig-block .employer .ttl { direction: rtl; unicode-bidi: isolate; text-align: left; }
+  .sig-block .employee .ttl { direction: rtl; unicode-bidi: isolate; text-align: right; }
+  .sig-block .ttl-en {
+    font-size: 8pt;
+    margin: 0;
+    direction: ltr;
+    unicode-bidi: isolate;
+    display: block;
+    color: var(--muted);
+  }
+  .sig-block .employee .ttl-en { text-align: right; }
+  /* Reserved ink space for wet signature between title and printed name. */
+  .sig-block .sig-pad {
+    flex: 0 0 64pt;
+    height: 64pt;
+    min-height: 64pt;
+    margin: 10pt 0 8pt;
+    border-bottom: 0.55pt solid var(--rule);
+  }
+  .sig-block .employer .name,
+  .sig-block .employee .name {
+    margin-top: auto;
+    font-weight: 700;
+    color: var(--navy);
+    padding-top: 4pt;
+  }
+  .sig-block .employer .name { direction: ltr; text-align: left; }
+  .sig-block .employee .name { direction: ltr; text-align: right; }
+  .sig-block .date-mid {
+    grid-column: 1 / -1;
+    text-align: center;
+    margin-top: 10pt;
+    font-weight: 700;
+    padding: 7pt 8pt;
+    background: var(--gold-soft);
+    border: 0.9pt solid var(--navy);
+    border-bottom: 0.9pt solid var(--navy);
+    color: var(--navy);
+    box-sizing: border-box;
+  }
+
+  body.engine-pisa .col-ar { direction: ltr; text-align: right; }
+
+  /* Offer letter compatibility (shares this base) */
+  .doc-title { text-align: center; margin: 8pt 0 12pt; }
+  .doc-title .ar { font-size: 16pt; font-weight: 700; margin: 0; direction: rtl; }
+  .doc-title .en { font-size: 10pt; margin: 4pt 0 0; direction: ltr; }
+  .meta-grid { width: 100%; border-collapse: collapse; margin-bottom: 10pt; }
+  .meta-grid .k { font-weight: 700; width: 30%; }
+  .article { margin: 0 0 10pt; }
+  .article .h-ar { font-weight: 700; direction: rtl; text-align: right; }
+  .article .h-en { display: block; font-size: 8.5pt; color: #444; direction: ltr; }
+  .article .en-body { direction: ltr; font-size: 9pt; color: #333; }
+  .lead { margin: 0 0 8pt; }
+  .lead-en { direction: ltr; font-size: 9pt; color: #444; }
+  .sig-grid { display: grid; grid-template-columns: 1fr 1fr; direction: ltr; gap: 12pt; margin-top: 16pt; }
+  .sig-grid .sig-box, .sig-grid .employee, .sig-grid .employer {
+    border: 0.7pt solid #111; padding: 10pt; min-height: 120pt;
+  }
+  .sig-grid .ttl { font-weight: 700; }
+  .sig-grid .ttl-en { display: block; font-size: 8pt; direction: ltr; margin-bottom: 20pt; }
+  .sig-grid .space { height: 24pt; }
+  .sig-grid .uline { border-top: 0.7pt solid #111; padding-top: 4pt; }
+  .stamp-box { margin-top: 8pt; border: 1pt dashed #888; height: 36pt; display:flex; align-items:center; justify-content:center; font-size: 8pt; }
+  .words-box { margin: 8pt 0; padding: 6pt; background: var(--field); }
+  .words-box .lbl { font-weight: 700; }
+  .words-box .en { display: block; direction: ltr; font-size: 8.5pt; margin-top: 3pt; }
 </style>
 </head>
 <body>
-  <div class="page-frame" aria-hidden="true"></div>
+  <script type="application/json" id="focus-footer-meta">{{ {
+    "co": ((company.name ~ (" W.L.L" if company.name and "W.L.L" not in company.name|upper else "")) if company.name else ""),
+    "ar": (company.arabic_name if company.arabic_name and company.arabic_name != company.name else ""),
+    "addr": ((company.address or "") ~ ((" · CR " ~ company.cr_no) if company.cr_no else "")),
+    "mid": ((doc.title ~ " · " ~ doc.voucher_no) if doc.voucher_no else (doc.title or "")),
+    "page_ar": false
+  }|tojson }}</script>
 
-  <div class="page-header">
-    <table class="letterhead">
+  <div class="page-footer" aria-hidden="true"></div>
+  <div class="page-label-sample" aria-hidden="true"></div>
+
+  <table class="print-shell">
+    <thead>
       <tr>
-        <td class="lh-brand">
-          {% if logo_src %}
-          <img src="{{ logo_src }}" alt="{{ company.name }}" />
-          {% else %}
-          <strong style="font-size:11pt;font-family:DocSans,Arial,sans-serif;">{{ company.name }}</strong>
-          {% endif %}
-        </td>
-        <td class="lh-meta">
-          <span class="ar">رقم الوثيقة</span>
-          Document No.
-          <div class="voucher ltr" dir="ltr">{{ doc.voucher_no }}</div>
+        <th scope="col">
+          <div class="page-header{% if logo_src %} has-logo{% endif %}">
+            <div class="lh-left" aria-hidden="true"></div>
+            <div class="lh-logo">
+              {% set initials = (company.name or 'CO')|replace('W.L.L','')|replace('WLL','')|trim %}
+              {% if logo_src %}
+              {# Company logo — resolved per render from branding/MSSQL; updates when company logo changes. #}
+              <img src="{{ logo_src }}" alt="{{ company.name }}" />
+              {% else %}
+              <span class="mono ltr" dir="ltr">{{ (initials.split(' ')[0][:1] ~ (initials.split(' ')[1][:1] if initials.split(' ')|length > 1 else initials[1:2]))|upper }}</span>
+              {% if company.arabic_name and company.arabic_name != company.name %}
+              <span class="co-ar">{{ company.arabic_name }}</span>
+              {% endif %}
+              <span class="co-en ltr" dir="ltr">{{ company.name }}{% if company.name and 'W.L.L' not in company.name|upper %} W.L.L.{% endif %}</span>
+              {% endif %}
+            </div>
+            <div class="lh-meta">
+              <div class="meta-ar">رقم الوثيقة</div>
+              <div dir="ltr">Document No.</div>
+              <div class="voucher ltr" dir="ltr">{{ doc.voucher_no }}</div>
+            </div>
+          </div>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <div class="sheet">
+            {% block content %}{% endblock %}
+          </div>
         </td>
       </tr>
-    </table>
-    <hr class="head-rule" />
-  </div>
-
-  <div class="page-footer">
-    <table class="ft-grid">
-      <tr>
-        <td class="ft-brand">
-          <div class="co">{{ company.name }}{% if company.name and 'W.L.L' not in company.name|upper %} W.L.L{% endif %}</div>
-          {% if company.address %}<span class="ltr" dir="ltr">{{ company.address }}</span>{% endif %}
-          {% if company.cr_no %} · CR <span class="ltr" dir="ltr">{{ company.cr_no }}</span>{% endif %}
-        </td>
-        <td class="ft-mid">
-          {% if company.phone or company.mobile or company.email or company.website %}
-            {% if company.phone %}<span class="ltr" dir="ltr">{{ company.phone }}</span>{% endif %}
-            {% if company.mobile %}{% if company.phone %} · {% endif %}<span class="ltr" dir="ltr">{{ company.mobile }}</span>{% endif %}
-            {% if company.email %}<br/><span class="ltr" dir="ltr">{{ company.email }}</span>{% endif %}
-            {% if company.website %}<br/><span class="ltr" dir="ltr">{{ company.website }}</span>{% endif %}
-          {% else %}
-            <span class="ltr" dir="ltr">{{ doc.title }} · {{ doc.voucher_no }}</span>
-          {% endif %}
-        </td>
-        <td class="ft-page">.</td>
-      </tr>
-    </table>
-  </div>
-
-  <div class="sheet">
-    {% block content %}{% endblock %}
-  </div>
+    </tbody>
+  </table>
 </body>
 </html>

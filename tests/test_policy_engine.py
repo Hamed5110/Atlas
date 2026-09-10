@@ -30,11 +30,11 @@ def test_catalog_covers_seven_enterprise_groups() -> None:
     assert sum(len(group.settings) for group in SETTINGS_CATALOG) >= 20
 
 
-def test_default_policy_is_modern_continuous_joining_date() -> None:
+def test_default_policy_is_atlas_calendar_airfare_year() -> None:
     policy = policy_from_preferences({})
     assert policy.accrual_frequency == "daily"
     assert policy.vesting_type == "pro_rata"
-    assert policy.cycle_reset_basis == "joining_date"
+    assert policy.cycle_reset_basis == "calendar"
     assert policy.negative_balance_allowed is True
     assert policy.partial_claim_allowed is True
     with_policy = calculate_allocation_entitlement(
@@ -60,10 +60,10 @@ def test_default_policy_is_modern_continuous_joining_date() -> None:
     )
     assert with_policy.final_entitlement_amount == without_policy.final_entitlement_amount
     assert with_policy.accrued_days == without_policy.accrued_days
-    assert any("joining anniversary" in n for n in with_policy.policy_notes)
+    assert with_policy.policy_notes == ()
 
 
-def test_calendar_cycle_still_available_explicitly() -> None:
+def test_joining_date_cycle_available_explicitly() -> None:
     calendar = AllocationPolicy(cycle_reset_basis="calendar")
     joining = AllocationPolicy(cycle_reset_basis="joining_date")
     as_of = date(2026, 9, 6)

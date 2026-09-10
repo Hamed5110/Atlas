@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 import re
+import unicodedata
 from typing import Any
 from uuid import UUID
 
@@ -84,7 +85,7 @@ TEMPLATES: tuple[TemplateInfo, ...] = (
         description="Focus-style offer with Basic / HRA / Petrol / Car / Special Duty grid.",
         template="documents/offer_letter/default.html",
         required_params=_COMMON_REQUIRED,
-        optional_params=_COMMON_OPTIONAL + ("traveling_airfare", "offer_valid_until"),
+        optional_params=_COMMON_OPTIONAL + ("traveling_airfare", "offer_valid_until", "nature_of_employment_arabic"),
     ),
     TemplateInfo(
         key="contract_unlimited",
@@ -214,7 +215,25 @@ def blank_voucher_defaults() -> dict[str, str]:
 
 
 def _amount_in_words(value: Decimal, currency: str = "Bahraini Dinars") -> str:
-    """Simple English amount-in-words for print (Focus: Total amount in Words)."""
+    """English amount-in-words including cents as /100 of a dinar."""
+    whole, cents = _split_dinar_cents(value)
+    words = _english_cardinal(Decimal(whole))
+    result = f"{words} {currency}".strip()
+    if cents:
+        result += f" and {cents:02d}/100"
+    return result + " Only"
+
+
+def _split_dinar_cents(value: Decimal) -> tuple[int, int]:
+    """Return (whole dinars, cents) at 2-decimal legal print precision."""
+    quantized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    whole = int(quantized)
+    cents = int((quantized - Decimal(whole)) * 100)
+    return whole, cents
+
+
+def _english_cardinal(value: Decimal) -> str:
+    """Cardinal words for the whole dinar portion (no currency suffix)."""
     units = [
         "Zero",
         "One",
@@ -250,27 +269,20 @@ def _amount_in_words(value: Decimal, currency: str = "Bahraini Dinars") -> str:
             + ("" if n % 100 == 0 else " and " + under_thousand(n % 100))
         )
 
-    quantized = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-    whole = int(quantized)
-    fils = int((quantized - whole) * 1000)
+    whole = int(value)
     if whole == 0:
-        words = "Zero"
-    else:
-        parts: list[str] = []
-        millions = whole // 1_000_000
-        thousands = (whole % 1_000_000) // 1000
-        rest = whole % 1000
-        if millions:
-            parts.append(under_thousand(millions) + " Million")
-        if thousands:
-            parts.append(under_thousand(thousands) + " Thousand")
-        if rest:
-            parts.append(under_thousand(rest))
-        words = " ".join(parts)
-    result = f"{words} {currency}"
-    if fils:
-        result += f" and {fils:03d}/1000"
-    return result + " Only"
+        return "Zero"
+    parts: list[str] = []
+    millions = whole // 1_000_000
+    thousands = (whole % 1_000_000) // 1000
+    rest = whole % 1000
+    if millions:
+        parts.append(under_thousand(millions) + " Million")
+    if thousands:
+        parts.append(under_thousand(thousands) + " Thousand")
+    if rest:
+        parts.append(under_thousand(rest))
+    return " ".join(parts)
 
 
 def _money(value: Decimal | None, currency: str = "") -> str | None:
@@ -278,21 +290,124 @@ def _money(value: Decimal | None, currency: str = "") -> str | None:
         return None
     quantized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     prefix = f"{currency} " if currency else ""
-    return f"{prefix}{quantized:,.3f}"
+    return f"{prefix}{quantized:,.2f}"
 
 
 def _money_focus(value: Decimal | None) -> str | None:
-    """Focus Soft salary grid style: ``350.00/-``."""
+    """Salary grid style: ``350.00/-`` (Western digits, EN column)."""
     if value is None:
         return None
     quantized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return f"{quantized:,.2f}/-"
 
 
+def _money_focus_ar(value: Decimal | None) -> str | None:
+    """Arabic salary cell: Eastern digits + Arabic separators ``٣٥٠٫٥٠/-``."""
+    western = _money_focus(value)
+    if not western:
+        return None
+    localized = western.replace(",", "٬").replace(".", "٫")
+    return _eastern_digits(localized)
+
+
 def _amount_in_words_focus(value: Decimal) -> str:
-    """Focus Soft words line: ``Bahraini Dinar …***``."""
-    base = _amount_in_words(value, currency="Bahraini Dinar").removesuffix(" Only")
-    return f"{base}***"
+    """EN words with fractional cents: ``… and 50/100 only``."""
+    whole, cents = _split_dinar_cents(value)
+    body = f"Bahraini Dinar   {_english_cardinal(Decimal(whole))}"
+    if cents:
+        body += f" and {cents:02d}/100"
+    return body + " only"
+
+
+def _amount_in_words_ar(value: Decimal) -> str:
+    """Arabic amount-in-words; append ``و…/مائة`` when cents are present."""
+    ones = [
+        "",
+        "واحد",
+        "اثنان",
+        "ثلاثة",
+        "أربعة",
+        "خمسة",
+        "ستة",
+        "سبعة",
+        "ثمانية",
+        "تسعة",
+        "عشرة",
+        "أحد عشر",
+        "اثنا عشر",
+        "ثلاثة عشر",
+        "أربعة عشر",
+        "خمسة عشر",
+        "ستة عشر",
+        "سبعة عشر",
+        "ثمانية عشر",
+        "تسعة عشر",
+    ]
+    tens = [
+        "",
+        "",
+        "عشرون",
+        "ثلاثون",
+        "أربعون",
+        "خمسون",
+        "ستون",
+        "سبعون",
+        "ثمانون",
+        "تسعون",
+    ]
+    hundreds = [
+        "",
+        "مائة",
+        "مائتان",
+        "ثلاثمائة",
+        "أربعمائة",
+        "خمسمائة",
+        "ستمائة",
+        "سبعمائة",
+        "ثمانمائة",
+        "تسعمائة",
+    ]
+
+    def under_hundred(n: int) -> str:
+        if n < 20:
+            return ones[n]
+        t, o = divmod(n, 10)
+        if o == 0:
+            return tens[t]
+        return f"{ones[o]} و{tens[t]}"
+
+    def under_thousand(n: int) -> str:
+        if n < 100:
+            return under_hundred(n)
+        h, rest = divmod(n, 100)
+        head = hundreds[h]
+        if rest == 0:
+            return head
+        return f"{head} و{under_hundred(rest)}"
+
+    whole, cents = _split_dinar_cents(value)
+    if whole == 0 and cents == 0:
+        return "صفر فقط"
+    if whole == 0:
+        frac = _eastern_digits(f"{cents:02d}/100")
+        return f"{frac} فقط"
+    if whole < 1000:
+        head = under_thousand(whole)
+    else:
+        thousands, rest = divmod(whole, 1000)
+        if thousands == 1:
+            th = "ألف"
+        elif thousands == 2:
+            th = "ألفان"
+        elif thousands < 11:
+            th = f"{ones[thousands]} آلاف"
+        else:
+            th = f"{under_thousand(thousands)} ألف"
+        head = th if rest == 0 else f"{th} و{under_thousand(rest)}"
+    if cents:
+        frac = _eastern_digits(f"{cents:02d}/100")
+        return f"{head} و{frac} فقط"
+    return f"{head} فقط"
 
 
 def _eastern_digits(text: str) -> str:
@@ -300,19 +415,31 @@ def _eastern_digits(text: str) -> str:
     return str(text).translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
 
 
+def _probation_months_en(months: int) -> str:
+    """Focus Soft offer: ``three months`` (words for common values)."""
+    words = {
+        1: "one month",
+        2: "two months",
+        3: "three months",
+        6: "six months",
+        12: "twelve months",
+    }
+    return words.get(months, f"{months} months")
+
+
 def _focus_date(value: date) -> str:
-    """Focus Soft date style: ``30/August/2026``."""
-    return value.strftime("%d/%B/%Y")
+    """English secondary date: unambiguous ``09-Sep-2026`` (never bare MM/DD/YYYY)."""
+    return value.strftime("%d-%b-%Y")
 
 
 def _focus_date_ar(value: date) -> str:
-    """Focus Soft Arabic date run: ``05/09/2026`` (LTR digits; avoids RTL digit flip)."""
-    return value.strftime("%d/%m/%Y")
+    """Arabic-primary date: Eastern ``dd/mm/yyyy`` (day-first — never MM/DD)."""
+    return _eastern_digits(value.strftime("%d/%m/%Y"))
 
 
 def _focus_weekday_date(value: date) -> str:
-    """Focus Soft signature date: ``Sunday/August 30/2026``."""
-    return value.strftime("%A/%B %d/%Y")
+    """English signature date: ``Sun 09-Sep-2026``."""
+    return value.strftime("%a %d-%b-%Y")
 
 
 _NATIONALITY_AR = {
@@ -325,11 +452,35 @@ _NATIONALITY_AR = {
     "BANGLADESHI": "بنغلاديشي",
     "NEPALESE": "نيبالي",
     "SRI LANKAN": "سريلانكي",
+    "UGANDAN": "أوغندي",
+    "KENYAN": "كيني",
+    "SUDANESE": "سوداني",
 }
 
 _COMPANY_NAME_AR = {
     "atlas aluminum": "شركة أطلس ألمنيوم",
+    "atlas aluminum w.l.l": "شركة أطلس ألمنيوم",
+    "atlas aluminum w.l.l.": "شركة أطلس ألمنيوم",
+    "atlas aluminium": "شركة أطلس ألمنيوم",
+    "atlas aluminium w.l.l": "شركة أطلس ألمنيوم",
+    "atlas aluminium w.l.l.": "شركة أطلس ألمنيوم",
 }
+
+
+def _resolve_company_arabic_name(name: str, stored: str | None = None) -> str:
+    """Prefer MSSQL company.arabic_name; fall back to known Focus-style map."""
+    stored_clean = (stored or "").strip()
+    if stored_clean:
+        return stored_clean
+    key = re.sub(r"\s+", " ", (name or "").strip().lower())
+    key = key.replace(",", "").strip()
+    mapped = _COMPANY_NAME_AR.get(key, "")
+    if mapped:
+        return mapped
+    # Strip trailing W.L.L / LLC noise then retry
+    key2 = re.sub(r"\b(w\.?\s*l\.?\s*l\.?|llc|ltd\.?)\b", "", key, flags=re.I).strip()
+    key2 = re.sub(r"\s+", " ", key2).strip(" -./")
+    return _COMPANY_NAME_AR.get(key2, "")
 
 
 def _long_date(value: date) -> str:
@@ -393,12 +544,37 @@ def _date_param(params: dict[str, Any], key: str) -> date:
 
 
 def _text_param(params: dict[str, Any], key: str, *, required: bool = False, limit: int = 200) -> str:
-    value = str(params.get(key) or "").strip()
+    value = sanitize_printable_field(str(params.get(key) or ""), limit=limit)
     if required and not value:
         raise DocumentParamsError(f"'{key}' is required.")
-    if len(value) > limit:
-        raise DocumentParamsError(f"'{key}' must be at most {limit} characters.")
     return value
+
+
+_FORMAT_TOKEN_RE = re.compile(r"%[0-9.#\-+ ]*[sdnxXfFeEgGc%]")
+_CONTROL_RE = re.compile(r"[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def sanitize_printable_field(value: str, *, limit: int | None = None) -> str:
+    """Strip CR/LF, format tokens, and non-allowlisted characters from user text.
+
+    Used before params, PDF footer meta, logs, and outbound templates so one
+    physical event cannot forge extra log lines or expand format tokens.
+    """
+    text = str(value or "")
+    text = _CONTROL_RE.sub(" ", text)
+    text = _FORMAT_TOKEN_RE.sub("", text)
+    cleaned: list[str] = []
+    for ch in text:
+        if ch in " \t.,;:'-/()&+@#%°·•–—":
+            cleaned.append(" " if ch == "\t" else ch)
+        elif ch.isalpha() or ch.isdigit() or unicodedata.category(ch).startswith(
+            ("L", "M", "N", "Z")
+        ):
+            cleaned.append(ch)
+    text = re.sub(r" +", " ", "".join(cleaned)).strip()
+    if limit is not None and len(text) > limit:
+        text = text[:limit].rstrip()
+    return text
 
 
 def _bool_param(params: dict[str, Any], key: str, *, default: bool = False) -> bool:
@@ -436,6 +612,8 @@ def validate_params(template: TemplateInfo, params: dict[str, Any]) -> dict[str,
     car = _decimal_param(params, "car_allowance") or Decimal(0)
     special = _decimal_param(params, "special_duty_allowance") or Decimal(0)
     net = basic + hra + petrol + car + special
+    probation_months = _int_param(params, "probation_months", minimum=0, maximum=12)
+    annual_leave_days = _int_param(params, "annual_leave_days", minimum=0, maximum=120)
 
     cleaned: dict[str, Any] = {
         "full_name": _text_param(params, "full_name", required=True, limit=200),
@@ -454,7 +632,8 @@ def validate_params(template: TemplateInfo, params: dict[str, Any]) -> dict[str,
         "document_date_long": _long_date(document_date),
         "start_date": joining.isoformat(),
         "start_date_long": _long_date(joining),
-        "probation_months": _int_param(params, "probation_months", minimum=0, maximum=12),
+        "probation_months": probation_months,
+        "probation_months_en": _probation_months_en(probation_months),
         "basic": str(basic),
         "basic_salary": str(basic),
         "hra": str(hra),
@@ -462,7 +641,7 @@ def validate_params(template: TemplateInfo, params: dict[str, Any]) -> dict[str,
         "car_allowance": str(car),
         "special_duty_allowance": str(special),
         "net": str(net),
-        "annual_leave_days": _int_param(params, "annual_leave_days", minimum=0, maximum=120),
+        "annual_leave_days": annual_leave_days,
         "signatory_name": _text_param(params, "signatory_name", limit=120) or "Authorized Signatory",
         "signatory_title": _text_param(params, "signatory_title", limit=120) or "Human Resources",
         "special_terms": _text_param(params, "special_terms", limit=2000),
@@ -493,15 +672,15 @@ def validate_params(template: TemplateInfo, params: dict[str, Any]) -> dict[str,
         "document_date_focus_ar": _focus_date_ar(document_date),
         "document_weekday_focus": _focus_weekday_date(document_date),
         "document_weekday_focus_ar": _focus_date_ar(document_date),
-        "basic_fmt_focus_ar": _eastern_digits(_money_focus(basic) or ""),
-        "hra_fmt_focus_ar": _eastern_digits(_money_focus(hra) or "") if hra else None,
-        "petrol_allowance_fmt_focus_ar": _eastern_digits(_money_focus(petrol) or "") if petrol else None,
-        "car_allowance_fmt_focus_ar": _eastern_digits(_money_focus(car) or "") if car else None,
+        "basic_fmt_focus_ar": _money_focus_ar(basic),
+        "hra_fmt_focus_ar": _money_focus_ar(hra) if hra else None,
+        "petrol_allowance_fmt_focus_ar": _money_focus_ar(petrol) if petrol else None,
+        "car_allowance_fmt_focus_ar": _money_focus_ar(car) if car else None,
         "special_duty_allowance_fmt_focus_ar": (
-            _eastern_digits(_money_focus(special) or "") if special else None
+            _money_focus_ar(special) if special else None
         ),
-        "net_fmt_focus_ar": _eastern_digits(_money_focus(net) or ""),
-        "net_in_words_ar": "بالدينار البحريني حسب المبلغ الإجمالي",
+        "net_fmt_focus_ar": _money_focus_ar(net),
+        "net_in_words_ar": _amount_in_words_ar(net),
         "nationality_ar": _NATIONALITY_AR.get(
             str(params.get("nationality") or "").strip().upper(),
             str(params.get("nationality") or ""),
@@ -573,12 +752,39 @@ def _resolve_company_id(
     *,
     company_id: UUID | None,
     employee: EmployeeRow | None = None,
+    locked_company_id: str | None = None,
 ) -> str:
-    """Prefer explicit company; fall back to employee company when linked."""
+    """Resolve tenant for documents — server-authoritative, no silent blend.
+
+    - When ``locked_company_id`` is set (update of an existing voucher), the
+      client cannot rebrand to another company.
+    - When both ``company_id`` and employee are present, they must match.
+    """
+    if locked_company_id:
+        locked = str(locked_company_id)
+        if session.get(CompanyRow, locked) is None:
+            raise DomainError("invalid_company", "Voucher company does not exist.")
+        if company_id is not None and str(company_id) != locked:
+            raise DomainError(
+                "company_mismatch",
+                "Document company cannot be changed on regenerate; issue a new voucher.",
+            )
+        if employee is not None and employee.company_id and str(employee.company_id) != locked:
+            raise DomainError(
+                "company_mismatch",
+                "Employee does not belong to this document's company.",
+            )
+        return locked
+
     if company_id is not None:
         cid = str(company_id)
         if session.get(CompanyRow, cid) is None:
             raise DomainError("invalid_company", "Selected company does not exist.")
+        if employee is not None and employee.company_id and str(employee.company_id) != cid:
+            raise DomainError(
+                "company_mismatch",
+                "Selected company does not match the employee's company.",
+            )
         return cid
     if employee is not None:
         emp_cid = str(employee.company_id) if employee.company_id else ""
@@ -587,20 +793,69 @@ def _resolve_company_id(
     raise DomainError("invalid_company", "Company is required for offer/contract vouchers.")
 
 
-def _company_profile(session: Session, company_id: str) -> dict[str, Any]:
+def _company_profile(
+    session: Session,
+    company_id: str,
+    *,
+    require_arabic: bool = False,
+) -> dict[str, Any]:
+    """Load company letterhead fields.
+
+    Product rule (Option A — BLOCK): Issue/regenerate hard-fails when Arabic
+    company name cannot be resolved from DB or the known map. Preview may
+    degrade with ``arabic_name_degraded=True`` and Latin fallback.
+    """
     company = session.get(CompanyRow, company_id)
     if company is None:
         raise DomainError("invalid_company", "The selected company does not exist.")
-    name = company.name or ""
-    arabic_name = _COMPANY_NAME_AR.get(name.strip().lower(), "")
+    name = sanitize_printable_field(company.name or "", limit=200)
+    resolved_ar = sanitize_printable_field(
+        _resolve_company_arabic_name(name, getattr(company, "arabic_name", None)) or "",
+        limit=200,
+    )
+    if not resolved_ar:
+        if require_arabic:
+            raise DomainError(
+                "arabic_name_required",
+                "Arabic company name is required to Issue this document. "
+                "Set company.arabic_name in Settings, then retry.",
+            )
+        return {
+            "name": name,
+            "arabic_name": name,
+            "arabic_name_degraded": True,
+            "code": company.code,
+            "currency": company.currency or "BHD",
+            "cr_no": sanitize_printable_field(
+                (getattr(company, "cr_no", None) or "").strip(), limit=40
+            ),
+            "address": sanitize_printable_field(
+                getattr(company, "address", None) or "", limit=300
+            ),
+        }
     return {
         "name": name,
-        "arabic_name": arabic_name or name,
+        "arabic_name": resolved_ar,
+        "arabic_name_degraded": False,
         "code": company.code,
         "currency": company.currency or "BHD",
-        "cr_no": (getattr(company, "cr_no", None) or "").strip(),
-        "address": getattr(company, "address", None) or "",
+        "cr_no": sanitize_printable_field(
+            (getattr(company, "cr_no", None) or "").strip(), limit=40
+        ),
+        "address": sanitize_printable_field(
+            getattr(company, "address", None) or "", limit=300
+        ),
     }
+
+
+def _assert_employee_arabic_for_issue(party: dict[str, Any]) -> None:
+    """Option A — BLOCK: employee Arabic name required on Issue/regenerate."""
+    ar = sanitize_printable_field(str(party.get("arabic_name") or ""), limit=200)
+    if not ar:
+        raise DomainError(
+            "arabic_name_required",
+            "Employee Arabic name is required to Issue this Arabic-primary document.",
+        )
 
 
 def _party_from_params(
@@ -945,6 +1200,13 @@ def _prepare_chromium_html(html: str) -> str:
         return match.group(0)
 
     prepared = re.sub(r'src="([^"]+)"', _img_to_file_uri, prepared)
+    # Issued PDF must never show the HTML preview page-label sample.
+    prepared = re.sub(
+        r'<div\b[^>]*class="[^"]*page-label-sample[^"]*"[^>]*>.*?</div>',
+        "",
+        prepared,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
     return prepared
 
 
@@ -1047,28 +1309,280 @@ def _render_pdf_xhtml2pdf(html: str) -> bytes:
     return buffer.getvalue()
 
 
-def _stamp_focus_page_numbers(pdf_bytes: bytes) -> bytes:
-    """Focus Soft footer: ``Page number : N of M`` (Chromium CLI has no counters)."""
+def _extract_focus_footer_meta(html: str) -> dict[str, str]:
+    """Read company footer fields embedded by focus_base.html for PDF stamping."""
+    import json
+
+    match = re.search(
+        r'<script[^>]*id=["\']focus-footer-meta["\'][^>]*>(.*?)</script>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return {}
+    try:
+        raw = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        "co": sanitize_printable_field(str(raw.get("co") or ""), limit=90),
+        "ar": sanitize_printable_field(str(raw.get("ar") or ""), limit=80),
+        "addr": sanitize_printable_field(str(raw.get("addr") or ""), limit=160),
+        "mid": sanitize_printable_field(str(raw.get("mid") or ""), limit=60),
+        "page_ar": "1" if raw.get("page_ar") else "",
+    }
+
+
+def _focus_footer_font_paths() -> tuple[Path | None, Path | None]:
+    """Latin + Arabic TTF paths for footer stamps."""
+    candidates = (
+        Path(r"C:\Airfare_Allowance\.pdf_fonts"),
+        FONTS_DIR,
+    )
+    latin = None
+    arabic = None
+    for root in candidates:
+        if latin is None:
+            for name in ("Arial.ttf", "Tahoma.ttf"):
+                path = root / name
+                if path.exists():
+                    latin = path
+                    break
+        if arabic is None:
+            for name in ("SimplifiedArabic.ttf", "TraditionalArabic.ttf"):
+                path = root / name
+                if path.exists():
+                    arabic = path
+                    break
+    return latin, arabic
+
+
+def _focus_footer_band_top(page_height: float) -> float:
+    """Y of footer rule — aligns with focus_base ``@page`` margin-bottom 32mm."""
+    return float(page_height) - (32.0 * 72.0 / 25.4)
+
+
+def _wrap_footer_address(addr: str, *, max_len: int = 102) -> list[str]:
+    """Wrap footer address without orphaning the CR number alone on a line."""
+    cleaned = (
+        (addr or "")
+        .replace("\u00ad", "-")
+        .replace("\xad", "-")
+        .replace("\xa0", " ")
+        .strip()
+    )
+    if not cleaned:
+        return []
+    if len(cleaned) > 160:
+        raise DomainError(
+            "footer_overflow",
+            "Company address/CR exceeds print footer capacity; shorten address or CR.",
+        )
+    if len(cleaned) <= max_len:
+        return [cleaned]
+
+    marker = " · CR "
+    # marker may use NB hyphen inside CR value only; split on · CR
+    split_at = cleaned.rfind(" · CR ")
+    if split_at >= 0:
+        base = cleaned[:split_at]
+        cr_part = cleaned[split_at + 3 :].strip()  # "CR …"
+        if len(base) <= max_len:
+            return [base, cr_part]
+        words = base.split()
+        line1 = ""
+        rest: list[str] = []
+        for i, w in enumerate(words):
+            trial = f"{line1} {w}".strip()
+            if len(trial) <= max_len:
+                line1 = trial
+            else:
+                rest = words[i:]
+                break
+        line2 = f"{' '.join(rest)} {cr_part}".strip()
+        return [line1 or base[:max_len], line2[:max_len]]
+
+    words = cleaned.split()
+    lines: list[str] = []
+    cur = ""
+    for w in words:
+        trial = f"{cur} {w}".strip()
+        if len(trial) <= max_len:
+            cur = trial
+        else:
+            if cur:
+                lines.append(cur)
+            cur = w
+        if len(lines) >= 2:
+            break
+    if cur and len(lines) < 2:
+        lines.append(cur)
+    return lines[:2]
+
+
+def _stamp_focus_page_numbers(
+    pdf_bytes: bytes, *, footer_meta: dict[str, str] | None = None
+) -> bytes:
+    """Stamp footer band + Arabic/English page labels into the bottom margin.
+
+    Chromium ``position:fixed`` footers paint at the content-box bottom and clip
+    contract clauses; company text is therefore applied after print-to-PDF.
+    Arabic-primary docs get ``صفحة N من M`` with Eastern digits only (never the
+    HTML preview sample, never Chromium ``Page number`` chrome).
+    """
     try:
         import pymupdf
     except ImportError:  # pragma: no cover - optional stamp
         return pdf_bytes
 
+    meta = footer_meta or {}
+    latin_path, arabic_path = _focus_footer_font_paths()
+    brand = (0.039, 0.145, 0.251)  # #0a2540 navy
+    muted = (0.353, 0.396, 0.467)  # #5a6577
+
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
+        # Scrub leaked HTML preview sample / browser page chrome before stamping.
+        leak_needles = (
+            "Page number",
+            "صيغة الترقيم",
+            "صفحة ٠ من ٠",
+            "صفحة 0 من 0",
+            "أرقام هندية",
+        )
+        for page in doc:
+            dirty = False
+            for needle in leak_needles:
+                for rect in page.search_for(needle):
+                    # Expand slightly so full line clears.
+                    pad = pymupdf.Rect(rect.x0 - 2, rect.y0 - 1, rect.x1 + 40, rect.y1 + 2)
+                    page.add_redact_annot(pad, fill=(1, 1, 1))
+                    dirty = True
+            if dirty:
+                page.apply_redactions()
+
         total = doc.page_count
         for index, page in enumerate(doc):
-            label = f"Page number : {index + 1} of {total}"
-            # Inside the printed page frame / footer band (~10–11mm margin).
-            x = page.rect.width - 112
-            y = page.rect.height - 22
-            page.insert_text(
-                (x, y),
-                label,
-                fontsize=7,
-                fontname="helv",
-                color=(0.2, 0.2, 0.2),
+            width = page.rect.width
+            height = page.rect.height
+            # Align rule with Chromium content-box bottom (@page margin-bottom 32mm)
+            # so dual-column side borders meet the footer line (no stub gap).
+            margin_x = 12.0 * 72.0 / 25.4
+            band_top = _focus_footer_band_top(height)
+            page.draw_rect(
+                pymupdf.Rect(0, band_top, width, height),
+                color=(1, 1, 1),
+                fill=(1, 1, 1),
+                width=0,
             )
+            page.draw_line(
+                pymupdf.Point(margin_x, band_top),
+                pymupdf.Point(width - margin_x, band_top),
+                color=brand,
+                width=0.7,
+            )
+
+            font_latin = "helv"
+            font_arabic = "helv"
+            if latin_path is not None:
+                try:
+                    page.insert_font(fontname="ftsans", fontfile=str(latin_path))
+                    font_latin = "ftsans"
+                except Exception:  # noqa: BLE001 — fall back to Base-14
+                    font_latin = "helv"
+            if arabic_path is not None:
+                try:
+                    page.insert_font(fontname="ftar", fontfile=str(arabic_path))
+                    font_arabic = "ftar"
+                except Exception:  # noqa: BLE001
+                    font_arabic = font_latin
+
+            y_co = band_top + 11
+            co = meta.get("co") or ""
+            if co:
+                page.insert_text(
+                    (margin_x, y_co),
+                    co[:90],
+                    fontsize=7.0,
+                    fontname=font_latin,
+                    color=brand,
+                )
+
+            # Arabic company — between EN name and page label (no overlap).
+            ar_co = (meta.get("ar") or "").strip()
+            if ar_co and ar_co != co:
+                try:
+                    font_obj = (
+                        pymupdf.Font(fontfile=str(arabic_path))
+                        if arabic_path is not None
+                        else pymupdf.Font("helv")
+                    )
+                    box = pymupdf.Rect(
+                        width * 0.48, band_top + 2, width - 125, band_top + 16
+                    )
+                    tw = pymupdf.TextWriter(page.rect, color=brand)
+                    tw.fill_textbox(
+                        box,
+                        ar_co[:60],
+                        font=font_obj,
+                        fontsize=7,
+                        align=pymupdf.TEXT_ALIGN_RIGHT,
+                        right_to_left=True,
+                    )
+                    tw.write_text(page)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            addr = meta.get("addr") or ""
+            if addr:
+                lines = _wrap_footer_address(addr)
+                for i, line in enumerate(lines[:2]):
+                    page.insert_text(
+                        (margin_x, band_top + 21 + i * 9),
+                        line,
+                        fontsize=6.0,
+                        fontname=font_latin,
+                        color=muted,
+                    )
+
+            use_ar_page = bool(meta.get("page_ar"))
+            if use_ar_page:
+                label = _eastern_digits(f"صفحة {index + 1} من {total}")
+                box = pymupdf.Rect(width - 150, band_top + 4, width - margin_x, band_top + 20)
+                try:
+                    font_obj = (
+                        pymupdf.Font(fontfile=str(arabic_path))
+                        if arabic_path is not None
+                        else pymupdf.Font("helv")
+                    )
+                    tw = pymupdf.TextWriter(page.rect, color=muted)
+                    tw.fill_textbox(
+                        box,
+                        label,
+                        font=font_obj,
+                        fontsize=8,
+                        align=pymupdf.TEXT_ALIGN_RIGHT,
+                        right_to_left=True,
+                    )
+                    tw.write_text(page)
+                except Exception:  # noqa: BLE001
+                    page.insert_htmlbox(
+                        box,
+                        f'<div dir="rtl" style="font-size:8pt;text-align:right;'
+                        f'color:#333;">{label}</div>',
+                    )
+            else:
+                label = f"Page number : {index + 1} of {total}"
+                # Baseline-aligned with company name (not floating at page bottom).
+                page.insert_text(
+                    (width - 118, y_co),
+                    label,
+                    fontsize=7,
+                    fontname=font_latin,
+                    color=muted,
+                )
         return doc.tobytes()
     finally:
         doc.close()
@@ -1083,11 +1597,18 @@ def render_pdf(html: str) -> bytes:
     """
     import logging
 
+    footer_meta = _extract_focus_footer_meta(html)
     try:
-        return _stamp_focus_page_numbers(_render_pdf_chromium(html))
+        return _stamp_focus_page_numbers(
+            _render_pdf_chromium(html), footer_meta=footer_meta
+        )
+    except DomainError:
+        raise
     except Exception as exc:  # noqa: BLE001 — intentional engine fallback
         logging.getLogger(__name__).warning("chromium_pdf_fallback: %s", exc)
-        return _stamp_focus_page_numbers(_render_pdf_xhtml2pdf(html))
+        return _stamp_focus_page_numbers(
+            _render_pdf_xhtml2pdf(html), footer_meta=footer_meta
+        )
 
 
 def company_logo_file(branding_root: str | Path, company_id: str) -> Path | None:
@@ -1169,8 +1690,9 @@ def create_document(
     resolved_company_id = _resolve_company_id(
         session, company_id=company_id, employee=employee
     )
-    company = _company_profile(session, resolved_company_id)
+    company = _company_profile(session, resolved_company_id, require_arabic=True)
     party = _party_from_params(params, employee)
+    _assert_employee_arabic_for_issue(party)
     root = Path(document_root)
     root.mkdir(parents=True, exist_ok=True)
     logo = resolve_company_logo_path(session, branding_root, resolved_company_id)
@@ -1258,7 +1780,7 @@ def preview_document(
     resolved_company_id = _resolve_company_id(
         session, company_id=company_id, employee=employee
     )
-    company = _company_profile(session, resolved_company_id)
+    company = _company_profile(session, resolved_company_id, require_arabic=False)
     party = _party_from_params(params, employee)
     logo = resolve_company_logo_path(session, branding_root, resolved_company_id)
     context = build_context(
@@ -1270,6 +1792,10 @@ def preview_document(
         voucher_no=None,
         logo_src=f"/v1/companies/{resolved_company_id}/logo" if logo else None,
     )
+    if company.get("arabic_name_degraded"):
+        context["preview_degrade_banner"] = (
+            "DEGRADED — Arabic company name missing (Issue blocked until set)."
+        )
     return render_html(template, context)
 
 
@@ -1407,10 +1933,14 @@ def update_document(
                 merged[key] = value
     params = validate_params(template, merged)
     resolved_company_id = _resolve_company_id(
-        session, company_id=company_id, employee=employee
+        session,
+        company_id=company_id,
+        employee=employee,
+        locked_company_id=str(row.company_id) if row.company_id else None,
     )
-    company = _company_profile(session, resolved_company_id)
+    company = _company_profile(session, resolved_company_id, require_arabic=True)
     party = _party_from_params(params, employee)
+    _assert_employee_arabic_for_issue(party)
     root = Path(document_root)
     root.mkdir(parents=True, exist_ok=True)
     logo = resolve_company_logo_path(session, branding_root, resolved_company_id)
@@ -1469,7 +1999,11 @@ def document_pdf_path(document_root: str | Path, row: DocumentRow) -> Path:
     root = Path(document_root).resolve()
     path = (root / (row.pdf_key or "")).resolve()
     if not str(path).startswith(str(root)) or not path.exists():
-        raise DomainError("not_found", "The generated PDF is missing on disk.")
+        raise DomainError(
+            "pdf_missing",
+            "The generated PDF is missing on disk.",
+            error_class="infrastructure_retryable",
+        )
     return path
 
 
@@ -1481,11 +2015,11 @@ def count_documents(session: Session) -> int:
 
 
 def _allocation_money(value: Any, currency: str = "BHD") -> str:
-    """Format allocation amounts for the offer-letter-style print grid."""
+    """Format allocation amounts for the bilingual print grid (BHD + 3 decimals)."""
     if value is None or value == "":
         return "—"
     try:
-        amount = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        amount = Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     except Exception:
         return str(value)
     code = (currency or "BHD").strip().upper()
@@ -1493,7 +2027,7 @@ def _allocation_money(value: Any, currency: str = "BHD") -> str:
 
 
 def _allocation_date(value: Any) -> str:
-    """Format ISO/date values for allocation print."""
+    """Format ISO/date values for allocation print (dd/mm/yyyy — attached PDF style)."""
     if value is None or value == "":
         return "—"
     if isinstance(value, date) and not isinstance(value, datetime):
@@ -1505,6 +2039,20 @@ def _allocation_date(value: Any) -> str:
         return text
 
 
+def _allocation_status_ar(value: Any) -> str:
+    """Arabic status for bilingual slip (الحالة: مدفوع)."""
+    key = str(value or "APPROVED").strip().upper().replace(" ", "_")
+    return {
+        "PAID": "مدفوع",
+        "APPROVED": "معتمد",
+        "SUBMITTED": "مقدَّم",
+        "DRAFT": "مسودة",
+        "REJECTED": "مرفوض",
+        "CANCELLED": "ملغى",
+        "CANCELED": "ملغى",
+    }.get(key, str(value or "—"))
+
+
 def render_allocation_print_pdf(
     session: Session,
     *,
@@ -1513,16 +2061,14 @@ def render_allocation_print_pdf(
     data: dict[str, Any],
     prepared_by: str = "",
 ) -> bytes:
-    """Render airfare allocation PDF with the same letterhead as offer letters.
+    """Render full bilingual airfare allocation PDF (same layout as the A4 attach/preview).
 
-    Uses Jinja + xhtml2pdf so the centered company logo from MSSQL
-    (``companies.logo_data``) matches Offer Letter / Contract prints.
+    Letterhead uses the company logo from MSSQL / branding (same as offer letters).
     """
     company = _company_profile(session, company_id)
     currency = company.get("currency") or "BHD"
     logo = resolve_company_logo_path(session, branding_root, company_id)
     if logo is None:
-        # Last-resort Atlas print asset so letterhead never goes blank.
         from airfare_management.infrastructure.documents import _ATLAS_LOGO
 
         if _ATLAS_LOGO.exists():
@@ -1534,6 +2080,8 @@ def render_allocation_print_pdf(
     excess_option = str(
         data.get("excess_option") or data.get("excess_handling") or "SELF_PAID"
     ).upper()
+    if excess_option == "LOAN":
+        excess_option = "CONVERT_TO_LOAN"
     loan_label = str(data.get("loan_code") or "").strip()
     if not loan_label:
         tenure = data.get("tenure_months")
@@ -1555,6 +2103,13 @@ def render_allocation_print_pdf(
     company_payout = data.get("company_payout") or data.get("company_paid")
     employee_payable = data.get("employee_payable")
     excess = data.get("excess_cost")
+    if excess is None and ticket_amount is not None and entitlement is not None:
+        try:
+            excess = max(Decimal("0"), Decimal(str(ticket_amount)) - Decimal(str(entitlement)))
+        except Exception:
+            excess = None
+    if employee_payable is None and excess is not None:
+        employee_payable = excess
 
     voucher = (
         data.get("ticket_code")
@@ -1581,9 +2136,10 @@ def render_allocation_print_pdf(
         },
         "allocation": {
             "travel_date": _allocation_date(data.get("travel_date") or data.get("as_of_date")),
-            "as_of_date": _allocation_date(data.get("as_of_date")),
+            "as_of_date": _allocation_date(data.get("as_of_date") or data.get("travel_date")),
             "join_date": _allocation_date(data.get("join_date") or data.get("date_of_joining")),
             "status": str(data.get("status") or "APPROVED").upper(),
+            "status_ar": _allocation_status_ar(data.get("status") or "APPROVED"),
             "reporting_officer": data.get("reporting_officer") or data.get("reporting_to") or "—",
             "route": route,
             "entitlement_fmt": _allocation_money(entitlement, currency),

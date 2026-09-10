@@ -442,7 +442,7 @@ class PolicySettings:
     carry_forward_expiry_months: int | None = None
     carry_forward_grace_days: int = 0
     dependent_coverage: str = "self"  # self | self_plus_one | family
-    cycle_reset_basis: str = "joining_date"  # joining_date (modern continuous) | calendar | promotion_date
+    cycle_reset_basis: str = "calendar"  # calendar (ATLAS airfare year) | joining_date | promotion_date
     rate_change_handling: str = "prorate"  # prorate | restart | ignore
     rounding_rule: str = "nearest"  # nearest | up | down
     loan_recovery_method: str = "manual"  # auto_deduct | manual | salary
@@ -544,7 +544,7 @@ def policy_from_preferences(preferences: Mapping[str, Any]) -> PolicySettings:
         carry_forward_expiry_months=expiry_months,
         carry_forward_grace_days=_pref_int(preferences.get("carry_forward_grace_days"), 0),
         dependent_coverage=text("dependent_coverage", "self"),
-        cycle_reset_basis=text("cycle_reset_basis", "joining_date"),
+        cycle_reset_basis=text("cycle_reset_basis", "calendar"),
         rate_change_handling=text("rate_change_handling", "prorate"),
         rounding_rule=text("rounding_rule", "nearest"),
         loan_recovery_method=text("loan_recovery_method", "manual"),
@@ -581,7 +581,7 @@ class AllocationPolicy:
     probation_days: int = 0
     carry_forward_limit_type: str = "unlimited"  # unlimited | fixed | percent
     carry_forward_limit_value: Decimal = Decimal("0")
-    cycle_reset_basis: str = "joining_date"  # joining_date (modern continuous) | calendar
+    cycle_reset_basis: str = "calendar"  # calendar (ATLAS airfare year) | joining_date
     rate_change_handling: str = "prorate"  # prorate | restart | ignore
     rounding_rule: str = "nearest"  # nearest | up | down
 

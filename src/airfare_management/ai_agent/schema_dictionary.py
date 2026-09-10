@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 Cardinality = Literal["1:1", "1:N", "N:1", "N:M"]
 
-SCHEMA_VERSION = "hcm-airfare-v3"
+SCHEMA_VERSION = "hcm-airfare-v4"
 
 # Sensitive fields require elevated context in diagnostics/SQL commentary.
 PII_COLUMNS: frozenset[str] = frozenset(
@@ -317,6 +317,50 @@ TABLES: dict[str, dict[str, Any]] = {
             "created_at",
         },
         "soft_delete": True,
+    },
+    "finance_accounts": {
+        "pk": "id",
+        "columns": {
+            "id",
+            "company_id",
+            "code",
+            "name",
+            "account_type",
+            "currency",
+            "is_active",
+            "deleted_at",
+            "created_at",
+            "updated_at",
+        },
+        "soft_delete": True,
+        "notes": "Native GL chart of accounts (BHD).",
+    },
+    "finance_journals": {
+        "pk": "id",
+        "columns": {
+            "id",
+            "company_id",
+            "entry_date",
+            "narration",
+            "source_type",
+            "source_id",
+            "deleted_at",
+            "created_at",
+        },
+        "soft_delete": True,
+    },
+    "finance_journal_lines": {
+        "pk": "id",
+        "columns": {
+            "id",
+            "journal_id",
+            "account_id",
+            "debit",
+            "credit",
+            "memo",
+        },
+        "soft_delete": False,
+        "notes": "Debits must equal credits per journal.",
     },
 }
 

@@ -1,5 +1,6 @@
 """FastAPI composition root for the complete Airfare Management service."""
 
+import base64
 import hashlib
 import logging
 import time
@@ -15,7 +16,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Reques
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import case, delete, func, inspect, select, text, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from airfare_management.api.dependencies import (
     build_authorized,
     build_database,
 )
+from airfare_management.api.error_taxonomy import classify_error_class, with_outbound_status
 from airfare_management.api.health import register_health_routes, update_operational_gauges
 from airfare_management.api.routers.reports import create_reports_router
 from airfare_management.application.documents import (
@@ -247,6 +249,7 @@ class CompanyCreate(ApiModel):
 
     code: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=2, max_length=200)
+    arabic_name: str | None = Field(default=None, max_length=200)
     currency: str = Field(default="BHD", min_length=3, max_length=3)
     cr_no: str | None = Field(default=None, max_length=60)
     address: str | None = Field(default=None, max_length=500)
@@ -256,6 +259,7 @@ class CompanyUpdate(ApiModel):
     """Mutable company branding fields."""
 
     name: str | None = Field(default=None, min_length=2, max_length=200)
+    arabic_name: str | None = Field(default=None, max_length=200)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     cr_no: str | None = Field(default=None, max_length=60)
     address: str | None = Field(default=None, max_length=500)
@@ -422,6 +426,10 @@ class AllocationIssueRequest(ApiModel):
     origin_code: str = Field(default="ORG", min_length=3, max_length=3)
     destination_code: str = Field(default="DST", min_length=3, max_length=3)
     notes: str = Field(default="", max_length=4000)
+    manager_approval: str = Field(default="", max_length=200)
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+    trip_type: Literal["ROUND_TRIP", "ONE_WAY"] = "ROUND_TRIP"
 
     @field_validator("excess_option", "tenure_months", mode="before")
     @classmethod
@@ -430,16 +438,50 @@ class AllocationIssueRequest(ApiModel):
             return None
         return value
 
+    @field_validator("manager_approval", "manager_whatsapp", "notes", mode="before")
+    @classmethod
+    def _blank_str(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_numbers(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
+
+    @field_validator("trip_type", mode="before")
+    @classmethod
+    def _trip_type_upper(cls, value: object) -> object:
+        if value is None or value == "":
+            return "ROUND_TRIP"
+        return str(value).strip().upper()
+
 
 class AllocationPrintRequest(AllocationPreviewRequest):
-    """Print-format payload for an Atlas-style airfare allocation slip."""
+    """Print-format payload for an Atlas-style airfare allocation slip.
 
+    When ``ticket_id`` is set, MSSQL ticket row is the source of truth and
+    ``as_of_date`` / employee fields may be omitted (filled from the ticket).
+    """
+
+    as_of_date: date | None = None  # type: ignore[assignment]
     origin_code: str = Field(default="ORG", min_length=3, max_length=3)
     destination_code: str = Field(default="DST", min_length=3, max_length=3)
     notes: str = Field(default="", max_length=4000)
     ticket_code: str | None = Field(default=None, max_length=40)
     status: str = Field(default="APPROVED", max_length=40)
     ticket_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _require_ticket_or_preview_keys(self) -> "AllocationPrintRequest":
+        if self.ticket_id is None and self.as_of_date is None:
+            raise ValueError("as_of_date is required when ticket_id is omitted")
+        if self.ticket_id is None and self.employee_id is None:
+            raise ValueError("employee_id is required when ticket_id is omitted")
+        return self
 
 
 class LoanPreviewRequest(ApiModel):
@@ -486,6 +528,24 @@ class TicketUpdate(ApiModel):
     ] = "SELF_PAID"
     notes: str = Field(default="", max_length=4000)
     tenure_months: int | None = Field(default=None, ge=1, le=600)
+    manager_approval: str = Field(default="", max_length=200)
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+    notify_whatsapp: bool = False
+
+    @field_validator("manager_approval", "manager_whatsapp", "notes", mode="before")
+    @classmethod
+    def _blank_ticket_str(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_ticket_numbers(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
 
 
 class StatusChange(ApiModel):
@@ -760,6 +820,23 @@ class DocumentRequest(ApiModel):
     employee_id: UUID | None = None
     company_id: UUID | None = None
     params: dict[str, Any] = Field(default_factory=dict)
+    notify_whatsapp: bool = False
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("manager_whatsapp", mode="before")
+    @classmethod
+    def _blank_doc_wa(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_doc_wa_list(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
 
 
 class DocumentUpdateRequest(ApiModel):
@@ -769,6 +846,44 @@ class DocumentUpdateRequest(ApiModel):
     employee_id: UUID | None = None
     company_id: UUID | None = None
     params: dict[str, Any] = Field(default_factory=dict)
+    notify_whatsapp: bool = False
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("manager_whatsapp", mode="before")
+    @classmethod
+    def _blank_doc_upd_wa(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_doc_upd_wa_list(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
+
+
+class DocumentWhatsAppRequest(ApiModel):
+    """Send an already-issued document PDF via Evolution WhatsApp."""
+
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("manager_whatsapp", mode="before")
+    @classmethod
+    def _blank_send_wa(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_send_wa_list(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
 
 
 class BackupCreateRequest(ApiModel):
@@ -809,15 +924,27 @@ def _row(row: object, *fields: str) -> dict[str, Any]:
 
 
 def _with_employee_fields(body: dict[str, Any], employee: EmployeeRow | None) -> dict[str, Any]:
-    """Attach human-readable employee code/name used by HCM list screens."""
+    """Attach human-readable employee fields used by HCM list + allocation print preview."""
     if employee is None:
         body["employee_code"] = None
         body["employee_name"] = None
         body["employee_label"] = str(body.get("employee_id") or "—")
+        body.setdefault("arabic_name", None)
+        body.setdefault("nationality", None)
+        body.setdefault("department", None)
+        body.setdefault("designation", None)
+        body.setdefault("pay_group", None)
+        body.setdefault("join_date", None)
         return body
     body["employee_code"] = employee.code
     body["employee_name"] = employee.full_name
     body["employee_label"] = f"{employee.code} — {employee.full_name}"
+    body["arabic_name"] = getattr(employee, "arabic_name", None) or ""
+    body["nationality"] = employee.nationality
+    body["department"] = employee.department
+    body["designation"] = employee.designation
+    body["pay_group"] = employee.pay_group
+    body["join_date"] = employee.join_date.isoformat() if employee.join_date else None
     return body
 
 
@@ -1004,6 +1131,685 @@ def _allocation_saved_message(ticket: TicketRow, loan: LoanRow | None) -> str:
     return " ".join(parts)
 
 
+def _strip_wa_emoji(text: str) -> str:
+    import re
+
+    return re.sub(
+        "["
+        "\U0001F300-\U0001F9FF"
+        "\U00002700-\U000027BF"
+        "\U0001F600-\U0001F64F"
+        "]+",
+        "",
+        text or "",
+        flags=re.UNICODE,
+    ).strip()
+
+
+MAX_WHATSAPP_RECIPIENTS = 5
+WA_MULTI_SEND_DELAY_SEC = 1.2
+
+
+def _normalize_wa_digits(value: object) -> str:
+    """Return E.164-ish digits (8–15) or empty when invalid."""
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) < 8 or len(digits) > 15:
+        return ""
+    return digits
+
+
+def _parse_whatsapp_recipients(
+    *sources: str | Sequence[str] | None,
+    max_recipients: int = MAX_WHATSAPP_RECIPIENTS,
+) -> list[str]:
+    """Parse, validate, and dedupe WhatsApp numbers from strings and/or lists."""
+    import re
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        if source is None:
+            continue
+        if isinstance(source, str):
+            candidates: list[object] = re.split(r"[,;\n\r\t|/]+", source)
+        else:
+            candidates = list(source)
+        for raw in candidates:
+            digits = _normalize_wa_digits(raw)
+            if not digits or digits in seen:
+                continue
+            seen.add(digits)
+            found.append(digits)
+            if len(found) >= max_recipients:
+                return found
+    return found
+
+
+def _trip_type_label(trip_type: str | None) -> str:
+    key = (trip_type or "ROUND_TRIP").strip().upper()
+    if key == "ONE_WAY":
+        return "One way"
+    return "Round trip (going and return)"
+
+
+def _reporting_officer_name(session: Session, employee: EmployeeRow | None) -> str:
+    """Resolve reporting officer display name from employee FK or code."""
+    if employee is None or not employee.reporting_officer_id:
+        return ""
+    officer_key = str(employee.reporting_officer_id)
+    officer = None
+    try:
+        officer = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.id == UUID(officer_key),
+                EmployeeRow.deleted_at.is_(None),
+            )
+        )
+    except (ValueError, TypeError):
+        officer = None
+    if officer is None:
+        officer = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.code == officer_key,
+                EmployeeRow.deleted_at.is_(None),
+            )
+        )
+    if officer is not None:
+        return officer.full_name
+    return officer_key
+
+
+def _company_for_allocation_print(
+    session: Session, employee: EmployeeRow | None
+) -> CompanyRow | None:
+    """Company for print letterhead: employee company, else first active company."""
+    company: CompanyRow | None = None
+    if employee is not None:
+        company = session.scalar(select(CompanyRow).where(CompanyRow.id == employee.company_id))
+    if company is None:
+        company = session.scalar(
+            select(CompanyRow)
+            .where(CompanyRow.deleted_at.is_(None), CompanyRow.active == true())
+            .order_by(CompanyRow.code)
+        )
+    return company
+
+
+def _build_ticket_allocation_print_data(
+    session: Session,
+    ticket: TicketRow,
+    employee: EmployeeRow | None,
+    linked_loan: LoanRow | None,
+    *,
+    prepared_by: str = "",
+) -> tuple[str | None, dict[str, Any]]:
+    """Build (company_id, data) for render_allocation_print_pdf from a saved ticket.
+
+    Shared by Download A4 PDF (ticket_id) and Issue → WhatsApp PDF attach.
+    """
+    company = _company_for_allocation_print(session, employee)
+    company_id = company.id if company is not None else None
+    as_of = ticket.as_of_date or ticket.travel_date
+    data: dict[str, Any] = {
+        "as_of_date": as_of.isoformat() if as_of else None,
+        "origin_code": (ticket.origin_code or "").upper(),
+        "destination_code": (ticket.destination_code or "").upper(),
+        "notes": ticket.notes or "",
+        "ticket_code": ticket.ticket_code,
+        "status": (ticket.status or "APPROVED").upper(),
+        "reporting_officer": _reporting_officer_name(session, employee),
+        "prepared_by": prepared_by,
+        "ticket_id": ticket.id,
+        **_ticket_display(ticket),
+        **_loan_display(linked_loan),
+        "travel_date": ticket.travel_date.isoformat(),
+        "ticket_cost": _decimal_text(ticket.ticket_cost),
+        "requested_ticket_amount": _decimal_text(ticket.ticket_cost),
+        "entitlement_amount": _decimal_text(ticket.entitlement),
+        "final_entitlement_amount": _decimal_text(ticket.entitlement),
+        "airfare_entitlement_amount": _decimal_text(ticket.entitlement),
+        "company_paid": _decimal_text(ticket.company_paid),
+        "company_payout": _decimal_text(ticket.company_payout or ticket.company_paid),
+        "employee_payable": _decimal_text(ticket.employee_payable),
+        "excess_cost": _decimal_text(ticket.excess_cost),
+        "excess_option": ticket.excess_handling,
+        "excess_handling": ticket.excess_handling,
+        "rate_source": ticket.rate_source,
+        "daily_rate": _decimal_text(ticket.daily_rate) if ticket.daily_rate is not None else None,
+        "per_day_rate": _decimal_text(ticket.daily_rate) if ticket.daily_rate is not None else None,
+        "airfare_rate": _decimal_text(ticket.airfare_rate) if ticket.airfare_rate is not None else None,
+        "maximum_payout": _decimal_text(ticket.airfare_rate) if ticket.airfare_rate is not None else None,
+        "tenure_months": ticket.tenure_months,
+        "scenario": ticket.scenario,
+    }
+    if employee is not None:
+        data.update(
+            {
+                "employee_code": employee.code,
+                "employee_name": employee.full_name,
+                "arabic_name": getattr(employee, "arabic_name", None) or "",
+                "nationality": employee.nationality,
+                "department": employee.department,
+                "designation": employee.designation,
+                "pay_group": employee.pay_group,
+                "branch": employee.branch,
+                "join_date": employee.join_date.isoformat() if employee.join_date else None,
+            }
+        )
+    return company_id, data
+
+
+def _persist_ticket_pdf_attachment(
+    session: Session,
+    attachment_root: Path,
+    *,
+    ticket_id: str,
+    content: bytes,
+    filename: str,
+    created_by: str | None = None,
+) -> AttachmentRow:
+    """Store A4 allocation PDF on disk + attachments row (entity_type=ticket)."""
+    digest = hashlib.sha256(content).hexdigest()
+    storage_key = f"{digest[:2]}/{digest}"
+    destination = attachment_root / storage_key
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not destination.exists():
+        destination.write_bytes(content)
+    item = AttachmentRow(
+        entity_type="ticket",
+        entity_id=str(ticket_id),
+        original_name=filename[:255],
+        content_type="application/pdf",
+        size_bytes=len(content),
+        sha256=digest,
+        storage_key=storage_key,
+        content=None,
+        scan_status="pending",
+        created_by=created_by,
+    )
+    session.add(item)
+    session.flush()
+    return item
+
+
+def _render_and_persist_issue_pdf(
+    session: Session,
+    *,
+    attachment_root: Path,
+    ticket: TicketRow,
+    employee: EmployeeRow | None,
+    linked_loan: LoanRow | None,
+    prepared_by: str,
+) -> dict[str, Any]:
+    """Render print-format PDF, gate for WA, persist on ticket. Never raises for issue path."""
+    from airfare_management.whatsapp.gates import AttachmentGateError, validate_attachment_bytes
+
+    settings = get_settings()
+    code = (employee.code if employee is not None else None) or "allocation"
+    voucher = ticket.ticket_code or str(ticket.id)[:8]
+    filename = f"airfare-allocation-{code}-{voucher}.pdf"
+    try:
+        company_id, data = _build_ticket_allocation_print_data(
+            session, ticket, employee, linked_loan, prepared_by=prepared_by
+        )
+        if not company_id:
+            return {
+                "pdf_attached": False,
+                "pdf_error": "No company found for allocation print PDF.",
+                "pdf_bytes": 0,
+            }
+        branding_root = attachment_root / "branding"
+        pdf = render_allocation_print_pdf(
+            session,
+            branding_root=branding_root,
+            company_id=company_id,
+            data=data,
+            prepared_by=prepared_by,
+        )
+        gate = validate_attachment_bytes(
+            pdf,
+            declared_mime="application/pdf",
+            filename=filename,
+            max_bytes=settings.whatsapp_max_attachment_bytes,
+            require_clamav=bool(getattr(settings, "whatsapp_require_clamav", False)),
+        )
+        row = _persist_ticket_pdf_attachment(
+            session,
+            attachment_root,
+            ticket_id=ticket.id,
+            content=pdf,
+            filename=filename,
+            created_by=prepared_by or None,
+        )
+        return {
+            "pdf_attached": False,  # set True after Evolution send_media
+            "attachment_id": row.id,
+            "pdf_bytes": gate.size,
+            "pdf_filename": filename,
+            "pdf_b64": base64.b64encode(pdf).decode("ascii"),
+            "pdf_error": None,
+        }
+    except AttachmentGateError as exc:
+        return {
+            "pdf_attached": False,
+            "pdf_bytes": 0,
+            "pdf_error": f"PDF blocked ({exc.code}): {exc}",
+        }
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("airfare.allocation").exception("issue_pdf_render_failed")
+        return {
+            "pdf_attached": False,
+            "pdf_bytes": 0,
+            "pdf_error": f"PDF render failed: {str(exc)[:200]}",
+        }
+
+
+def _fanout_whatsapp_pdf(
+    *,
+    recipients: Sequence[str],
+    text: str,
+    caption: str,
+    pdf_bytes: bytes | None,
+    filename: str,
+    external_id: str,
+    purpose: str,
+    event_detail: dict[str, Any] | None = None,
+    pdf_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve Evolution session and fan-out text + PDF (base64) to recipients."""
+    settings = get_settings()
+    numbers = [n for n in recipients if n]
+    meta = {
+        "pdf_attached": False,
+        "pdf_bytes": len(pdf_bytes) if pdf_bytes else 0,
+        "attachment_id": None,
+        "pdf_error": None,
+        **(pdf_meta or {}),
+    }
+    detail_base = dict(event_detail or {})
+
+    def _with_meta(result: dict[str, Any]) -> dict[str, Any]:
+        out = {**result}
+        out.setdefault("pdf_attached", meta.get("pdf_attached", False))
+        out.setdefault("pdf_bytes", meta.get("pdf_bytes", 0))
+        out.setdefault("attachment_id", meta.get("attachment_id"))
+        out.setdefault("recipients", numbers)
+        out.setdefault("to", numbers[0] if numbers else None)
+        if meta.get("pdf_error") and not out.get("pdf_error"):
+            out["pdf_error"] = meta["pdf_error"]
+        # Surface I — always return distinguishable outbound_status.
+        classified = with_outbound_status(out)
+        LOGGER.info(
+            "whatsapp_outbound_classified",
+            extra={
+                "outbound_status": classified.get("outbound_status"),
+                "purpose": purpose,
+                "sent": bool(classified.get("sent")),
+                "skipped": classified.get("skipped"),
+                "queued": bool(classified.get("queued")),
+            },
+        )
+        return classified
+
+    if not settings.evolution_enabled or not settings.evolution_api_key:
+        return _with_meta({"sent": False, "skipped": "evolution_disabled"})
+    if not numbers:
+        return _with_meta({"sent": False, "skipped": "no_number"})
+
+    clean_text = _strip_wa_emoji(text)
+    clean_caption = _strip_wa_emoji(caption)
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii") if pdf_bytes else None
+    preferred = (settings.whatsapp_default_instance or "").strip()
+
+    try:
+        from airfare_management.whatsapp.client import EvolutionClient, EvolutionError
+        from airfare_management.whatsapp import events as wa_events
+
+        client = EvolutionClient(settings.evolution_base_url, settings.evolution_api_key)
+        instance, state = client.resolve_open_instance(preferred)
+        if not instance:
+            return _with_meta(
+                {
+                    "sent": False,
+                    "queued": False,
+                    "skipped": "no_instance",
+                    "error": "No Evolution WhatsApp instance found. Create one in Settings.",
+                }
+            )
+
+        if state != "open":
+            try:
+                client.connect(instance)
+                _, state = client.resolve_open_instance(instance)
+            except EvolutionError:
+                pass
+
+        if state != "open":
+            alt, alt_state = client.resolve_open_instance(None)
+            if alt and alt_state == "open":
+                instance, state = alt, alt_state
+
+        if state != "open":
+            queued_ids: list[str] = []
+            for digits in numbers:
+                queued = wa_events.enqueue_outbox(
+                    instance=instance,
+                    kind="text",
+                    payload={"number": digits, "text": clean_text, "external_id": external_id},
+                    reason=f"session_{state or 'offline'}",
+                )
+                queued_ids.append(str(queued.get("id") or ""))
+            return _with_meta(
+                {
+                    "sent": False,
+                    "queued": True,
+                    "instance": instance,
+                    "state": state,
+                    "to": numbers[0],
+                    "recipients": list(numbers),
+                    "outbox_ids": queued_ids,
+                    "results": [{"to": d, "sent": False, "queued": True} for d in numbers],
+                    "error": (
+                        f"WhatsApp session '{instance}' is {state or 'offline'}. "
+                        "Open Settings → WhatsApp, scan QR until Connected, then retry or drain outbox."
+                    ),
+                }
+            )
+
+        results: list[dict[str, Any]] = []
+        pdf_ok_any = False
+        sent_any = False
+        last_error: str | None = None
+        for idx, digits in enumerate(numbers):
+            if idx > 0:
+                time.sleep(WA_MULTI_SEND_DELAY_SEC)
+            row: dict[str, Any] = {"to": digits, "sent": False, "pdf_attached": False}
+            try:
+                client.send_text(instance, digits, clean_text)
+                sent_any = True
+                row["sent"] = True
+                wa_events.set_instance_meta(instance, state="open")
+                wa_events.push_event(
+                    event_type="SEND_TEXT",
+                    instance=instance,
+                    summary=f"{purpose} → {digits}",
+                    detail={**detail_base, "purpose": purpose},
+                )
+                if pdf_b64 and not meta.get("pdf_error"):
+                    try:
+                        client.send_media(
+                            instance,
+                            number=digits,
+                            mediatype="document",
+                            mimetype="application/pdf",
+                            media=pdf_b64,
+                            file_name=filename,
+                            caption=clean_caption,
+                        )
+                        row["pdf_attached"] = True
+                        pdf_ok_any = True
+                        wa_events.push_event(
+                            event_type="SEND_MEDIA",
+                            instance=instance,
+                            summary=f"{purpose} PDF → {digits}",
+                            detail={
+                                **detail_base,
+                                "attachment_id": meta.get("attachment_id"),
+                                "file": filename,
+                                "pdf_bytes": meta.get("pdf_bytes"),
+                            },
+                        )
+                    except Exception as media_exc:  # noqa: BLE001
+                        row["pdf_error"] = str(media_exc)[:200]
+                        last_error = f"PDF WhatsApp send failed: {str(media_exc)[:200]}"
+                        wa_events.push_event(
+                            event_type="SEND_MEDIA_FAILED",
+                            instance=instance,
+                            summary=f"{purpose} PDF failed → {digits}",
+                            detail={**detail_base, "error": str(media_exc)[:200]},
+                        )
+            except Exception as send_exc:  # noqa: BLE001
+                row["error"] = str(send_exc)[:200]
+                last_error = str(send_exc)[:240]
+                try:
+                    queued = wa_events.enqueue_outbox(
+                        instance=instance,
+                        kind="text",
+                        payload={"number": digits, "text": clean_text, "external_id": external_id},
+                        reason="send_failed",
+                    )
+                    row["queued"] = True
+                    row["outbox_id"] = queued.get("id")
+                except Exception:  # noqa: BLE001
+                    pass
+            results.append(row)
+
+        meta["pdf_attached"] = pdf_ok_any
+        if last_error and not pdf_ok_any and meta.get("pdf_error") is None:
+            meta["pdf_error"] = last_error
+
+        wa_events.drain_outbox(instance)
+        return _with_meta(
+            {
+                "sent": sent_any,
+                "instance": instance,
+                "state": "open",
+                "to": numbers[0],
+                "recipients": list(numbers),
+                "results": results,
+                "raw_ok": sent_any,
+                "pdf_attached": pdf_ok_any,
+                "error": None if sent_any else (last_error or "WhatsApp send failed"),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        try:
+            from airfare_management.whatsapp import events as wa_events
+
+            queued_ids = []
+            for digits in numbers:
+                queued = wa_events.enqueue_outbox(
+                    instance=preferred or "unknown",
+                    kind="text",
+                    payload={"number": digits, "text": clean_text, "external_id": external_id},
+                    reason="send_failed",
+                )
+                queued_ids.append(queued.get("id"))
+            return _with_meta(
+                {
+                    "sent": False,
+                    "queued": True,
+                    "instance": preferred or None,
+                    "to": numbers[0],
+                    "recipients": list(numbers),
+                    "error": str(exc)[:240],
+                    "outbox_ids": queued_ids,
+                }
+            )
+        except Exception:  # noqa: BLE001
+            return _with_meta(
+                {
+                    "sent": False,
+                    "error": str(exc)[:240],
+                    "instance": preferred or None,
+                    "to": numbers[0] if numbers else None,
+                    "recipients": list(numbers),
+                }
+            )
+
+
+def _notify_allocation_whatsapp(
+    *,
+    manager_wa: str | Sequence[str],
+    approval_ref: str,
+    ticket: TicketRow,
+    employee: EmployeeRow | None,
+    session: Session | None = None,
+    attachment_root: Path | None = None,
+    linked_loan: LoanRow | None = None,
+    prepared_by: str = "",
+    purpose: Literal["issue", "update"] = "issue",
+    trip_type: str | None = None,
+) -> dict[str, Any]:
+    """Send approval/update text + A4 print PDF via Evolution to one or more numbers."""
+    recipients = _parse_whatsapp_recipients(manager_wa)
+
+    pdf_meta: dict[str, Any] = {
+        "pdf_attached": False,
+        "pdf_bytes": 0,
+        "attachment_id": None,
+        "pdf_error": None,
+    }
+    pdf_bytes: bytes | None = None
+    pdf_filename = "airfare-allocation.pdf"
+    if session is not None and attachment_root is not None:
+        rendered = _render_and_persist_issue_pdf(
+            session,
+            attachment_root=attachment_root,
+            ticket=ticket,
+            employee=employee,
+            linked_loan=linked_loan,
+            prepared_by=prepared_by,
+        )
+        pdf_meta.update(
+            {
+                "pdf_attached": False,
+                "pdf_bytes": rendered.get("pdf_bytes") or 0,
+                "attachment_id": rendered.get("attachment_id"),
+                "pdf_error": rendered.get("pdf_error"),
+                "pdf_filename": rendered.get("pdf_filename"),
+            }
+        )
+        pdf_filename = rendered.get("pdf_filename") or pdf_filename
+        b64 = rendered.get("pdf_b64")
+        if b64 and not rendered.get("pdf_error"):
+            try:
+                pdf_bytes = base64.b64decode(b64)
+            except Exception:  # noqa: BLE001
+                pdf_meta["pdf_error"] = "Invalid PDF encoding after render."
+
+    emp_label = ""
+    if employee is not None:
+        emp_label = f"{employee.code} — {employee.full_name}"
+    headline = (
+        "ATLAS Airfare Allocation — ticket updated"
+        if purpose == "update"
+        else "ATLAS Airfare Allocation — approval request"
+    )
+    lines = [
+        headline,
+        f"Ticket: {ticket.ticket_code or ticket.id}",
+        f"Employee: {emp_label}" if emp_label else "",
+        f"Travel date: {ticket.travel_date}",
+        f"Route: {ticket.origin_code} → {ticket.destination_code}",
+        f"Trip: {_trip_type_label(trip_type)}" if trip_type else "",
+        f"Ticket amount: {ticket.ticket_cost}",
+        f"Entitlement: {ticket.entitlement}",
+        f"Excess: {ticket.excess_cost}",
+        f"Settlement: {ticket.excess_handling}",
+        f"Approval authority: {approval_ref}" if approval_ref else "",
+        (
+            "Please review the updated airfare allocation."
+            if purpose == "update"
+            else "Please review and approve this airfare allocation."
+        ),
+        "A4 allocation slip PDF is attached when WhatsApp delivery succeeds.",
+    ]
+    text = "\n".join(ln for ln in lines if ln)
+    caption = f"ATLAS allocation {ticket.ticket_code or ticket.id} — A4 print slip"
+    return _fanout_whatsapp_pdf(
+        recipients=recipients,
+        text=text,
+        caption=caption,
+        pdf_bytes=pdf_bytes,
+        filename=pdf_filename,
+        external_id=str(ticket.id),
+        purpose=f"allocation_{purpose}",
+        event_detail={"ticket_id": str(ticket.id), "ticket_code": ticket.ticket_code},
+        pdf_meta=pdf_meta,
+    )
+
+
+def _notify_document_whatsapp(
+    session: Session,
+    *,
+    document_id: str,
+    document_root: str | Path,
+    numbers: str | Sequence[str],
+    prepared_by: str = "",
+) -> dict[str, Any]:
+    """Send offer letter / contract PDF via Evolution (gate + base64 fan-out)."""
+    from airfare_management.whatsapp.gates import AttachmentGateError, validate_attachment_bytes
+
+    settings = get_settings()
+    recipients = _parse_whatsapp_recipients(numbers)
+    row = get_document(session, document_id)
+    kind_label = (
+        "Offer Letter"
+        if row.kind == "offer_letter"
+        else "Employment Contract"
+        if row.kind == "contract"
+        else "Document"
+    )
+    voucher = row.voucher_no or row.title or row.id
+    party = ""
+    params = row.params if isinstance(getattr(row, "params", None), dict) else {}
+    if isinstance(params, dict):
+        from airfare_management.application.documents import sanitize_printable_field
+
+        party = sanitize_printable_field(str(params.get("full_name") or ""), limit=200)
+
+    pdf_meta: dict[str, Any] = {
+        "pdf_attached": False,
+        "pdf_bytes": 0,
+        "attachment_id": None,
+        "pdf_error": None,
+    }
+    pdf_bytes: bytes | None = None
+    safe_name = f"{str(voucher).replace(' ', '_')}.pdf"
+    try:
+        path = document_pdf_path(document_root, row)
+        data = path.read_bytes()
+        gate = validate_attachment_bytes(
+            data,
+            declared_mime="application/pdf",
+            filename=safe_name,
+            max_bytes=settings.whatsapp_max_attachment_bytes,
+            require_clamav=bool(getattr(settings, "whatsapp_require_clamav", False)),
+        )
+        pdf_bytes = data
+        pdf_meta["pdf_bytes"] = gate.size
+    except AttachmentGateError as exc:
+        pdf_meta["pdf_error"] = f"PDF blocked ({exc.code}): {exc}"
+    except Exception as exc:  # noqa: BLE001
+        pdf_meta["pdf_error"] = f"PDF load failed: {str(exc)[:200]}"
+
+    lines = [
+        f"ATLAS {kind_label}",
+        f"Voucher: {voucher}",
+        f"Party: {party}" if party else "",
+        f"Prepared by: {prepared_by}" if prepared_by else "",
+        "PDF document is attached when WhatsApp delivery succeeds.",
+    ]
+    text = "\n".join(ln for ln in lines if ln)
+    caption = f"ATLAS {kind_label} {voucher}"
+    return _fanout_whatsapp_pdf(
+        recipients=recipients,
+        text=text,
+        caption=caption,
+        pdf_bytes=pdf_bytes,
+        filename=safe_name,
+        external_id=str(row.id),
+        purpose=f"document_{row.kind}",
+        event_detail={
+            "document_id": str(row.id),
+            "voucher_no": row.voucher_no,
+            "kind": row.kind,
+        },
+        pdf_meta=pdf_meta,
+    )
+
+
 def _as_decimal(value: object) -> Decimal | None:
     """Coerce JSON/preference values to Decimal."""
     if value is None or value == "":
@@ -1144,7 +1950,15 @@ def _allocation_response(
     return body
 
 
-def _problem(status: int, code: str, detail: str) -> JSONResponse:
+def _problem(
+    status: int,
+    code: str,
+    detail: str,
+    *,
+    error_class: str | None = None,
+) -> JSONResponse:
+    """RFC7807-style problem body with mandatory ``error_class`` (surface H)."""
+    klass = classify_error_class(code, status=status, explicit=error_class)  # type: ignore[arg-type]
     return JSONResponse(
         status_code=status,
         content={
@@ -1153,6 +1967,7 @@ def _problem(status: int, code: str, detail: str) -> JSONResponse:
             "status": status,
             "code": code,
             "detail": detail,
+            "error_class": klass,
             "correlation_id": correlation_context.get() or "",
         },
     )
@@ -1461,6 +2276,7 @@ def _ensure_company_profile_columns(bind: Any) -> None:
     additions: list[tuple[str, str]] = [
         ("cr_no", "VARCHAR(60) NULL"),
         ("address", "VARCHAR(500) NULL"),
+        ("arabic_name", "NVARCHAR(200) NULL" if dialect == "mssql" else "TEXT NULL"),
         (
             "logo_data",
             "VARBINARY(MAX) NULL" if dialect == "mssql" else "BLOB NULL",
@@ -1994,14 +2810,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "not_found": 404,
             "stale_version": 409,
             "password_reuse": 409,
+            "pdf_missing": 503,
+            "storage_unavailable": 503,
+            "upstream_unavailable": 503,
+            "evolution_unreachable": 503,
         }.get(error.code, 422)
-        return _problem(status, error.code, str(error))
+        return _problem(
+            status,
+            error.code,
+            str(error),
+            error_class=getattr(error, "error_class", None),
+        )
 
     @app.exception_handler(IntegrityError)
     async def integrity_error(_: Request, error: IntegrityError) -> JSONResponse:
         LOGGER.warning("database_constraint", exc_info=error)
         return _problem(
-            409, "duplicate_or_invalid_reference", "The record conflicts with existing data."
+            409,
+            "duplicate_or_invalid_reference",
+            "The record conflicts with existing data.",
+            error_class="business_rule",
         )
 
     database = build_database(sessions)
@@ -2009,8 +2837,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     authorized = build_authorized(authenticated)
     app.include_router(create_reports_router(database, authorized))
     from airfare_management.api.routers.entitlement import create_entitlement_router
+    from airfare_management.api.routers.finance import create_finance_router
 
     app.include_router(create_entitlement_router(database, authorized))
+    app.include_router(create_finance_router(database, authorized))
+    from airfare_management.api.routers.whatsapp import create_whatsapp_router
+
+    app.include_router(create_whatsapp_router(database, authorized))
 
     def scoped_employee_id(session: Session, claims: Claims) -> UUID | None:
         """Return an employee restriction for non-privileged identities."""
@@ -2385,6 +3218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             rows.append(
                 {
                     **_row(item, "id", "code", "name", "currency", "active"),
+                    "arabic_name": getattr(item, "arabic_name", None),
                     "cr_no": getattr(item, "cr_no", None),
                     "address": getattr(item, "address", None),
                     "has_logo": has_logo,
@@ -2405,6 +3239,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("company_not_found", "Company was not found.")
         if payload.name is not None:
             item.name = payload.name.strip()
+        if payload.arabic_name is not None:
+            item.arabic_name = payload.arabic_name.strip() or None
         if payload.currency is not None:
             item.currency = payload.currency.upper()
         if payload.cr_no is not None:
@@ -2425,6 +3261,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         has_logo = has_db_logo or logo_file is not None
         return {
             **_row(item, "id", "code", "name", "currency", "active"),
+            "arabic_name": getattr(item, "arabic_name", None),
             "cr_no": getattr(item, "cr_no", None),
             "address": getattr(item, "address", None),
             "has_logo": has_logo,
@@ -2536,6 +3373,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.flush()
         return {
             **_row(item, "id", "code", "name", "currency", "active"),
+            "arabic_name": getattr(item, "arabic_name", None),
             "cr_no": getattr(item, "cr_no", None),
             "address": getattr(item, "address", None),
             "has_logo": False,
@@ -3517,7 +4355,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def allocation_issue(
         payload: AllocationIssueRequest,
         session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
     ) -> dict[str, Any]:
         if payload.origin_code.upper() == payload.destination_code.upper():
             raise DomainError("invalid_route", "Origin and destination must differ.")
@@ -3613,6 +4451,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if settlement.option is ExcessSettlementOption.ENTITLEMENT_AMOUNT
             else payload.requested_ticket_amount
         )
+        approval_ref = str(payload.manager_approval or "").strip()
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        settings = get_settings()
+        if settings.evolution_enabled and not wa_recipients:
+            raise DomainError(
+                "manager_whatsapp_required",
+                "At least one valid Manager WhatsApp number (8–15 digits) is required "
+                "to notify via Evolution when issuing a ticket.",
+            )
+        if is_loan_settlement(settlement.option) and not approval_ref:
+            raise DomainError(
+                "manager_approval_required",
+                "Loan settlement requires approval authority / manager reference before issue.",
+            )
+        year_start = date(payload.as_of_date.year, 1, 1)
+        prior_tickets = session.scalar(
+            select(func.count())
+            .select_from(TicketRow)
+            .where(
+                TicketRow.employee_id == payload.employee_id,
+                TicketRow.deleted_at.is_(None),
+                TicketRow.travel_date >= year_start,
+                TicketRow.travel_date <= payload.as_of_date,
+                TicketRow.status.in_(("draft", "submitted", "approved", "paid")),
+            )
+        )
+        if int(prior_tickets or 0) >= 1 and not approval_ref:
+            raise DomainError(
+                "manager_approval_required",
+                "Second (or later) ticket in the travel year requires approval authority "
+                "before issue. Each issued allocation counts as one claim "
+                "(round trip going+return as one ticket = one claim).",
+            )
+        note_parts: list[str] = []
+        note_parts.append(f"Trip type: {_trip_type_label(payload.trip_type)}")
+        if approval_ref:
+            note_parts.append(f"Approval authority: {approval_ref}")
+        if wa_recipients:
+            note_parts.append(f"Manager WhatsApp: {', '.join(wa_recipients)}")
+        user_notes = str(payload.notes or "").strip()
+        if user_notes:
+            note_parts.append(user_notes)
+        composed_notes = "\n".join(note_parts)
         ticket = TicketRow(
             employee_id=payload.employee_id,
             travel_date=payload.as_of_date,
@@ -3634,7 +4518,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             as_of_date=payload.as_of_date,
             tenure_months=settlement.tenure_months,
             status="approved",
-            notes=payload.notes,
+            notes=composed_notes,
         )
         session.add(ticket)
         session.flush()
@@ -3674,7 +4558,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     loan.first_due_date,
                 ),
             )
+        from airfare_management.infrastructure import finance_ledger as finance_gl
+
+        employee_row = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.id == payload.employee_id,
+                EmployeeRow.deleted_at.is_(None),
+            )
+        )
+        if employee_row is not None:
+            finance_gl.safe_post(
+                session,
+                finance_gl.post_ticket_issue,
+                company_id=employee_row.company_id,
+                employee_id=payload.employee_id,
+                ticket_id=ticket.id,
+                entry_date=payload.as_of_date,
+                company_payout=settlement.company_payout,
+                loan_principal=settlement.loan_principal,
+                employee_payable=settlement.employee_payable,
+                ticket_cost=issued_ticket_cost,
+                excess_handling=settlement.option.value,
+                actor="system",
+            )
         body = _decorate_allocation(session, preview, query, payload.employee_id)
+        whatsapp_notify = _notify_allocation_whatsapp(
+            manager_wa=wa_recipients,
+            approval_ref=approval_ref,
+            ticket=ticket,
+            employee=employee_row,
+            session=session,
+            attachment_root=attachment_root,
+            linked_loan=loan,
+            prepared_by=claims.username or "",
+            purpose="issue",
+            trip_type=payload.trip_type,
+        )
         body.update(
             {
                 "id": ticket.id,
@@ -3684,6 +4603,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "status": ticket.status,
                 "version": ticket.version,
                 "message": _allocation_saved_message(ticket, loan),
+                "whatsapp": whatsapp_notify,
             }
         )
         return body
@@ -3719,19 +4639,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if ticket is None:
                 raise HTTPException(status_code=404, detail="Ticket not found")
             linked_loan = _active_source_loan(session, ticket.id)
-            employee_id = ticket.employee_id
-            as_of_date = ticket.as_of_date or ticket.travel_date
-            requested_ticket_amount = ticket.ticket_cost
-            handling = (ticket.excess_handling or "SELF_PAID").upper()
-            if handling == "LOAN":
-                handling = "CONVERT_TO_LOAN"
-            excess_option = handling  # type: ignore[assignment]
-            tenure_months = ticket.tenure_months or tenure_months
-            origin_code = ticket.origin_code.upper()
-            destination_code = ticket.destination_code.upper()
-            notes = ticket.notes or notes
-            ticket_code = ticket.ticket_code or ticket_code
-            status = (ticket.status or status or "APPROVED").upper()
+            employee = session.scalar(
+                select(EmployeeRow).where(
+                    EmployeeRow.id == ticket.employee_id,
+                    EmployeeRow.deleted_at.is_(None),
+                )
+            )
+            company_id, body = _build_ticket_allocation_print_data(
+                session,
+                ticket,
+                employee,
+                linked_loan,
+                prepared_by=claims.username,
+            )
+            if company_id is None:
+                raise HTTPException(status_code=400, detail="No company found for allocation print")
+            branding_root = Path(config.attachment_root).resolve() / "branding"
+            pdf = render_allocation_print_pdf(
+                session,
+                branding_root=branding_root,
+                company_id=company_id,
+                data=body,
+                prepared_by=claims.username,
+            )
+            code = body.get("employee_code") or "allocation"
+            filename = f"airfare-allocation-{code}.pdf"
+            return Response(
+                content=pdf,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
 
         query = _allocation_query(
             session,
@@ -3753,7 +4690,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = _decorate_allocation(
             session, AllocationQueryHandler().handle(query), query, employee_id
         )
-        company_name = "Atlas Aluminum"
         company_id: str | None = None
         reporting_officer = ""
         employee = None
@@ -3764,46 +4700,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     EmployeeRow.deleted_at.is_(None),
                 )
             )
-        company: CompanyRow | None = None
+        company = _company_for_allocation_print(session, employee)
         if employee is not None:
-            company = session.scalar(
-                select(CompanyRow).where(CompanyRow.id == employee.company_id)
-            )
-            if employee.reporting_officer_id:
-                officer_key = str(employee.reporting_officer_id)
-                officer = None
-                try:
-                    officer = session.scalar(
-                        select(EmployeeRow).where(
-                            EmployeeRow.id == UUID(officer_key),
-                            EmployeeRow.deleted_at.is_(None),
-                        )
-                    )
-                except (ValueError, TypeError):
-                    officer = None
-                if officer is None:
-                    officer = session.scalar(
-                        select(EmployeeRow).where(
-                            EmployeeRow.code == officer_key,
-                            EmployeeRow.deleted_at.is_(None),
-                        )
-                    )
-                if officer is not None:
-                    reporting_officer = officer.full_name
-                else:
-                    reporting_officer = officer_key
-        if company is None:
-            company = session.scalar(
-                select(CompanyRow)
-                .where(CompanyRow.deleted_at.is_(None), CompanyRow.active == true())
-                .order_by(CompanyRow.code)
-            )
+            reporting_officer = _reporting_officer_name(session, employee)
         if company is not None:
             company_id = company.id
-            company_name = company.name or company_name
+        if as_of_date is None:
+            raise HTTPException(status_code=400, detail="as_of_date is required for allocation print")
         body.update(
             {
-                "as_of_date": as_of_date.isoformat() if as_of_date else payload.as_of_date.isoformat(),
+                "as_of_date": as_of_date.isoformat(),
                 "origin_code": origin_code,
                 "destination_code": destination_code,
                 "notes": notes,
@@ -3823,36 +4729,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             body.setdefault("pay_group", employee.pay_group)
             body.setdefault("branch", employee.branch)
             body.setdefault("join_date", employee.join_date.isoformat() if employee.join_date else None)
-        if ticket is not None:
-            # Saved ticket settlement is the source of truth (MSSQL), not a re-preview.
-            body.update(
-                {
-                    "ticket_id": ticket.id,
-                    **_ticket_display(ticket),
-                    **_loan_display(linked_loan),
-                    "travel_date": ticket.travel_date.isoformat(),
-                    "ticket_cost": _decimal_text(ticket.ticket_cost),
-                    "requested_ticket_amount": _decimal_text(ticket.ticket_cost),
-                    "entitlement_amount": _decimal_text(ticket.entitlement),
-                    "final_entitlement_amount": _decimal_text(ticket.entitlement),
-                    "airfare_entitlement_amount": _decimal_text(ticket.entitlement),
-                    "company_paid": _decimal_text(ticket.company_paid),
-                    "company_payout": _decimal_text(ticket.company_payout or ticket.company_paid),
-                    "employee_payable": _decimal_text(ticket.employee_payable),
-                    "excess_cost": _decimal_text(ticket.excess_cost),
-                    "excess_option": ticket.excess_handling,
-                    "excess_handling": ticket.excess_handling,
-                    "rate_source": ticket.rate_source,
-                    "daily_rate": _decimal_text(ticket.daily_rate) if ticket.daily_rate is not None else None,
-                    "per_day_rate": _decimal_text(ticket.daily_rate) if ticket.daily_rate is not None else None,
-                    "airfare_rate": _decimal_text(ticket.airfare_rate) if ticket.airfare_rate is not None else None,
-                    "maximum_payout": _decimal_text(ticket.airfare_rate) if ticket.airfare_rate is not None else None,
-                    "tenure_months": ticket.tenure_months,
-                    "scenario": ticket.scenario,
-                    "status": (ticket.status or "APPROVED").upper(),
-                    "notes": ticket.notes or notes,
-                }
-            )
         if company_id is None:
             raise HTTPException(status_code=400, detail="No company found for allocation print")
         branding_root = Path(config.attachment_root).resolve() / "branding"
@@ -4100,7 +4976,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ticket_id: UUID,
         payload: TicketUpdate,
         session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
         if_match: Annotated[int, Header(alias="If-Match")],
     ) -> dict[str, Any]:
         item = session.get(TicketRow, str(ticket_id))
@@ -4146,6 +5022,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _soft_delete_loan(session, linked_loan)
             linked_loan = None
 
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        approval_ref = str(payload.manager_approval or "").strip()
+        if payload.notify_whatsapp:
+            settings = get_settings()
+            if settings.evolution_enabled and not wa_recipients:
+                raise DomainError(
+                    "manager_whatsapp_required",
+                    "Enter at least one valid WhatsApp number when Send WhatsApp on save is enabled.",
+                )
+
         item.travel_date = payload.travel_date
         item.origin_code = payload.origin_code.upper()
         item.destination_code = payload.destination_code.upper()
@@ -4169,7 +5058,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             loan_created = loan is not None
 
-        return {
+        employee_row = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.id == item.employee_id,
+                EmployeeRow.deleted_at.is_(None),
+            )
+        )
+        whatsapp_notify: dict[str, Any] | None = None
+        if payload.notify_whatsapp:
+            whatsapp_notify = _notify_allocation_whatsapp(
+                manager_wa=wa_recipients,
+                approval_ref=approval_ref,
+                ticket=item,
+                employee=employee_row,
+                session=session,
+                attachment_root=attachment_root,
+                linked_loan=loan,
+                prepared_by=claims.username or "",
+                purpose="update",
+            )
+
+        body = {
             **_row(
                 item,
                 "id",
@@ -4193,6 +5102,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "loan_revised": bool(revise_recovery and loan_created),
             "loan_created": bool(loan_created and not revise_recovery),
         }
+        if whatsapp_notify is not None:
+            body["whatsapp"] = whatsapp_notify
+        return body
 
     @app.patch("/v1/tickets/{ticket_id}/status")
     def change_ticket_status(
@@ -4428,6 +5340,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 item.principal, item.annual_rate, item.installments, item.first_due_date
             ),
         )
+        if not item.source_ticket_id:
+            from airfare_management.infrastructure import finance_ledger as finance_gl
+
+            employee_row = session.scalar(
+                select(EmployeeRow).where(
+                    EmployeeRow.id == payload.employee_id,
+                    EmployeeRow.deleted_at.is_(None),
+                )
+            )
+            if employee_row is not None:
+                finance_gl.safe_post(
+                    session,
+                    finance_gl.post_loan_disbursement,
+                    company_id=employee_row.company_id,
+                    employee_id=payload.employee_id,
+                    loan_id=item.id,
+                    entry_date=payload.first_due_date,
+                    principal=payload.principal,
+                    actor="system",
+                )
         return {
             **_row(
                 item,
@@ -4478,6 +5410,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item.status = "settled"
         session.add(payment)
         session.flush()
+        from airfare_management.infrastructure import finance_ledger as finance_gl
+
+        employee_row = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.id == item.employee_id,
+                EmployeeRow.deleted_at.is_(None),
+            )
+        )
+        if employee_row is not None:
+            finance_gl.safe_post(
+                session,
+                finance_gl.post_loan_recovery,
+                company_id=employee_row.company_id,
+                employee_id=item.employee_id,
+                loan_id=loan_id,
+                payment_id=payment.id,
+                entry_date=payload.paid_on,
+                amount=payload.amount,
+                actor="system",
+            )
         if item.status != "settled" and item.outstanding > 0:
             LoanRepository(session).replace_schedule(
                 item.id,
@@ -5000,11 +5952,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from airfare_management.ai_agent.anomaly_detector import score_ticket_anomalies
 
         rows = [
-            {"ticket_cost": str(t.ticket_cost), "entitlement": str(t.entitlement), "employee_id": str(t.employee_id)}
+            {
+                "ticket_cost": str(t.ticket_cost),
+                "entitlement": str(t.entitlement if t.entitlement is not None else "0"),
+                "employee_id": str(t.employee_id),
+            }
             for t in session.scalars(select(TicketRow).where(TicketRow.deleted_at.is_(None)).limit(500))
         ]
-        flagged = score_ticket_anomalies(rows)
-        return {"count": len(flagged), "items": flagged}
+        try:
+            flagged = score_ticket_anomalies(rows)
+        except Exception as exc:  # noqa: BLE001
+            # TRUE MODE: never 500 the Insights dashboard on bad ticket math.
+            return {
+                "count": 0,
+                "items": [],
+                "ok": False,
+                "error": "anomaly_scan_failed",
+                "detail": str(exc)[:400],
+            }
+        return {"count": len(flagged), "items": flagged, "ok": True}
 
     @app.post("/v1/ai/loans/{loan_id}/risk-score")
     def ai_loan_risk_score(
@@ -5179,6 +6145,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 deepseek_base_url=settings.ai_deepseek_base_url,
                 deepseek_model=settings.ai_deepseek_model,
                 provider=settings.ai_llm_provider,
+                openai_compat_enabled=settings.ai_openai_compat_enabled,
+                openai_compat_base_url=settings.ai_openai_compat_base_url,
+                openai_compat_model=settings.ai_openai_compat_model,
+                openai_compat_api_key=settings.ai_openai_compat_api_key,
             ),
         }
 
@@ -5186,7 +6156,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def ai_llm_status(
         _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
     ) -> dict[str, Any]:
-        """LLM provider health: Ollama (free) vs optional DeepSeek API."""
+        """LLM provider health: Ollama vs optional OpenAI-compat (LM Studio/Jan/AnythingLLM) vs DeepSeek."""
         from airfare_management.ai_agent.local_llm import llm_status
         from airfare_management.config import get_settings
 
@@ -5199,6 +6169,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             deepseek_base_url=settings.ai_deepseek_base_url,
             deepseek_model=settings.ai_deepseek_model,
             provider=settings.ai_llm_provider,
+            openai_compat_enabled=settings.ai_openai_compat_enabled,
+            openai_compat_base_url=settings.ai_openai_compat_base_url,
+            openai_compat_model=settings.ai_openai_compat_model,
+            openai_compat_api_key=settings.ai_openai_compat_api_key,
         )
 
     @app.post("/v1/ai/agent/chat")
@@ -5209,16 +6183,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         from airfare_management.ai_agent.smart_agent import run_agent
 
-        result = run_agent(
-            session,
-            message=payload.message,
-            apply_fix=payload.apply_fix,
-            auto_repair_mode=payload.auto_repair_mode,
-            apply_token=payload.apply_token,
-            confirm=payload.confirm,
-            actor=claims.username,
-        )
-        return result.model_dump(mode="json")
+        try:
+            result = run_agent(
+                session,
+                message=payload.message,
+                apply_fix=payload.apply_fix,
+                auto_repair_mode=payload.auto_repair_mode,
+                apply_token=payload.apply_token,
+                confirm=payload.confirm,
+                actor=claims.username,
+            )
+            return result.model_dump(mode="json")
+        except Exception as exc:  # noqa: BLE001
+            # Prefer structured envelope over bare 500 (FastAPI production error handling).
+            # https://johal.in/fastapi-error-handling-and-exception-middleware-for-production-apis
+            session.rollback()
+            return {
+                "intent": "error",
+                "outcome": "error",
+                "reply": (
+                    "### Think\n- Agent hit an unexpected server error.\n"
+                    "### Logic\n- TRUE MODE: fail closed without crashing the UI.\n"
+                    f"### Answer\nAgent error: {str(exc)[:300]}\n"
+                    "### Next\n- Retry, or ask a narrower question (e.g. Teach me finance ledger export)."
+                ),
+                "confidence_score": 0.2,
+                "tools_used": ["error_guard"],
+                "sql": [],
+                "sql_preview": [],
+                "findings": [],
+                "schema_version": "hcm-airfare-v3",
+                "error": str(exc)[:400],
+            }
 
     @app.post("/v1/ai/agent/repair/apply")
     def ai_agent_repair_apply(
@@ -5737,6 +6733,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session: Annotated[Session, Depends(database)],
         claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
     ) -> dict[str, Any]:
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        if payload.notify_whatsapp:
+            settings = get_settings()
+            if settings.evolution_enabled and not wa_recipients:
+                raise DomainError(
+                    "manager_whatsapp_required",
+                    "Enter at least one valid WhatsApp number when Send WhatsApp with PDF is enabled.",
+                )
         row = create_document(
             session,
             document_root=config.document_root,
@@ -5748,7 +6755,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raw_params=payload.params,
             actor=claims.username,
         )
-        return {
+        body: dict[str, Any] = {
             "id": row.id,
             "document_number": row.document_number,
             "voucher_no": row.voucher_no,
@@ -5762,6 +6769,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "has_pdf": bool(row.pdf_key),
             "version": row.version,
         }
+        if payload.notify_whatsapp:
+            body["whatsapp"] = _notify_document_whatsapp(
+                session,
+                document_id=row.id,
+                document_root=config.document_root,
+                numbers=wa_recipients,
+                prepared_by=claims.username or "",
+            )
+        return body
 
     @app.get("/v1/documents/defaults/{employee_id}")
     def document_defaults_for_employee(
@@ -5802,6 +6818,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
         if_match: Annotated[int, Header(alias="If-Match")],
     ) -> dict[str, Any]:
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        if payload.notify_whatsapp:
+            settings = get_settings()
+            if settings.evolution_enabled and not wa_recipients:
+                raise DomainError(
+                    "manager_whatsapp_required",
+                    "Enter at least one valid WhatsApp number when Send WhatsApp with PDF is enabled.",
+                )
         row = update_document(
             session,
             document_id=document_id,
@@ -5814,7 +6841,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             company_id=payload.company_id,
             template_key=payload.template_key,
         )
-        return {
+        body: dict[str, Any] = {
             "id": row.id,
             "document_number": row.document_number,
             "voucher_no": row.voucher_no,
@@ -5828,6 +6855,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "has_pdf": bool(row.pdf_key),
             "version": row.version,
         }
+        if payload.notify_whatsapp:
+            body["whatsapp"] = _notify_document_whatsapp(
+                session,
+                document_id=row.id,
+                document_root=config.document_root,
+                numbers=wa_recipients,
+                prepared_by=claims.username or "",
+            )
+        return body
+
+    @app.post("/v1/documents/{document_id}/whatsapp")
+    def send_document_whatsapp(
+        document_id: str,
+        payload: DocumentWhatsAppRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        settings = get_settings()
+        if settings.evolution_enabled and not wa_recipients:
+            raise DomainError(
+                "manager_whatsapp_required",
+                "Enter at least one valid WhatsApp number (8–15 digits).",
+            )
+        # Ensure document exists and has PDF before notify
+        get_document(session, document_id)
+        wa = _notify_document_whatsapp(
+            session,
+            document_id=document_id,
+            document_root=config.document_root,
+            numbers=wa_recipients,
+            prepared_by=claims.username or "",
+        )
+        return {"ok": True, "document_id": document_id, "whatsapp": wa}
 
     @app.get("/v1/documents/{document_id}/pdf")
     def download_document_pdf(

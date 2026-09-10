@@ -28,6 +28,7 @@ from airfare_management.ai_agent.schema_dictionary import (
     schema_fingerprint,
 )
 from airfare_management.ai_agent.product_knowledge import (
+    MODULE_CATALOG,
     as_public_capabilities,
     capability_reply,
     list_modules_reply,
@@ -294,6 +295,10 @@ def _maybe_llm_polish(
             deepseek_model=settings.ai_deepseek_model,
             deepseek_thinking=settings.ai_deepseek_thinking,
             deepseek_reasoning_effort=settings.ai_deepseek_reasoning_effort,
+            openai_compat_enabled=settings.ai_openai_compat_enabled,
+            openai_compat_base_url=settings.ai_openai_compat_base_url,
+            openai_compat_model=settings.ai_openai_compat_model,
+            openai_compat_api_key=settings.ai_openai_compat_api_key,
             timeout=timeout,
             system_prompt=system_prompt or SUPPORT_SYSTEM_PROMPT,
         )
@@ -584,10 +589,31 @@ def _run_agent_body(
             )
 
     if intent in {"unsafe", "unsafe_bulk_fix", "refuse"}:
-        reply = (
-            "Refuse. I Think → Plan → Act and will not run bulk or destructive fixes. "
-            "Review findings individually; enable Auto-Repair Mode and confirm each whitelisted fix."
+        lowered = message.casefold()
+        security_hit = any(
+            t in lowered
+            for t in (
+                "ignore previous",
+                "system prompt",
+                "password",
+                "api key",
+                "jailbreak",
+                "dump sql",
+                "dump all",
+            )
         )
+        if security_hit or (plan_dict or {}).get("mode") == "true_mode":
+            reply = (
+                "### Think\n- Security / injection probe detected.\n"
+                "### Logic\n- TRUE MODE: no system prompts, passwords, API keys, or SQL dumps.\n"
+                "### Answer\nUNKNOWN / refused. Ask an operational Atlas question instead.\n"
+                "### Next\n- Example: *How do I export the finance ledger?* or *research online Bahraini dinar*"
+            )
+        else:
+            reply = (
+                "Refuse. I Think → Plan → Act and will not run bulk or destructive fixes. "
+                "Review findings individually; enable Auto-Repair Mode and confirm each whitelisted fix."
+            )
         _audit(
             session,
             prompt=message,
@@ -621,21 +647,28 @@ def _run_agent_body(
             deepseek_base_url=settings.ai_deepseek_base_url,
             deepseek_model=settings.ai_deepseek_model,
             provider=settings.ai_llm_provider,
+            openai_compat_enabled=settings.ai_openai_compat_enabled,
+            openai_compat_base_url=settings.ai_openai_compat_base_url,
+            openai_compat_model=settings.ai_openai_compat_model,
+            openai_compat_api_key=settings.ai_openai_compat_api_key,
         )
         active = llm.get("active_provider") or "none"
         ollama_state = "online" if llm["ollama"]["online"] else "offline"
         deepseek_state = "key set" if llm["deepseek"]["configured"] else "no key"
+        compat = llm.get("openai_compat") or {}
+        compat_state = "online" if compat.get("online") else "off"
         reply = (
             list_modules_reply()
             + f"\n\n**Local AI brain:** {stats['static_docs']} docs · "
             f"{stats['learning_events']} learning events · schema `{stats['schema_version']}`.\n"
             f"**Tools:** BM25 recall, online research "
             f"({'on' if settings.ai_research_enabled else 'off'}), "
-            f"LLM synthesis (active={active}; Ollama {ollama_state}; DeepSeek {deepseek_state}), "
+            f"LLM synthesis (active={active}; Ollama {ollama_state}; "
+            f"OpenAI-compat {compat_state}; DeepSeek {deepseek_state}), "
             f"sklearn ML suite, schema-gated SQL, SAA baseline.\n"
             f"Stack: {', '.join(stats.get('research_stack') or [])}.\n\n"
             "For Think→Logic→Answer support, ask: **Teach me everything** or **Support me step by step** "
-            "(those use local Ollama)."
+            "(Ollama recommended; LM Studio / Jan / AnythingLLM optional via OpenAI-compat)."
         )
         caps = as_public_capabilities()
         # Keep capabilities fast — do not block Ask on Ollama (teach/support paths polish).
@@ -654,7 +687,6 @@ def _run_agent_body(
     if intent == "teach":
         from airfare_management.ai_agent.knowledge_brain import brain_stats, recall
         from airfare_management.ai_agent.local_llm import SUPPORT_SYSTEM_PROMPT, llm_status
-        from airfare_management.ai_agent.product_knowledge import MODULE_CATALOG, capability_reply, match_capabilities
         from airfare_management.config import get_settings
 
         tools.extend(["knowledge_brain", "product_knowledge", "teach"])
@@ -671,6 +703,10 @@ def _run_agent_body(
             deepseek_base_url=settings.ai_deepseek_base_url,
             deepseek_model=settings.ai_deepseek_model,
             provider=settings.ai_llm_provider,
+            openai_compat_enabled=settings.ai_openai_compat_enabled,
+            openai_compat_base_url=settings.ai_openai_compat_base_url,
+            openai_compat_model=settings.ai_openai_compat_model,
+            openai_compat_api_key=settings.ai_openai_compat_api_key,
         )
         lowered = message.casefold()
         want_everything = any(
@@ -698,27 +734,44 @@ def _run_agent_body(
         ):
             fact_lines.insert(
                 0,
-                "- **Modern entitlement (no period-end)**: The live product path does **not** use "
-                "fiscal year-end close / period-end wipe. Use **Entitlement Rates** (`/rates`, "
-                "`entitlement_rates`, BHD) + **Airfare Allocation** (`/allocation`, "
-                "`POST /v1/allocations/preview`). Set cycle reset to **Joining date** in Settings "
-                "for rolling anniversary entitlement. Old `/entitlement/year-end` only redirects "
-                "to Allocation — do not run period-end buttons.",
+                "- **Airfare entitlement cycle**: Default is **calendar** (1 Jan–31 Dec). "
+                "Tickets in the year reset accrual (post-ticket window) — e.g. a 01 Jan ticket "
+                "is seen on a Sep calculate. Optional **joining_date** uses hire anniversary "
+                "(tickets before that anniversary are ignored). No fiscal year-end wipe. "
+                "Use **Rates** (`/rates`) + **Allocation** (`/allocation`). "
+                "Old period-end endpoints return 410 Gone.",
             )
         if any(t in lowered for t in ("airfare rate", "entitlement rate", "what is rate", "rates", "airfare")):
             fact_lines.insert(
                 0,
-                "- **Airfare / entitlement rate**: MSSQL table `entitlement_rates` stores scoped rates "
-                "(company/grade/nationality…) with effective dating. Amounts are BHD (Bahraini Dinar, 3 dp). "
-                "UI screen: `/rates`. APIs: `GET /v1/entitlement-rates`, "
-                "`GET /v1/ai/employees/{id}/rate-recommendation`. "
-                "On Allocation (`/allocation`), Calculate entitlement uses the active rate for the travel date.",
+                "- **Airfare / entitlement rate**: Open `/rates` → New/Edit rate (BHD) with effective dates. "
+                "Allocation Calculate uses the active rate for the travel date. "
+                "MSSQL `entitlement_rates`.",
+            )
+        if any(t in lowered for t in ("ess", "self-service", "self service", "employee request")):
+            fact_lines.insert(
+                0,
+                "- **ESS Requests easy path**: Open `/ess` → New request (employee, travel, notes) → "
+                "Approve / Reject / Mark paid. Optional sentiment is advanced only. "
+                "Table `ess_requests`.",
+            )
+        if any(t in lowered for t in ("whole process", "end to end", "full process", "learn all", "workflow")):
+            fact_lines.insert(
+                0,
+                "- **Whole airfare process**: Employees → Opening Balances → Rates → Allocation "
+                "(Calculate → settle excess → Issue) → Loans if needed → Finance Ledger → Reports. BHD.",
+            )
+        if any(t in lowered for t in ("finance ledger", "trial balance", "export excel", "export pdf", "gl")):
+            fact_lines.insert(
+                0,
+                "- **Finance Ledger easy path**: Open `/finance` → Seed COA if needed → Backfill → "
+                "confirm Trial balance balanced → Export Excel or PDF. Currency BHD.",
             )
         if want_everything:
             facts = (
                 "Modules:\n"
                 + "\n".join(
-                    f"- **{m['title']}** (`{m['route']}`): {m['summary']}" for m in MODULE_CATALOG[:14]
+                    f"- **{m['title']}** (`{m['route']}`): {m['summary']}" for m in MODULE_CATALOG
                 )
                 + "\n\nDomain facts:\n"
                 + ("\n".join(fact_lines) or "- (none)")
@@ -1204,7 +1257,21 @@ def _run_agent_body(
 
     if intent == "sql":
         # Only allow canned / dictionary-backed detection SQL — never free-form user SQL execution.
-        code = _infer_check(message) or "duplicate_employee_codes"
+        # No silent default check: ambiguous "sql" prompts must clarify (TRUE MODE / red-team).
+        code = _infer_check(message)
+        if not code:
+            return AgentResponse(
+                intent=intent,
+                outcome="needs_clarification",
+                reply=(
+                    "### Think\n- SQL path requested without a clear diagnostic check.\n"
+                    "### Logic\n- TRUE MODE runs only named canned SELECTs (duplicate, orphan, overlap, locked, schedule).\n"
+                    "### Answer\nUNKNOWN which check to run.\n"
+                    "### Next\n- Ask e.g. *preview SQL for duplicate employee codes* or *diagnose orphans*."
+                ),
+                confidence_score=0.55,
+                tools_used=tools,
+            )
         sql = _DETECT_SQL.get(code)
         if not sql:
             return AgentResponse(

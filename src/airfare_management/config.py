@@ -47,17 +47,36 @@ class Settings(BaseSettings):
     crystal_opendocument_base: str = ""
     # Local AI Data Agent (privacy-first)
     ai_research_enabled: bool = True
-    # LLM provider: auto (Ollama free → DeepSeek if key) | ollama | deepseek | off
+    # LLM provider: auto (Ollama → OpenAI-compat → DeepSeek) | ollama | anythingllm | deepseek | off
     ai_llm_provider: str = "auto"
     ai_ollama_enabled: bool = True
     ai_ollama_base_url: str = "http://127.0.0.1:11434"
     ai_ollama_model: str = "qwen2.5:3b-instruct"
+    # OpenAI-compat: LM Studio :1234 / Jan :1337 / AnythingLLM :3001/api/v1/openai
+    ai_openai_compat_enabled: bool = False
+    ai_openai_compat_base_url: str = "http://127.0.0.1:1234"
+    ai_openai_compat_model: str = "local-model"
+    ai_openai_compat_api_key: str = "local"
     # Optional DeepSeek OpenAI-compatible API (not guaranteed free after trial)
     ai_deepseek_api_key: str = ""
     ai_deepseek_base_url: str = "https://api.deepseek.com"
     ai_deepseek_model: str = "deepseek-v4-flash"
     ai_deepseek_thinking: bool = True
     ai_deepseek_reasoning_effort: str = "medium"
+    # WhatsApp / Evolution API v2 (Cloud-first interactive; Baileys for QR/lab media)
+    evolution_enabled: bool = False
+    evolution_base_url: str = "http://127.0.0.1:8080"
+    evolution_api_key: str = ""
+    evolution_webhook_secret: str = Field(default="dev-wa-webhook-secret-change-me", min_length=16)
+    evolution_webhook_public_url: str = ""
+    whatsapp_default_instance: str = "atlas-smoke-test"
+    whatsapp_cta_jwt_minutes: int = Field(default=15, ge=5, le=60)
+    whatsapp_nonce_hours: int = Field(default=48, ge=1, le=72)
+    whatsapp_nonce_replay_hours: int = Field(default=72, ge=48, le=168)
+    whatsapp_max_attachment_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    whatsapp_portal_base_url: str = "http://127.0.0.1:3389"
+    whatsapp_cta_private_key_pem: str = ""
+    whatsapp_require_clamav: bool = False
 
     @model_validator(mode="after")
     def _reject_insecure_defaults(self) -> Self:
@@ -67,6 +86,8 @@ class Settings(BaseSettings):
                 raise ValueError("AIRFARE_JWT_SECRET must be set in production")
             if self.bootstrap_admin_password == "ChangeMeNow!2026":
                 raise ValueError("AIRFARE_BOOTSTRAP_ADMIN_PASSWORD must be changed")
+            if self.evolution_enabled and not self.evolution_api_key:
+                raise ValueError("AIRFARE_EVOLUTION_API_KEY must be set when Evolution is enabled")
         return self
 
 

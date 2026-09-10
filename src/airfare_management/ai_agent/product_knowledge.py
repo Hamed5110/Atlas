@@ -15,105 +15,183 @@ from sqlalchemy.orm import Session
 
 from airfare_management.infrastructure.schema import AiLearningEventRow
 
-KNOWLEDGE_VERSION = "atlas-hcm-local-brain-v6"
+KNOWLEDGE_VERSION = "atlas-hcm-local-brain-v9"
 
 # Nav-aligned module map (atlas-next). Self-description source of truth.
+# Summaries are operator-first: screen → what to click → outcome (TRUE MODE easy path).
 MODULE_CATALOG: list[dict[str, Any]] = [
     {
         "id": "dashboard",
         "route": "/dashboard",
         "title": "Dashboard",
-        "summary": "Operational overview of entitlements, tickets, and loans.",
+        "summary": (
+            "Open Dashboard for live KPIs: employees, open tickets, active loans, "
+            "outstanding BHD, and budget forecast. Click a card to jump to that screen."
+        ),
     },
     {
         "id": "employees",
         "route": "/employees",
         "title": "Employees",
-        "summary": "Employee master in MSSQL; soft-delete; import templates.",
+        "summary": (
+            "Employee master: New/Edit/Delete, search, Export Excel, Bulk import. "
+            "Join date and pay group drive entitlement rates and allocation."
+        ),
     },
     {
         "id": "opening_balances",
         "route": "/opening-balances",
         "title": "Opening Balances",
-        "summary": "Per-year opening days/amounts feeding entitlement calculations.",
+        "summary": (
+            "Per-year opening days/amounts. New/Edit/Delete or import Excel before "
+            "calculating entitlement on Allocation."
+        ),
     },
     {
         "id": "rates",
         "route": "/rates",
         "title": "Entitlement Rates",
-        "summary": "Scoped airfare rates with effective dating; overlap diagnostics.",
+        "summary": (
+            "Set airfare rates (BHD) by employee / pay group / company / global with "
+            "effective dates. Allocation uses the active rate for the travel date."
+        ),
     },
     {
         "id": "allocation",
         "route": "/allocation",
-        "title": "Ticket Allocation",
-        "summary": "Calculate remaining/available from entitlement rates, tickets, and opening balances (modern continuous engine — no year-end wipe).",
+        "title": "Airfare Allocation",
+        "summary": (
+            "Main ticket desk: Calculate entitlement → choose excess settlement "
+            "(Self paid / Company paid / Make loan / Entitlement amount) → Issue ticket → "
+            "Print A4 PDF. Continuous engine — no year-end wipe."
+        ),
     },
     {
         "id": "modern_entitlement",
         "route": "/allocation",
         "title": "Modern entitlement",
-        "summary": "Rates + Allocation + joining-date cycle. Period-end / year close is not in the live product path.",
+        "summary": (
+            "Continuous accrual in the airfare cycle (default calendar 1 Jan–31 Dec; "
+            "optional joining-date). Use Rates + Allocation. Period-end UI is removed."
+        ),
     },
     {
         "id": "loans",
         "route": "/loans",
         "title": "Loans / EMI",
-        "summary": "Recovery loans with confirm gates; settle, defer, return/reopen settled, EMI risk.",
+        "summary": (
+            "Recover excess ticket cost: New loan, Pay, Settle, Defer, Return/Reopen, "
+            "Monthly EMI run. Confirm dialogs on every mutation."
+        ),
     },
     {
         "id": "offer_letters",
         "route": "/offer-letters",
         "title": "Offer Letters",
-        "summary": "Pre-hire HR vouchers; optional employee; company letterhead + logo.",
+        "summary": "Compose offer letter vouchers with company letterhead/logo; Preview and Issue PDF.",
     },
     {
         "id": "contracts",
         "route": "/contracts",
         "title": "Employment Contracts",
-        "summary": "Limited/unlimited contracts using same document engine.",
+        "summary": "Limited/unlimited contracts using the same document studio as offer letters.",
     },
     {
         "id": "ess",
         "route": "/ess",
-        "title": "ESS",
-        "summary": "Employee self-service requests; sentiment analysis API.",
+        "title": "ESS Requests",
+        "summary": (
+            "Easy path: open ESS Requests → New request (employee, travel, notes) → "
+            "Approve / Reject / Mark paid. Optional AI sentiment on notes."
+        ),
     },
     {
         "id": "reports",
         "route": "/reports",
         "title": "Reports",
-        "summary": "Report Designer datasets; agent can draft SQL handoffs.",
+        "summary": (
+            "Run catalog reports (payable, tickets, loans…) or Report Designer; "
+            "Export PDF/Excel. Agent can draft a designer handoff from AI Insights."
+        ),
+    },
+    {
+        "id": "finance_gl",
+        "route": "/finance",
+        "title": "Finance Ledger",
+        "summary": (
+            "Easy path: open Finance Ledger → Seed COA (once) → Backfill if needed → "
+            "view Trial balance → Export Excel or PDF. Currency BHD; journals auto-post "
+            "from tickets and loans."
+        ),
     },
     {
         "id": "lookups",
         "route": "/lookups",
         "title": "Lookups",
-        "summary": "Designation, nationality, pay group, department reference data.",
+        "summary": "Maintain designations, nationalities, pay groups, departments, repair centers.",
     },
     {
         "id": "users",
         "route": "/users",
-        "title": "Users",
-        "summary": "Auth users; lockout diagnostics; never expose password_hash.",
+        "title": "Users & Access",
+        "summary": "Create users, assign roles (admin/HR/finance/employee), unlock locked accounts.",
     },
     {
         "id": "settings",
         "route": "/settings",
         "title": "Settings",
-        "summary": "Company profile, CR, address, logos in MSSQL; BHD currency.",
+        "summary": (
+            "Company profile + logos (MSSQL) and rule engine (accrual, cycle calendar vs "
+            "joining-date, caps). Save after edits."
+        ),
     },
     {
         "id": "ai_insights",
         "route": "/ai-insights",
         "title": "AI Insights",
-        "summary": "Schema-gated Data Agent + SAA baseline; think-then-act chat.",
+        "summary": (
+            "Ask the Data Agent in TRUE MODE (facts only). Teach me everything, diagnostics, "
+            "Smart baseline, Ollama polish, optional online research."
+        ),
     },
     {
         "id": "audit",
         "route": "/audit",
-        "title": "Audit",
-        "summary": "Operational audit trail surfaces for admin review.",
+        "title": "Audit Log",
+        "summary": "Search append-only mutation trail; expand a row to see before/after payload.",
+    },
+    {
+        "id": "entitlement_reconcile",
+        "route": "/entitlement/reconcile",
+        "title": "Ledger reconcile",
+        "summary": "Advanced: pick fiscal year → Run reconciliation of expected vs current entitlement ledger.",
+    },
+    {
+        "id": "entitlement_accounts",
+        "route": "/entitlement/accounts",
+        "title": "Ledger accounts",
+        "summary": "Advanced: select employee/year → view opening, accruals, used, adjustments, history.",
+    },
+    {
+        "id": "entitlement_rules",
+        "route": "/entitlement/rules",
+        "title": "Rules (legacy)",
+        "summary": "Legacy grade×location matrix. Prefer Entitlement Rates (/rates) for new work.",
+    },
+    {
+        "id": "entitlement_payroll",
+        "route": "/entitlement/payroll-export",
+        "title": "Payroll export",
+        "summary": "Advanced: set payroll run + fiscal year → Export entitlement transactions to payroll log.",
+    },
+    {
+        "id": "backups",
+        "route": "/backups",
+        "title": "Backup & Restore",
+        "summary": (
+            "Admin API: list/create/restore/delete DB backups via /v1/admin/backups*. "
+            "UI page may be incomplete — use API or DBA process if nav link is empty."
+        ),
     },
 ]
 
@@ -184,6 +262,59 @@ PRODUCT_CAPABILITIES: list[dict[str, Any]] = [
             "New companies default currency BHD; startup normalizes existing rows.",
         ],
         "keywords": ["bhd", "currency", "dinar", "bahrain"],
+    },
+    {
+        "id": "finance_gl_ticket_loan",
+        "area": "Finance / GL",
+        "module": "finance_gl",
+        "summary": (
+            "Native MSSQL double-entry finance ledger for employee ticket issue and loan "
+            "accounts. Seed COA, post balanced journals on ticket issue / loan disbursement / "
+            "loan recovery, and read trial balance + ledger report. Research chose "
+            "python-accounting patterns (IFRS/GAAP) without depending on that library — "
+            "it does not officially support MSSQL."
+        ),
+        "mssql": {
+            "table": "finance_journals",
+            "columns": [
+                "id",
+                "company_id",
+                "entry_date",
+                "narration",
+                "source_type",
+                "source_id",
+                "employee_id",
+                "total_debit",
+                "total_credit",
+                "status",
+            ],
+            "related": ["finance_accounts", "finance_journal_lines"],
+            "soft_delete": True,
+        },
+        "apis": [
+            "GET /v1/finance/status",
+            "POST /v1/finance/seed",
+            "GET /v1/finance/accounts",
+            "GET /v1/finance/trial-balance",
+            "GET /v1/finance/ledger-report",
+        ],
+        "rules": [
+            "Debits must equal credits on every journal.",
+            "Ticket issue posts expense + loan receivable + cash.",
+            "Loan recovery posts cash debit and loan receivable credit.",
+            "GL posts use savepoints so ticket/loan saves never fail on GL errors.",
+        ],
+        "keywords": [
+            "finance",
+            "ledger",
+            "gl",
+            "trial balance",
+            "chart of accounts",
+            "journal",
+            "ticket expense",
+            "loan receivable",
+            "accounting",
+        ],
     },
     {
         "id": "documents_offer_contract",
@@ -421,17 +552,123 @@ PRODUCT_CAPABILITIES: list[dict[str, Any]] = [
     },
     {
         "id": "ess_self_service",
-        "area": "ESS",
+        "area": "ESS Requests",
         "module": "ess",
-        "summary": "Employee self-service requests; sentiment analysis on notes.",
+        "summary": (
+            "Easy way: open /ess → New request → pick employee, travel, notes → "
+            "Submit → Approve / Reject / Mark paid. Optional sentiment on notes."
+        ),
+        "how_to": [
+            "Open ESS Requests (/ess)",
+            "Click New request; fill employee + travel + notes",
+            "Approve, Reject, or Mark paid from the list",
+            "Optional sentiment: POST /v1/ai/ess-sentiment",
+        ],
         "mssql": {
             "table": "ess_requests",
-            "columns": ["id", "employee_id", "request_type", "status", "notes", "deleted_at"],
+            "columns": [
+                "id",
+                "employee_id",
+                "request_type",
+                "travel_date",
+                "origin_code",
+                "destination_code",
+                "status",
+                "notes",
+                "deleted_at",
+            ],
             "soft_delete": True,
         },
         "apis": ["GET/POST /v1/ess/requests", "POST /v1/ai/ess-sentiment"],
-        "rules": ["Sentiment uses transformers when installed, else keyword fallback."],
-        "keywords": ["ess", "self-service", "self service", "sentiment", "request"],
+        "rules": [
+            "Teach the /ess screen first; APIs are secondary.",
+            "Sentiment uses transformers when installed, else keyword fallback.",
+        ],
+        "keywords": [
+            "ess",
+            "ess request",
+            "ess requests",
+            "self-service",
+            "self service",
+            "sentiment",
+            "request",
+            "approve request",
+            "employee request",
+        ],
+    },
+    {
+        "id": "end_to_end_airfare",
+        "area": "Whole process (airfare)",
+        "module": "allocation",
+        "summary": (
+            "Full easy path: Employees → Opening Balances → Rates → Allocation "
+            "(Calculate → settle excess → Issue) → Loans if needed → Finance Ledger → Reports."
+        ),
+        "how_to": [
+            "1. Employees (/employees)",
+            "2. Opening Balances (/opening-balances)",
+            "3. Entitlement Rates (/rates) in BHD",
+            "4. Airfare Allocation (/allocation): Calculate → settle → Issue",
+            "5. Loans (/loans) if Convert to loan",
+            "6. Finance Ledger (/finance): trial balance + Export Excel/PDF",
+            "7. Reports (/reports) for payable / ticket / loan catalogs",
+        ],
+        "mssql": {
+            "table": "tickets",
+            "columns": ["id", "employee_id", "ticket_cost", "entitlement", "status"],
+            "soft_delete": True,
+        },
+        "apis": [
+            "POST /v1/allocations/preview",
+            "POST /v1/allocations/issue",
+            "GET /v1/finance/trial-balance",
+        ],
+        "rules": ["Currency is always BHD.", "TRUE MODE: screens before APIs."],
+        "keywords": [
+            "whole process",
+            "end to end",
+            "full process",
+            "how does the system work",
+            "learn all",
+            "all modules",
+            "workflow",
+            "step by step",
+            "step-by-step",
+            "airfare process",
+        ],
+    },
+    {
+        "id": "entitlement_advanced",
+        "area": "Advanced entitlement ledger",
+        "module": "entitlement_reconcile",
+        "summary": (
+            "Advanced: reconcile (/entitlement/reconcile), accounts (/entitlement/accounts), "
+            "legacy rules (/entitlement/rules), payroll export (/entitlement/payroll-export). "
+            "Day-to-day stays on Rates + Allocation."
+        ),
+        "how_to": [
+            "Day-to-day: /rates + /allocation",
+            "Reconcile: /entitlement/reconcile",
+            "Per-employee ledger: /entitlement/accounts",
+            "Payroll batch: /entitlement/payroll-export",
+        ],
+        "mssql": {
+            "table": "entitlement_rates",
+            "columns": ["id", "scope_type", "amount", "effective_from"],
+            "soft_delete": True,
+        },
+        "apis": [
+            "GET /v1/entitlement/reconcile",
+            "POST /v1/entitlement/export-payroll",
+        ],
+        "rules": ["Prefer Rates + Allocation for normal HR work."],
+        "keywords": [
+            "reconcile",
+            "ledger accounts",
+            "payroll export",
+            "entitlement rules",
+            "advanced entitlement",
+        ],
     },
     {
         "id": "reports_designer",
@@ -463,6 +700,31 @@ PRODUCT_CAPABILITIES: list[dict[str, Any]] = [
         "apis": ["GET /v1/lookups/{type}", "GET /v1/users", "support diagnose locked_users"],
         "rules": ["Never SELECT password_hash in agent SQL."],
         "keywords": ["lookup", "lookups", "user", "users", "locked", "unlock"],
+    },
+    {
+        "id": "ui_arabic_locale",
+        "area": "UI / Language",
+        "module": "settings",
+        "summary": (
+            "EN | ع switcher on login and sidebar footer. Arabic enables RTL (dir=rtl) and "
+            "Noto Sans Arabic; preference saved as atlas.locale. Shell/nav/login translate first."
+        ),
+        "mssql": {"table": "n/a", "columns": [], "soft_delete": False},
+        "apis": [],
+        "rules": [
+            "No /ar route prefix — client locale store only.",
+            "Documents/PDFs already support bilingual Arabic independently of UI locale.",
+        ],
+        "keywords": [
+            "arabic",
+            "language",
+            "locale",
+            "rtl",
+            "عربية",
+            "لغة",
+            "switch language",
+            "english arabic",
+        ],
     },
     {
         "id": "ai_data_agent",
@@ -507,6 +769,9 @@ PRODUCT_CAPABILITIES: list[dict[str, Any]] = [
             "saa",
             "baseline",
             "smart agent",
+            "learn all",
+            "teach me",
+            "teach everything",
         ],
     },
 ]
@@ -528,7 +793,7 @@ def list_modules_reply() -> str:
     return (
         f"Atlas HCM modules (knowledge `{KNOWLEDGE_VERSION}`):\n"
         + "\n".join(lines)
-        + "\n\nAsk about any module (e.g. company logos, loans, offer letters) for MSSQL + API detail."
+        + "\n\nAsk about any module for the easy screen path (e.g. ESS, Finance Ledger, Allocation)."
     )
 
 
@@ -537,11 +802,15 @@ def capability_reply(caps: list[dict[str, Any]]) -> str:
         return ""
     parts: list[str] = []
     for cap in caps:
+        how = cap.get("how_to") or []
+        how_txt = (" Easy steps: " + " → ".join(str(s) for s in how) + ".") if how else ""
         rules = "; ".join(cap.get("rules") or [])
         table = (cap.get("mssql") or {}).get("table", "?")
+        apis = ", ".join(cap.get("apis") or [])
         parts.append(
-            f"**{cap['area']}** — {cap['summary']} "
-            f"Primary MSSQL table `{table}`. Rules: {rules}"
+            f"**{cap['area']}** — {cap['summary']}{how_txt} "
+            f"Screen/module: `{cap.get('module') or ''}`. "
+            f"MSSQL `{table}`. APIs (advanced): {apis}. Rules: {rules}"
         )
     return "\n\n".join(parts)
 

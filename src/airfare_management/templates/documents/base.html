@@ -248,10 +248,12 @@
   {% block content %}{% endblock %}
 
   <div id="footer_content" class="doc-footer">
+    {% block footer_content %}
     <div style="border-top: 0.5pt solid #cbd5e1; padding-top: 2pt; font-size: 7pt; color: #94a3b8; text-align: center;">
       <span dir="ltr" class="ltr-iso">{{ company.name }}{% if company.cr_no %} · CR {{ company.cr_no }}{% endif %}{% if company.address %} · {{ company.address }}{% endif %} · {{ doc.title }} · {{ doc.voucher_no }}</span>
       · Page <pdf:pagenumber /> of <pdf:pagecount />
     </div>
+    {% endblock %}
   </div>
 </body>
 </html>

@@ -1,5 +1,6 @@
 {% extends "documents/base.html" %}
 {% block content %}
+{# Full bilingual allocation slip — matches Download A4 PDF / attached reference. #}
 <div class="doc-banner">
   <div class="en">Airfare Allocation</div>
   <div class="ar">تخصيص بدل تذاكر السفر</div>
@@ -21,7 +22,7 @@
   </tr>
   <tr>
     <td class="en-side"><strong>Status :</strong> <span dir="ltr" class="ltr-iso">{{ allocation.status }}</span></td>
-    <td class="ar-side">الحالة <span dir="ltr" class="ltr-iso">{{ allocation.status }}</span></td>
+    <td class="ar-side">الحالة: {{ allocation.status_ar }}</td>
   </tr>
 </table>
 
@@ -121,15 +122,36 @@
 
 <table class="pay-table" style="margin-top:5pt;">
   <tr>
-    <th style="text-align:left;">Balance</th>
-    <th style="text-align:right;">Opening</th>
-    <th style="text-align:right;">Earned</th>
-    <th style="text-align:right;">Already Paid</th>
-    <th style="text-align:right;">Entitlement</th>
-    <th style="text-align:right;">Ticket</th>
+    <th style="text-align:left;">
+      Balance
+      <div class="ar" style="font-size:10pt; text-transform:none; letter-spacing:0; font-weight:600;">الرصيد</div>
+    </th>
+    <th style="text-align:right;">
+      Opening
+      <div class="ar" style="font-size:10pt; text-transform:none; letter-spacing:0; font-weight:600;">الافتتاحي</div>
+    </th>
+    <th style="text-align:right;">
+      Earned
+      <div class="ar" style="font-size:10pt; text-transform:none; letter-spacing:0; font-weight:600;">المكتسب</div>
+    </th>
+    <th style="text-align:right;">
+      Already Paid
+      <div class="ar" style="font-size:10pt; text-transform:none; letter-spacing:0; font-weight:600;">المدفوع مسبقاً</div>
+    </th>
+    <th style="text-align:right;">
+      Entitlement
+      <div class="ar" style="font-size:10pt; text-transform:none; letter-spacing:0; font-weight:600;">الاستحقاق</div>
+    </th>
+    <th style="text-align:right;">
+      Ticket
+      <div class="ar" style="font-size:10pt; text-transform:none; letter-spacing:0; font-weight:600;">التذكرة</div>
+    </th>
   </tr>
   <tr>
-    <td>Airfare</td>
+    <td>
+      Airfare
+      <div class="ar" style="font-size:10pt;">تذاكر السفر</div>
+    </td>
     <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.opening_fmt }}</span></td>
     <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.earned_fmt }}</span></td>
     <td class="amt"><span dir="ltr" class="ltr-iso">{{ allocation.already_paid_fmt }}</span></td>
