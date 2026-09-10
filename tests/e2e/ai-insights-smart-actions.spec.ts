@@ -25,8 +25,9 @@ test("local Ollama status check reports online or help text", async ({ page }) =
   // Either Online (preferred) or Offline with install hint
   const text = (await status.textContent()) || "";
   if (/online/i.test(text)) {
-    await expect(page.getByTestId("badge-ollama-model")).toContainText(/deepseek|llama|model/i);
+    await expect(page.getByTestId("badge-ollama-model")).toContainText(/qwen|deepseek|llama|model/i);
   } else {
     await expect(page.getByTestId("text-ollama-help")).toBeVisible();
+    await expect(page.getByTestId("text-ollama-help")).toContainText(/qwen2\.5:3b-instruct/i);
   }
 });

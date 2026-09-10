@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { login } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -15,6 +17,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const setSession = useAuth((s) => s.setSession);
   const router = useRouter();
+  const t = useT();
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -41,19 +44,16 @@ export default function LoginPage() {
           <div>
             <p className="text-lg font-extrabold tracking-tight text-white">ATLAS HCM</p>
             <p className="text-xs font-medium text-[var(--color-sidebar-foreground)]">
-              Airfare Management Suite
+              {t("login.subtitle")}
             </p>
           </div>
         </div>
         <div className="space-y-8">
           <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white">
-            Airfare entitlements,
-            <br />
-            <span className="text-gradient">perfectly managed.</span>
+            {t("login.hero")}
           </h1>
           <p className="max-w-md text-sm leading-relaxed text-[var(--color-sidebar-foreground)]">
-            Entitlement calculation, ticket allocation, excess recovery loans, self-service
-            approvals, HR documents, and AI-driven diagnostics — one platform, one database.
+            {t("login.heroBody")}
           </p>
           <div className="space-y-3">
             {[
@@ -83,13 +83,16 @@ export default function LoginPage() {
             </div>
             <h1 className="text-2xl font-extrabold">ATLAS HCM</h1>
           </div>
-          <h2 className="text-2xl font-extrabold tracking-tight">Welcome back</h2>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-2xl font-extrabold tracking-tight">{t("login.title")}</h2>
+            <LanguageSwitcher />
+          </div>
           <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-            Sign in to your HCM workspace
+            {t("login.subtitle")}
           </p>
           <form onSubmit={submit} className="mt-8 space-y-5" data-testid="login-form">
             <div className="space-y-1.5">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t("login.username")}</Label>
               <Input
                 id="username"
                 autoComplete="username"
@@ -102,7 +105,7 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("login.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -130,7 +133,7 @@ export default function LoginPage() {
               disabled={busy}
               data-testid="btn-sign-in"
             >
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? "…" : t("login.submit")}
             </Button>
           </form>
         </div>

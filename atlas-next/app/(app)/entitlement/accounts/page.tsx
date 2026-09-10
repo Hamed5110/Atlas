@@ -7,9 +7,11 @@ import { Field, Select } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/primitives";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import type { Employee } from "@/lib/types";
 
 export default function EntitlementAccountsPage() {
+  const t = useT();
   const year = new Date().getFullYear();
   const [employeeId, setEmployeeId] = useState("");
   const [fiscalYear, setFiscalYear] = useState(String(year));
@@ -39,7 +41,7 @@ export default function EntitlementAccountsPage() {
 
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-entitlement-accounts">
-      <PageHeader title="Entitlement accounts" subtitle="Recurring annual ledger per employee" />
+      <PageHeader title={t("page.accounts.title")} subtitle={t("page.accounts.subtitle")} />
       <Card className="mb-4">
         <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
           <Field label="Employee">

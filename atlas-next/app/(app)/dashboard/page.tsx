@@ -25,9 +25,11 @@ import { CardsSkeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { forecastMonthLabel, money } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { BudgetForecast, Dashboard, Ticket } from "@/lib/types";
 
 function DashboardPage() {
+  const t = useT();
   const router = useRouter();
   const navigate = (p: string) => router.push(p);
   const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: () => api<Dashboard>("/dashboard") });
@@ -52,41 +54,41 @@ function DashboardPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]">
       <PageHeader
-        title="Dashboard"
-        subtitle="Live picture of airfare entitlements, tickets, and recovery"
+        title={t("page.dashboard.title")}
+        subtitle={t("page.dashboard.subtitle")}
       />
       {dashboard.isPending ? (
         <CardsSkeleton />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            label="Employees"
+            label={t("page.dashboard.employees")}
             value={d?.employees ?? 0}
-            hint="Active profiles"
+            hint={t("page.dashboard.employeesHint")}
             icon={<Users size={22} />}
             tone="primary"
             onClick={() => navigate("/employees")}
           />
           <StatCard
-            label="Open tickets"
+            label={t("page.dashboard.openTickets")}
             value={d?.open_tickets ?? 0}
-            hint="Not yet posted"
+            hint={t("page.dashboard.openTicketsHint")}
             icon={<Plane size={22} />}
             tone="accent"
             onClick={() => navigate("/allocation")}
           />
           <StatCard
-            label="Active loans"
+            label={t("page.dashboard.activeLoans")}
             value={d?.active_loans ?? 0}
-            hint="Excess recovery in progress"
+            hint={t("page.dashboard.activeLoansHint")}
             icon={<HandCoins size={22} />}
             tone="warning"
             onClick={() => navigate("/loans")}
           />
           <StatCard
-            label="Outstanding"
+            label={t("page.dashboard.outstanding")}
             value={money(d?.outstanding_loans ?? 0)}
-            hint="Total loan balance"
+            hint={t("page.dashboard.outstandingHint")}
             icon={<Wallet size={22} />}
             tone="destructive"
             onClick={() => navigate("/loans")}
@@ -99,8 +101,8 @@ function DashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Budget forecast</CardTitle>
-                <CardDescription>Projected monthly airfare spend (12 months)</CardDescription>
+                <CardTitle>{t("page.dashboard.forecast")}</CardTitle>
+                <CardDescription>{t("page.dashboard.forecastHint")}</CardDescription>
               </div>
               <Badge variant="default">
                 <TrendingUp size={12} /> AI

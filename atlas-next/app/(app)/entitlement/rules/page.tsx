@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/primitives";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 interface EntitlementRule {
   id: string;
@@ -35,6 +36,7 @@ const emptyForm = {
 };
 
 export default function EntitlementRulesPage() {
+  const t = useT();
   const qc = useQueryClient();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -83,8 +85,8 @@ export default function EntitlementRulesPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-entitlement-rules">
       <PageHeader
-        title="Entitlement rule matrix"
-        subtitle="Advanced / Phase 3 candidate — Grade × Location × Family × LOS. Prefer Entitlement Rates for Phase 1–2."
+        title={t("page.rules.title")}
+        subtitle={t("page.rules.subtitle")}
         actions={
           <Button
             variant="gradient"

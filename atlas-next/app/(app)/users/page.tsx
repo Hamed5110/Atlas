@@ -14,12 +14,14 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { fmtDateTime, initials, titleCase } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { Employee, UserRow } from "@/lib/types";
 
 const ROLES = ["SYSTEM_ADMIN", "HR_MANAGER", "FINANCE_MANAGER", "EMPLOYEE"] as const;
 
 function UsersPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
@@ -122,8 +124,8 @@ function UsersPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]">
       <PageHeader
-        title="Users & Access"
-        subtitle="Accounts, roles, and security posture"
+        title={t("page.users.title")}
+        subtitle={t("page.users.subtitle")}
         actions={
           <Button variant="gradient" onClick={openCreate}>
             <Plus size={15} /> New user

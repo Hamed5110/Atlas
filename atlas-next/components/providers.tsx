@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
+import { useLocaleStore } from "@/lib/i18n";
 import { Toaster } from "@/components/ui/toast";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -18,11 +19,13 @@ export function Providers({ children }: { children: ReactNode }) {
         },
       })
   );
-  const hydrate = useAuth((s) => s.hydrate);
+  const hydrateAuth = useAuth((s) => s.hydrate);
+  const hydrateLocale = useLocaleStore((s) => s.hydrate);
 
   useEffect(() => {
-    hydrate();
-  }, [hydrate]);
+    hydrateAuth();
+    hydrateLocale();
+  }, [hydrateAuth, hydrateLocale]);
 
   return (
     <QueryClientProvider client={client}>

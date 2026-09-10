@@ -41,6 +41,7 @@ export function CompanyProfileCard() {
 
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [arabicName, setArabicName] = useState("");
   const [crNo, setCrNo] = useState("");
   const [address, setAddress] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -66,6 +67,7 @@ export function CompanyProfileCard() {
   const resetForm = () => {
     setCode("");
     setName("");
+    setArabicName("");
     setCrNo("");
     setAddress("");
     setLogoFile(null);
@@ -79,6 +81,7 @@ export function CompanyProfileCard() {
     setEditingId(null);
     setCode("");
     setName("");
+    setArabicName("");
     setCrNo("");
     setAddress("");
     setLogoFile(null);
@@ -89,6 +92,7 @@ export function CompanyProfileCard() {
     setEditingId(company.id);
     setCode(company.code);
     setName(company.name);
+    setArabicName(company.arabic_name || "");
     setCrNo(company.cr_no || "");
     setAddress(company.address || "");
     setLogoFile(null);
@@ -108,6 +112,7 @@ export function CompanyProfileCard() {
         body: {
           code: code.trim().toUpperCase(),
           name: name.trim(),
+          arabic_name: arabicName.trim() || null,
           currency: "BHD",
           cr_no: crNo.trim() || null,
           address: address.trim() || null,
@@ -133,6 +138,7 @@ export function CompanyProfileCard() {
         method: "PATCH",
         body: {
           name: name.trim(),
+          arabic_name: arabicName.trim(),
           cr_no: crNo.trim(),
           address: address.trim(),
           currency: "BHD",
@@ -194,8 +200,8 @@ export function CompanyProfileCard() {
           <div>
             <CardTitle>Company Profile</CardTitle>
             <CardDescription>
-              Companies, CR No., address, and logos are stored in MSSQL. Use Edit, Logo, or Delete
-              on each row — or Add company to create another with logo.
+              Companies, Arabic name, CR No., address, and logos are stored in MSSQL. Offer letters
+              and contracts update letterhead when you switch company or logo.
             </CardDescription>
           </div>
           {mode === "list" ? (
@@ -236,6 +242,11 @@ export function CompanyProfileCard() {
                       </TD>
                       <TD>
                         <div className="font-semibold">{company.name}</div>
+                        {company.arabic_name ? (
+                          <div className="text-xs" dir="rtl">
+                            {company.arabic_name}
+                          </div>
+                        ) : null}
                         <div className="text-xs text-[var(--color-muted-foreground)]">
                           {company.code}
                           <Badge
@@ -368,6 +379,15 @@ export function CompanyProfileCard() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Legal / display name"
                   data-testid="input-company-name"
+                />
+              </Field>
+              <Field label="Arabic company name">
+                <Input
+                  value={arabicName}
+                  onChange={(e) => setArabicName(e.target.value)}
+                  placeholder="الاسم بالعربية"
+                  dir="rtl"
+                  data-testid="input-company-arabic-name"
                 />
               </Field>
               <Field label="CR No.">

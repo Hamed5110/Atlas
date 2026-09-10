@@ -175,13 +175,13 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
         key: "cycle_reset_basis",
         label: "Cycle reset basis",
         description:
-          "Joining date (modern continuous): rolling anniversary — no year-end wipe. Calendar resets every Jan 1 (legacy).",
+          "Calendar (ATLAS airfare): 1 Jan cycle; tickets in the year reset accrual. Joining date uses hire anniversary (tickets before anniversary are ignored). No year-end wipe either way.",
         type: "select",
         options: [
+          { value: "calendar", label: "Global calendar (Jan 1) — ATLAS airfare" },
           { value: "joining_date", label: "Joining date (rolling)" },
-          { value: "calendar", label: "Global calendar (Jan 1)" },
         ],
-        default: "joining_date",
+        default: "calendar",
       },
       {
         key: "rate_change_handling",

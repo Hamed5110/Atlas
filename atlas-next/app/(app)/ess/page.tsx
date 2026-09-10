@@ -15,9 +15,11 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
 import { fmtDate, statusTone, titleCase, todayLocal } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { Employee, EssRequest } from "@/lib/types";
 
 function EssPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -97,8 +99,8 @@ function EssPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]">
       <PageHeader
-        title="ESS Requests"
-        subtitle="Employee self-service airfare, ticket, and loan requests"
+        title={t("page.ess.title")}
+        subtitle={t("page.ess.subtitle")}
         actions={
           <Button variant="gradient" onClick={() => setShowForm(true)}>
             <Plus size={15} /> New request

@@ -42,9 +42,9 @@ export async function signIn(page: Page): Promise<void> {
   await page.goto("/login/", { waitUntil: "domcontentloaded" });
   if (page.url().includes("/dashboard")) return;
 
-  await expect(page.getByRole("heading", { name: /Welcome back/i })).toBeVisible();
-  await page.getByLabel(/Username/i).fill(username);
-  await page.getByLabel(/Password/i).fill(password);
-  await page.getByRole("button", { name: /Sign in/i }).click();
+  await expect(page.getByTestId("login-form")).toBeVisible();
+  await page.getByTestId("input-username").fill(username);
+  await page.getByTestId("input-password").fill(password);
+  await page.getByTestId("btn-sign-in").click();
   await expect(page.getByTestId("nav-main")).toBeVisible({ timeout: 30_000 });
 }

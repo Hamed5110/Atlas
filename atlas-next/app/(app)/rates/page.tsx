@@ -14,11 +14,13 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { fmtDate, money, titleCase, todayLocal } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { EntitlementRate } from "@/lib/types";
 
 const SCOPE_ORDER = ["employee", "pay_group", "company", "global"];
 
 function RatesPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<EntitlementRate | null>(null);
@@ -119,8 +121,8 @@ function RatesPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-entitlement-rates">
       <PageHeader
-        title="Entitlement Rates"
-        subtitle="Effective-dated rate hierarchy: employee → pay group → company → global"
+        title={t("page.rates.title")}
+        subtitle={t("page.rates.subtitle")}
         actions={
           <Button variant="gradient" onClick={openCreate} data-testid="btn-new-rate">
             <Plus size={15} /> New rate

@@ -31,8 +31,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { EmptyState, PageHeader, StatCard } from "@/components/ui/primitives";
 import { toast } from "@/components/ui/toast";
-import { api } from "@/lib/api";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { api, errorMessage } from "@/lib/api";
 import { forecastMonthLabel, money, num, titleCase } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { BudgetForecast, DiagnoseResult, LearningStats, LlmStatus } from "@/lib/types";
 
@@ -44,7 +46,10 @@ const SEVERITY_STYLE: Record<string, { ring: string; badge: "destructive" | "war
 
 const SMART_CHIPS = [
   "Teach me everything",
+  "Whole airfare process step by step",
   "Support me step by step",
+  "How do ESS requests work",
+  "How do I export the finance ledger",
   "What is airfare rate",
   "What is modern entitlement",
   "How does allocation work",
@@ -52,13 +57,14 @@ const SMART_CHIPS = [
   "How does local Ollama work",
   "What can you do",
   "Recall company logos",
+  "Research online Bahraini dinar",
   "Research online IATA airport codes India Pakistan",
   "Run diagnostics",
   "Machine learning anomalies",
-  "How do company logos work",
   "Forecast spend",
   "Draft a report on loans",
   "Show schema",
+  "preview SQL for locked users",
 ] as const;
 
 interface AgentReply {
@@ -128,6 +134,7 @@ interface SaaBaseline {
 
 function AiInsightsPage() {
   const queryClient = useQueryClient();
+  const tAi = useT();
   const [prompt, setPrompt] = useState("");
   const [agentLog, setAgentLog] = useState<AgentReply[]>([]);
   const [autoRepairMode, setAutoRepairMode] = useState(false);
@@ -187,6 +194,9 @@ function AiInsightsPage() {
       }),
     onSuccess: (reply) => {
       setAgentLog((prev) => [reply, ...prev].slice(0, 6));
+      if (reply.outcome === "error") {
+        toast.error("Agent could not finish", reply.reply?.slice(0, 160) || "TRUE MODE fail-closed");
+      }
       const draft = reply.report_designer_payload ?? reply.report_spec;
       if (draft) {
         try {
@@ -209,7 +219,7 @@ function AiInsightsPage() {
       queryClient.invalidateQueries({ queryKey: ["ai-anomalies"] });
       queryClient.invalidateQueries({ queryKey: ["ai-llm-status"] });
     },
-    onError: (err) => toast.error("Agent failed", err instanceof Error ? err.message : undefined),
+    onError: (err) => toast.error("Agent failed", errorMessage(err, "Internal Server Error")),
   });
 
   const applyRepairMutation = useMutation({
@@ -305,8 +315,9 @@ function AiInsightsPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="ai-insights-page">
       <PageHeader
-        title="AI Insights"
-        subtitle="Local Ollama · Smart Actions · Data Agent · :3389"
+        title={tAi("ai.title")}
+        subtitle={tAi("ai.subtitle")}
+        actions={<LanguageSwitcher />}
       />
 
       {/* Local Ollama — free on-device LLM */}
@@ -320,10 +331,10 @@ function AiInsightsPage() {
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Cpu size={18} className="text-[var(--color-primary)]" />
-            Local Ollama
+            {tAi("ai.localOllama")}
           </CardTitle>
           <CardDescription>
-            Free on-device synthesis for the Data Agent. No cloud key required.
+            {tAi("ai.localOllamaHint")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -332,7 +343,7 @@ function AiInsightsPage() {
               variant={ollamaOnline ? "success" : "warning"}
               data-testid="badge-ollama-status"
             >
-              {llmStatus.isLoading ? "Checking…" : ollamaOnline ? "Online" : "Offline"}
+              {llmStatus.isLoading ? tAi("ai.checking") : ollamaOnline ? tAi("ai.online") : tAi("ai.offline")}
             </Badge>
             <Badge variant="secondary" data-testid="badge-ollama-model">
               Model: {ollama?.model ?? "—"}
@@ -340,8 +351,11 @@ function AiInsightsPage() {
             <Badge variant="secondary" data-testid="badge-llm-active">
               Active: {activeLlm}
             </Badge>
+            <Badge variant="info" data-testid="badge-true-mode">
+              {tAi("ai.trueMode")}
+            </Badge>
             <Badge variant="secondary" data-testid="badge-ollama-cost">
-              {ollama?.cost === "free" ? "Free" : ollama?.cost ?? "—"}
+              {ollama?.cost === "free" ? tAi("ai.free") : ollama?.cost ?? "—"}
             </Badge>
             {llmStatus.data?.deepseek?.configured ? (
               <Badge variant="info" data-testid="badge-deepseek-key">
@@ -369,7 +383,7 @@ function AiInsightsPage() {
               ) : (
                 <Cpu size={15} />
               )}
-              Check local Ollama
+              {tAi("ai.checkOllama")}
             </Button>
             <Button
               variant="outline"
@@ -378,7 +392,7 @@ function AiInsightsPage() {
               onClick={() => ask("Teach me everything — what was built and how to use it.")}
             >
               <BookOpen size={15} />
-              Teach me everything
+              {tAi("ai.teachEverything")}
             </Button>
             <Button
               variant="outline"
@@ -391,7 +405,7 @@ function AiInsightsPage() {
               }
             >
               <BrainCircuit size={15} />
-              Ask for support
+              {tAi("ai.askSupport")}
             </Button>
             <Button
               variant="outline"
@@ -400,12 +414,13 @@ function AiInsightsPage() {
               onClick={() => ask("What can you do? List capabilities and local AI brain.")}
             >
               <BrainCircuit size={15} />
-              What can you do
+              {tAi("ai.whatCanYouDo")}
             </Button>
           </div>
           {!ollamaOnline && !llmStatus.isLoading ? (
             <p className="text-xs text-[var(--color-warning)]" data-testid="text-ollama-help">
-              Start Ollama, then run: <span className="font-mono">ollama pull deepseek-r1:1.5b</span>
+              Start Ollama, then run:{" "}
+              <span className="font-mono">ollama pull qwen2.5:3b-instruct</span>
             </p>
           ) : null}
         </CardContent>

@@ -15,6 +15,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { titleCase } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { Lookup } from "@/lib/types";
 
 const TYPES = [
@@ -27,6 +28,7 @@ const TYPES = [
 ];
 
 function LookupsPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [activeType, setActiveType] = useState(TYPES[0]);
   const [showForm, setShowForm] = useState(false);
@@ -89,8 +91,8 @@ function LookupsPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]">
       <PageHeader
-        title="Lookups"
-        subtitle="Reference lists used across employees, rates, and imports"
+        title={t("page.lookups.title")}
+        subtitle={t("page.lookups.subtitle")}
         actions={
           <Button variant="gradient" onClick={openCreate}>
             <Plus size={15} /> New entry

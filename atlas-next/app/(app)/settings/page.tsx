@@ -20,7 +20,9 @@ import { Input, Select } from "@/components/ui/input";
 import { ErrorState, PageHeader } from "@/components/ui/primitives";
 import { toast } from "@/components/ui/toast";
 import { CompanyProfileCard } from "@/components/company-profile-card";
+import { WhatsAppConnectionPanel } from "@/components/whatsapp-connection-panel";
 import { api, ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface SettingOption {
@@ -89,6 +91,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 }
 
 function SettingsPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [activeGroup, setActiveGroup] = useState("accrual");
   const [draft, setDraft] = useState<DraftMap>({});
@@ -170,8 +173,8 @@ function SettingsPage() {
   return (
     <div className="space-y-6 animate-[fade-in_0.25s_ease-out]">
       <PageHeader
-        title="Settings"
-        subtitle="The global rule engine — every change applies to entitlement calculations immediately"
+        title={t("page.settings.title")}
+        subtitle={t("page.settings.subtitle")}
         actions={
           <>
             <Button variant="ghost" disabled={!dirty || save.isPending} onClick={discard}>
@@ -194,6 +197,8 @@ function SettingsPage() {
       />
 
       <CompanyProfileCard />
+
+      <WhatsAppConnectionPanel />
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
         <Card className="h-fit lg:sticky lg:top-6">

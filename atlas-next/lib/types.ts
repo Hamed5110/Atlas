@@ -19,6 +19,7 @@ export interface Company {
   id: string;
   code: string;
   name: string;
+  arabic_name?: string | null;
   currency: string;
   cr_no?: string | null;
   address?: string | null;
@@ -70,6 +71,19 @@ export interface Ticket {
   employee_id: string;
   employee_code?: string;
   employee_name?: string;
+  arabic_name?: string | null;
+  nationality?: string | null;
+  department?: string | null;
+  designation?: string | null;
+  pay_group?: string | null;
+  join_date?: string | null;
+  reporting_officer?: string | null;
+  as_of_date?: string | null;
+  employee_payable?: string | number | null;
+  opening_balance_amount?: string | number | null;
+  current_year_earned_amount?: string | number | null;
+  current_year_amount?: string | number | null;
+  already_paid_amount?: string | number | null;
   travel_date: string;
   origin_code: string;
   destination_code: string;
@@ -281,12 +295,22 @@ export interface LlmStatus {
   provider_preference: string;
   active_provider: string | null;
   free_path: string;
+  recommended?: Record<string, string>;
   ollama: {
     enabled: boolean;
     online: boolean;
     base_url: string;
     model: string;
     cost: string;
+  };
+  openai_compat?: {
+    enabled?: boolean;
+    online?: boolean;
+    base_url?: string;
+    model?: string;
+    examples?: Record<string, string>;
+    anythingllm_note?: string;
+    cost?: string;
   };
   deepseek: {
     configured: boolean;

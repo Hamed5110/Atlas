@@ -9,8 +9,10 @@ import { PageHeader } from "@/components/ui/primitives";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 export default function PayrollExportPage() {
+  const t = useT();
   const year = new Date().getFullYear();
   const [fiscalYear, setFiscalYear] = useState(String(year));
   const [payrollRun, setPayrollRun] = useState(`PR-${year}-01`);
@@ -39,7 +41,7 @@ export default function PayrollExportPage() {
 
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-payroll-export">
-      <PageHeader title="Payroll export" subtitle="Batch approved entitlement transactions" />
+      <PageHeader title={t("page.payroll.title")} subtitle={t("page.payroll.subtitle")} />
       <Card className="mb-4">
         <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
           <Field label="Payroll run">

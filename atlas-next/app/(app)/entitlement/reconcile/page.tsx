@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/primitives";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 interface ReconRow {
   employee_id: string;
@@ -20,6 +21,7 @@ interface ReconRow {
 }
 
 export default function EntitlementReconcilePage() {
+  const t = useT();
   const year = new Date().getFullYear();
   const [fiscalYear, setFiscalYear] = useState(String(year));
   const [data, setData] = useState<{
@@ -42,7 +44,7 @@ export default function EntitlementReconcilePage() {
 
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-entitlement-reconcile">
-      <PageHeader title="Entitlement reconciliation" subtitle="Expected vs current ledger balance" />
+      <PageHeader title={t("page.reconcile.title")} subtitle={t("page.reconcile.subtitle")} />
       <Card className="mb-4">
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
           <Field label="Fiscal year">

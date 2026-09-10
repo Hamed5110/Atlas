@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
@@ -108,7 +109,7 @@ export function StatCard({
 export function SearchInput({
   value,
   onChange,
-  placeholder = "Search…",
+  placeholder,
   className,
   "data-testid": dataTestId,
 }: {
@@ -118,10 +119,11 @@ export function SearchInput({
   className?: string;
   "data-testid"?: string;
 }) {
+  const t = useT();
   return (
     <div className={cn("relative", className)}>
       <svg
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted-foreground)]"
+        className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted-foreground)]"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -136,28 +138,30 @@ export function SearchInput({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("action.search")}
         data-testid={dataTestId}
-        className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-input)] bg-white pl-9 pr-3 text-sm shadow-xs transition-colors placeholder:text-[var(--color-muted-foreground)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[hsl(243_75%_59%/0.15)]"
+        className="h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-input)] bg-white ps-9 pe-3 text-sm shadow-xs transition-colors placeholder:text-[var(--color-muted-foreground)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[hsl(243_75%_59%/0.15)]"
       />
     </div>
   );
 }
 
 export function RetryButton({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
   return (
     <Button variant="outline" size="sm" onClick={onRetry}>
-      Try again
+      {t("action.retry")}
     </Button>
   );
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const t = useT();
   const message =
     error instanceof Error ? error.message : "Something went wrong loading this data.";
   return (
     <EmptyState
-      title="Unable to load"
+      title={t("common.unableToLoad")}
       message={message}
       action={onRetry ? <RetryButton onRetry={onRetry} /> : undefined}
     />

@@ -13,6 +13,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, download, errorMessage } from "@/lib/api";
 import { fmtDateTime, num } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const REPORTS = [
@@ -88,6 +90,7 @@ interface CrystalStatus {
 }
 
 function ReportsPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<ReportName | null>(null);
   const [designerDataset, setDesignerDataset] = useState<ReportName>("employee-master");
@@ -226,9 +229,26 @@ function ReportsPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="reports-page">
       <PageHeader
-        title="Reports"
-        subtitle="Catalog PDF/Excel exports · native banded designer (Crystal BIP optional on :3389)"
+        title={t("page.reports.title")}
+        subtitle={t("page.reports.subtitle")}
       />
+
+      <Link
+        href="/finance"
+        data-testid="reports-link-finance-ledger"
+        className="mb-4 flex items-start gap-3 rounded-[var(--radius-lg)] border-2 border-[var(--color-primary)] bg-[var(--color-primary-muted)] p-4 text-left transition-all hover:shadow-[var(--shadow-pop)]"
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] gradient-hero text-white">
+          <Scale size={18} />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-[var(--color-primary)]">Finance Ledger (GL)</p>
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+            Chart of accounts, trial balance, and journal lines for ticket issue and loans — open the
+            dedicated Finance Ledger page (not a catalog tile).
+          </p>
+        </div>
+      </Link>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="reports-catalog">
         {REPORTS.map(({ name, label, icon: Icon, blurb }) => (

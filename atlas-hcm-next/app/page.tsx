@@ -6,6 +6,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
+  buildWhatsAppUrl,
+  formatWhatsAppDisplayNumber,
+  normalizeWhatsAppNumber,
+} from "../lib/whatsapp-click-to-chat";
+import {
   Area,
   AreaChart,
   CartesianGrid,
@@ -643,21 +648,6 @@ function formatBackupSize(sizeBytes: number) {
   return `${Math.ceil(sizeBytes / 1024)} KB`;
 }
 
-function normalizeWhatsAppNumber(value: string) {
-  return String(value || "").replace(/[^\d]/g, "");
-}
-
-function buildWhatsAppUrl(number: string, message: string) {
-  const cleanNumber = normalizeWhatsAppNumber(number);
-  if (!cleanNumber) return "";
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-}
-
-function formatWhatsAppDisplayNumber(value: string) {
-  const cleanNumber = normalizeWhatsAppNumber(value);
-  return cleanNumber ? `+${cleanNumber}` : "-";
-}
-
 function getInitials(name: string) {
   const initials = String(name || "AT")
     .trim()
@@ -1280,7 +1270,7 @@ export default function DashboardPage() {
   });
   const [activeFiscalYear, setActiveFiscalYear] = useState(new Date().getFullYear().toString());
   const [reportDensity, setReportDensity] = useState<"comfortable" | "standard" | "compact">("standard");
-  const [reportFitMode, setReportFitMode] = useState<"wide" | "fit">("wide");
+  const [reportFitMode, setReportFitMode] = useState<"wide" | "fit">("wide");
 
   const selectedEmployee = employees.find((item) => item.EmployeeID === Number(allocationForm.employeeId));
   const canSelectSelfServiceEmployee = Boolean(selfServiceSummary?.canSelectEmployee || ["admin", "manager", "hr"].includes(session?.user.role || ""));

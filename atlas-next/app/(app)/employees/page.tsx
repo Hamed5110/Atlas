@@ -15,6 +15,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, download, errorMessage } from "@/lib/api";
 import { fmtDate, initials } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { Company, Employee } from "@/lib/types";
 
 interface EmployeeForm {
@@ -125,6 +126,7 @@ function toForm(e: Employee): EmployeeForm {
 }
 
 function EmployeesPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -271,8 +273,8 @@ function EmployeesPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="employee-master-page">
       <PageHeader
-        title="Employees"
-        subtitle={`${employees.data?.length ?? 0} profiles — Focus-style master fields in HCM`}
+        title={t("page.employees.title")}
+        subtitle={`${employees.data?.length ?? 0} · ${t("page.employees.subtitle")}`}
         actions={
           <>
             <Button variant="outline" onClick={() => download("/employees/export.xlsx", "employees.xlsx")}>

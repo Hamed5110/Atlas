@@ -15,9 +15,11 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, download, errorMessage } from "@/lib/api";
 import { money, num } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { Employee, OpeningBalance } from "@/lib/types";
 
 function OpeningBalancesPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -127,8 +129,8 @@ function OpeningBalancesPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]">
       <PageHeader
-        title="Opening Balances"
-        subtitle="Carried-forward entitlement days and amounts per year"
+        title={t("page.openingBalances.title")}
+        subtitle={t("page.openingBalances.subtitle")}
         actions={
           <>
             <Button

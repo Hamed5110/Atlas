@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, PageHeader, SearchInput } from "@/components/ui
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { fmtDateTime, statusTone, titleCase } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 interface AuditEventRow {
@@ -25,6 +26,7 @@ interface AuditEventRow {
 }
 
 function AuditPage() {
+  const t = useT();
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -53,8 +55,8 @@ function AuditPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]">
       <PageHeader
-        title="Audit Log"
-        subtitle={`Append-only trail of every mutation · ${events.data?.total ?? 0} events`}
+        title={t("page.audit.title")}
+        subtitle={`${t("page.audit.subtitle")} · ${events.data?.total ?? 0}`}
       />
 
       <Card>

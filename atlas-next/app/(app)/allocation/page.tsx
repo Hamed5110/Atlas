@@ -10,10 +10,13 @@ import {
   Clock,
   HandCoins,
   Loader2,
+  MessageCircle,
   Pencil,
   Plane,
   Printer,
+  RefreshCw,
   Send,
+  ShieldCheck,
   Ticket as TicketIcon,
   Trash2,
   Wallet,
@@ -39,6 +42,12 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { api, ApiError, downloadPost, errorMessage } from "@/lib/api";
 import { fmtDate, initials, money, num, statusTone, titleCase, todayLocal } from "@/lib/format";
+import { useT } from "@/lib/i18n";
+import {
+  buildWhatsAppUrl,
+  formatWhatsAppDisplayList,
+  parseWhatsAppNumbers,
+} from "@/lib/whatsapp-click-to-chat";
 import { cn } from "@/lib/utils";
 import type { Employee, Ticket } from "@/lib/types";
 
@@ -54,6 +63,9 @@ interface TicketEditForm {
   excess_handling: string;
   tenure_months: string;
   notes: string;
+  manager_approval: string;
+  manager_whatsapp: string;
+  notify_whatsapp: boolean;
 }
 
 const EXCESS_OPTIONS = [
@@ -94,6 +106,7 @@ const WORKFLOW: Record<string, Array<{ next: string; label: string; icon: typeof
 };
 
 function AllocationPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [employeeId, setEmployeeId] = useState("");
   const [travelDate, setTravelDate] = useState(() => todayLocal());
@@ -103,6 +116,9 @@ function AllocationPage() {
   const [excessOption, setExcessOption] = useState<string>("");
   const [tenure, setTenure] = useState("12");
   const [notes, setNotes] = useState("");
+  const [managerApproval, setManagerApproval] = useState("");
+  const [managerWhatsapp, setManagerWhatsapp] = useState("");
+  const [tripType, setTripType] = useState<"ROUND_TRIP" | "ONE_WAY">("ROUND_TRIP");
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [ticketSearch, setTicketSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -124,6 +140,9 @@ function AllocationPage() {
     excess_handling: "SELF_PAID",
     tenure_months: "12",
     notes: "",
+    manager_approval: "",
+    manager_whatsapp: "",
+    notify_whatsapp: false,
   });
 
   const employees = useQuery({
@@ -140,6 +159,43 @@ function AllocationPage() {
     [employees.data, employeeId]
   );
 
+  const ticketsThisYear = useMemo(() => {
+    if (!employeeId || !travelDate) return 0;
+    const year = Number(String(travelDate).slice(0, 4));
+    return (tickets.data ?? []).filter((t) => {
+      if (String(t.employee_id) !== String(employeeId)) return false;
+      if (Number(String(t.travel_date).slice(0, 4)) !== year) return false;
+      return ["draft", "submitted", "approved", "paid"].includes(t.status);
+    }).length;
+  }, [tickets.data, employeeId, travelDate]);
+
+  const requiresManagerApproval =
+    excessOption === "CONVERT_TO_LOAN" || ticketsThisYear >= 1;
+
+  useEffect(() => {
+    if (!employee) {
+      setManagerApproval("");
+      setManagerWhatsapp("");
+      return;
+    }
+    setManagerApproval(String(employee.reporting_officer_id || "").trim());
+  }, [employee?.id]);
+
+  const reloadEmployeeMut = useMutation({
+    mutationFn: async () => {
+      if (!employeeId) throw new Error("Select an employee first");
+      const fresh = await api<Employee>(`/employees/${employeeId}`);
+      await queryClient.invalidateQueries({ queryKey: ["employees"] });
+      return fresh;
+    },
+    onSuccess: (fresh) => {
+      setPreview(null);
+      setManagerApproval(String(fresh.reporting_officer_id || "").trim());
+      toast.success("Reloaded from master", `${fresh.code} — ${fresh.full_name}`);
+    },
+    onError: (e) => toast.error("Reload failed", errorMessage(e)),
+  });
+
   const openEdit = (ticket: Ticket) => {
     setEditing(ticket);
     setLoanConfirmOpen(false);
@@ -154,6 +210,9 @@ function AllocationPage() {
       excess_handling: handling,
       tenure_months: String(ticket.tenure_months || 12),
       notes: ticket.notes || "",
+      manager_approval: "",
+      manager_whatsapp: "",
+      notify_whatsapp: false,
     });
   };
 
@@ -202,6 +261,13 @@ function AllocationPage() {
       toast.warning(
         "No entitlement",
         "Entitlement amount cannot be used with a zero balance. Choose Self paid, Fully company paid, or Make loan."
+      );
+      return;
+    }
+    if (editForm.notify_whatsapp && parseWhatsAppNumbers(editForm.manager_whatsapp).length === 0) {
+      toast.warning(
+        "Manager WhatsApp required",
+        "Enter at least one valid number, or uncheck Send WhatsApp on save."
       );
       return;
     }
@@ -340,15 +406,58 @@ function AllocationPage() {
 
   const issueMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
-      api<PreviewData>("/allocations/issue", { method: "POST", body: payload }),
+      api<PreviewData & { whatsapp?: Record<string, unknown> }>("/allocations/issue", {
+        method: "POST",
+        body: payload,
+      }),
     onSuccess: (data) => {
-      toast.success(
-        "Ticket issued",
-        data.ticket_code ? `Ticket ${data.ticket_code} created.` : "Allocation recorded."
-      );
+      const wa = data.whatsapp || {};
+      const ticketMsg = data.ticket_code
+        ? `Ticket ${data.ticket_code} created.`
+        : "Allocation recorded.";
+      const recipients = Array.isArray(wa.recipients)
+        ? (wa.recipients as string[])
+        : wa.to
+          ? [String(wa.to)]
+          : [];
+      const toLabel =
+        recipients.length > 1
+          ? `${recipients.length} numbers`
+          : recipients[0] || "manager";
+      const pdfPart = wa.pdf_attached
+        ? " A4 print PDF attached on WhatsApp."
+        : wa.attachment_id
+          ? " A4 PDF stored on ticket (WhatsApp PDF not delivered)."
+          : wa.pdf_error
+            ? ` PDF: ${String(wa.pdf_error)}`
+            : "";
+      if (wa.sent && wa.pdf_attached) {
+        toast.success(
+          "Ticket issued · WhatsApp + PDF",
+          `${ticketMsg} Evolution (${wa.instance || "instance"}) → ${toLabel}.${pdfPart}`
+        );
+      } else if (wa.sent) {
+        toast.success(
+          "Ticket issued · WhatsApp sent",
+          `${ticketMsg} Evolution (${wa.instance || "instance"}) → ${toLabel}.${pdfPart}`
+        );
+      } else if (wa.queued) {
+        toast.warning(
+          "Ticket issued · WhatsApp queued",
+          String(wa.error || `${ticketMsg} WhatsApp session not Connected — scan QR in Settings.`) +
+            pdfPart
+        );
+      } else if (wa.skipped === "evolution_disabled") {
+        toast.success("Ticket issued", ticketMsg + pdfPart);
+      } else if (wa.error) {
+        toast.warning("Ticket issued · WhatsApp failed", String(wa.error) + pdfPart);
+      } else {
+        toast.success("Ticket issued", ticketMsg + pdfPart);
+      }
       setPreview(data);
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["wa-events"] });
     },
     onError: (err) => toast.error("Issue failed", errorMessage(err)),
   });
@@ -382,39 +491,71 @@ function AllocationPage() {
       if (isLoan && (!Number.isFinite(tenure) || tenure < 1)) {
         throw new ApiError(400, "invalid_loan_terms", "Enter a valid loan tenure in months.");
       }
-      return api<Ticket & { loan_created?: boolean; loan_revised?: boolean; loan_code?: string | null }>(
-        `/tickets/${editing.id}`,
-        {
-          method: "PUT",
-          headers: { "If-Match": String(editing.version) },
-          body: {
-            travel_date: editForm.travel_date,
-            origin_code: originCode,
-            destination_code: destinationCode,
-            ticket_cost: Number(editForm.ticket_cost),
-            entitlement: Number(editForm.entitlement),
-            company_paid: Number(editForm.entitlement),
-            excess_handling: editForm.excess_handling,
-            tenure_months: isLoan ? tenure : null,
-            notes: editForm.notes,
-          },
+      const waNumbers = parseWhatsAppNumbers(editForm.manager_whatsapp);
+      if (editForm.notify_whatsapp && waNumbers.length === 0) {
+        throw new ApiError(
+          400,
+          "manager_whatsapp_required",
+          "Enter at least one valid WhatsApp number when Send WhatsApp on save is checked."
+        );
+      }
+      return api<
+        Ticket & {
+          loan_created?: boolean;
+          loan_revised?: boolean;
+          loan_code?: string | null;
+          whatsapp?: Record<string, unknown>;
         }
-      );
+      >(`/tickets/${editing.id}`, {
+        method: "PUT",
+        headers: { "If-Match": String(editing.version) },
+        body: {
+          travel_date: editForm.travel_date,
+          origin_code: originCode,
+          destination_code: destinationCode,
+          ticket_cost: Number(editForm.ticket_cost),
+          entitlement: Number(editForm.entitlement),
+          company_paid: Number(editForm.entitlement),
+          excess_handling: editForm.excess_handling,
+          tenure_months: isLoan ? tenure : null,
+          notes: editForm.notes,
+          manager_approval: editForm.manager_approval.trim() || undefined,
+          manager_whatsapp_numbers: waNumbers,
+          manager_whatsapp: waNumbers[0] || "",
+          notify_whatsapp: Boolean(editForm.notify_whatsapp),
+        },
+      });
     },
     onSuccess: (data) => {
       const loanLabel = data.loan_code || (data.loan_id ? "loan" : null);
+      const wa = data.whatsapp || {};
+      let base = "Ticket updated";
       if (data.loan_revised && loanLabel) {
-        toast.success("Ticket updated", `Recovery revised — ${loanLabel} created.`);
+        base = `Ticket updated · Recovery revised — ${loanLabel} created.`;
       } else if (data.loan_created && loanLabel) {
-        toast.success("Ticket updated", `Recovery loan ${loanLabel} created.`);
+        base = `Ticket updated · Recovery loan ${loanLabel} created.`;
+      }
+      if (editForm.notify_whatsapp) {
+        if (wa.sent && wa.pdf_attached) {
+          toast.success("Saved · WhatsApp + PDF", `${base} Sent to ${formatWhatsAppDisplayList(String((wa.recipients as string[])?.join(",") || wa.to || ""))}.`);
+        } else if (wa.sent) {
+          toast.success("Saved · WhatsApp sent", base);
+        } else if (wa.queued) {
+          toast.warning("Saved · WhatsApp queued", String(wa.error || base));
+        } else if (wa.error) {
+          toast.warning("Saved · WhatsApp failed", String(wa.error));
+        } else {
+          toast.success(base);
+        }
       } else {
-        toast.success("Ticket updated");
+        toast.success(base);
       }
       setLoanConfirmOpen(false);
       setEditing(null);
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["wa-events"] });
     },
     onError: (err) => toast.error("Update failed", errorMessage(err)),
   });
@@ -456,6 +597,33 @@ function AllocationPage() {
   const needsSettlement = Boolean(preview && requested > 0 && excess > 0);
   const entitlementOptionAvailable = entitlement > 0;
 
+  const approvalWhatsAppMessage = useMemo(() => {
+    if (!employee || !preview) return "";
+    const lines = [
+      "ATLAS Airfare Allocation — approval request",
+      `Employee: ${employee.code} — ${employee.full_name}`,
+      employee.reporting_officer_id ? `Reporting to: ${employee.reporting_officer_id}` : "",
+      `Travel date: ${travelDate}`,
+      `Route: ${origin || "—"} → ${destination || "—"}`,
+      `Ticket: ${money(requested)} · Entitlement: ${money(entitlement)} · Excess: ${money(excess)}`,
+      excessOption ? `Settlement: ${excessOption.replaceAll("_", " ")}` : "",
+      managerApproval.trim() ? `Approval authority: ${managerApproval.trim()}` : "",
+      "Please review and approve.",
+    ];
+    return lines.filter(Boolean).join("\n");
+  }, [
+    employee,
+    preview,
+    travelDate,
+    origin,
+    destination,
+    requested,
+    entitlement,
+    excess,
+    excessOption,
+    managerApproval,
+  ]);
+
   useEffect(() => {
     if (excessOption !== "ENTITLEMENT_AMOUNT") return;
     if (entitlementOptionAvailable) return;
@@ -481,6 +649,23 @@ function AllocationPage() {
       );
       return;
     }
+    if (requiresManagerApproval && !managerApproval.trim()) {
+      toast.warning(
+        "Approval authority required",
+        ticketsThisYear >= 1 && excessOption !== "CONVERT_TO_LOAN"
+          ? "Second ticket this year needs approval authority before issue. Round trip (going + return) as one issued ticket counts as one claim."
+          : "Loan settlement needs approval authority before issue."
+      );
+      return;
+    }
+    const waNumbers = parseWhatsAppNumbers(managerWhatsapp);
+    if (waNumbers.length === 0) {
+      toast.warning(
+        "Manager WhatsApp required",
+        "Enter at least one valid WhatsApp number (8–15 digits, one per line). Issue sends via Evolution."
+      );
+      return;
+    }
     issueMutation.mutate({
       employee_id: employeeId,
       as_of_date: travelDate,
@@ -490,6 +675,10 @@ function AllocationPage() {
       origin_code: originCode,
       destination_code: destinationCode,
       notes,
+      manager_approval: managerApproval.trim() || undefined,
+      manager_whatsapp: waNumbers[0],
+      manager_whatsapp_numbers: waNumbers,
+      trip_type: tripType,
     });
   };
 
@@ -518,8 +707,8 @@ function AllocationPage() {
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="airfare-allocation-page">
       <div className={printing ? "no-print" : undefined}>
       <PageHeader
-        title="Airfare Allocation"
-        subtitle="Calculate entitlement, settle the excess, and issue the ticket"
+        title={t("page.allocation.title")}
+        subtitle={t("page.allocation.subtitle")}
       />
 
       <div className="grid gap-4 xl:grid-cols-5">
@@ -543,17 +732,43 @@ function AllocationPage() {
             </Field>
 
             {employee ? (
-              <div className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[hsl(243_75%_98%)] p-3">
-                <div className="gradient-hero flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white">
-                  {initials(employee.full_name)}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[hsl(243_75%_98%)] p-3">
+                  <div className="gradient-hero flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white">
+                    {initials(employee.full_name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold">{employee.full_name}</p>
+                    <p className="text-xs text-[var(--color-muted-foreground)]">
+                      {employee.code} · joined {fmtDate(employee.join_date)}
+                    </p>
+                    {employee.reporting_officer_id ? (
+                      <p className="mt-0.5 truncate text-[11px] text-[var(--color-muted-foreground)]">
+                        Reporting to: {employee.reporting_officer_id}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <Badge variant="secondary">{employee.department || "—"}</Badge>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      data-testid="btn-reload-employee-master"
+                      disabled={reloadEmployeeMut.isPending}
+                      title="Reload this employee from ATLAS master"
+                      onClick={() => reloadEmployeeMut.mutate()}
+                    >
+                      {reloadEmployeeMut.isPending ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={12} />
+                      )}
+                      Reload
+                    </Button>
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold">{employee.full_name}</p>
-                  <p className="text-xs text-[var(--color-muted-foreground)]">
-                    {employee.code} · joined {fmtDate(employee.join_date)}
-                  </p>
-                </div>
-                <Badge variant="secondary">{employee.department || "—"}</Badge>
               </div>
             ) : null}
 
@@ -777,12 +992,106 @@ function AllocationPage() {
                       </p>
                     ) : null}
 
+                    <div
+                      className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[hsl(243_40%_98%)] p-3"
+                      data-testid="panel-approval-whatsapp"
+                    >
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-primary)]" />
+                        <div>
+                          <p className="text-sm font-bold">Approval & WhatsApp</p>
+                          <p className="text-xs text-[var(--color-muted-foreground)]">
+                            Issue sends the approval request + A4 PDF through Evolution WhatsApp to every
+                            manager number below (max 5)
+                            {requiresManagerApproval ? " — approval authority required for loan or 2nd+ ticket" : ""}.
+                          </p>
+                          <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+                            Ticket counting: each issued allocation is one claim. Round trip (going + return)
+                            booked as one ticket = one claim; two one-ways = two claims.
+                          </p>
+                        </div>
+                      </div>
+
+                      <Field label="Trip type">
+                        <Select
+                          value={tripType}
+                          data-testid="select-trip-type"
+                          onChange={(e) =>
+                            setTripType(e.target.value === "ONE_WAY" ? "ONE_WAY" : "ROUND_TRIP")
+                          }
+                        >
+                          <option value="ROUND_TRIP">Round trip (going and return)</option>
+                          <option value="ONE_WAY">One way</option>
+                        </Select>
+                      </Field>
+
+                      <Field
+                        label={
+                          requiresManagerApproval
+                            ? "Approval authority (required)"
+                            : "Approval authority"
+                        }
+                      >
+                        <Input
+                          value={managerApproval}
+                          data-testid="input-approval-authority"
+                          placeholder="Manager name, employee code, or approval reference"
+                          onChange={(e) => setManagerApproval(e.target.value)}
+                        />
+                      </Field>
+
+                      <Field label="Manager WhatsApp numbers (required)">
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Textarea
+                            value={managerWhatsapp}
+                            data-testid="input-manager-whatsapp"
+                            placeholder={"97335000001\n97335000002"}
+                            dir="ltr"
+                            rows={3}
+                            className="flex-1 font-mono text-sm"
+                            onChange={(e) => setManagerWhatsapp(e.target.value)}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            data-testid="btn-open-manager-whatsapp"
+                            disabled={
+                              parseWhatsAppNumbers(managerWhatsapp).length === 0 ||
+                              !approvalWhatsAppMessage
+                            }
+                            onClick={() => {
+                              const first = parseWhatsAppNumbers(managerWhatsapp)[0];
+                              const url = buildWhatsAppUrl(first, approvalWhatsAppMessage);
+                              if (!url) {
+                                toast.warning("Invalid WhatsApp", "Check the number (8–15 digits).");
+                                return;
+                              }
+                              window.open(url, "_blank", "noopener,noreferrer");
+                            }}
+                          >
+                            <MessageCircle size={15} />
+                            Preview chat
+                          </Button>
+                        </div>
+                        {parseWhatsAppNumbers(managerWhatsapp).length > 0 ? (
+                          <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]" dir="ltr">
+                            Evolution will message {formatWhatsAppDisplayList(managerWhatsapp)} on Issue
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-[11px] text-[var(--color-destructive)]">
+                            Required — one number per line (or comma-separated). Issue will not proceed
+                            without at least one valid number.
+                          </p>
+                        )}
+                      </Field>
+                    </div>
+
                     <Field label="Notes (optional)">
                       <Textarea
                         rows={2}
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Reason, approval reference…"
+                        placeholder="Extra context (approval is stored separately above)"
                       />
                     </Field>
 
@@ -792,7 +1101,10 @@ function AllocationPage() {
                       className="w-full"
                       data-testid="btn-issue-ticket"
                       disabled={
-                        issueMutation.isPending || (needsSettlement && !excessOption)
+                        issueMutation.isPending ||
+                        (needsSettlement && !excessOption) ||
+                        (requiresManagerApproval && !managerApproval.trim()) ||
+                        parseWhatsAppNumbers(managerWhatsapp).length === 0
                       }
                       onClick={issue}
                     >
@@ -803,7 +1115,11 @@ function AllocationPage() {
                       )}
                       {needsSettlement && !excessOption
                         ? "Choose how to settle the excess"
-                        : "Issue ticket"}
+                        : requiresManagerApproval && !managerApproval.trim()
+                          ? "Enter approval authority"
+                          : parseWhatsAppNumbers(managerWhatsapp).length === 0
+                            ? "Enter manager WhatsApp"
+                            : "Issue ticket & WhatsApp"}
                     </Button>
                   </CardContent>
                 </Card>
@@ -931,7 +1247,12 @@ function AllocationPage() {
                         <Button size="sm" variant="outline" onClick={() => openEdit(t)}>
                           <Pencil size={13} /> Edit
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => setPrinting(t)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-testid="btn-print-ticket"
+                          onClick={() => setPrinting(t)}
+                        >
                           <Printer size={13} /> Print
                         </Button>
                         {t.loan_id ? (
@@ -1093,6 +1414,64 @@ function AllocationPage() {
               />
             </Field>
           </div>
+          <div
+            className="sm:col-span-2 space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[hsl(243_40%_98%)] p-3"
+            data-testid="panel-edit-whatsapp"
+          >
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                data-testid="chk-edit-notify-whatsapp"
+                checked={editForm.notify_whatsapp}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, notify_whatsapp: e.target.checked }))
+                }
+              />
+              <span>
+                <span className="font-semibold">Send WhatsApp on save</span>
+                <span className="block text-xs text-[var(--color-muted-foreground)]">
+                  Opt-in only. Sends update notice + A4 PDF via Evolution to the numbers below.
+                </span>
+              </span>
+            </label>
+            {editForm.notify_whatsapp ? (
+              <>
+                <Field label="Approval authority (optional)">
+                  <Input
+                    value={editForm.manager_approval}
+                    data-testid="input-edit-approval-authority"
+                    placeholder="Manager name or reference"
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, manager_approval: e.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Manager WhatsApp numbers (required when sending)">
+                  <Textarea
+                    value={editForm.manager_whatsapp}
+                    data-testid="input-edit-manager-whatsapp"
+                    placeholder={"97335000001\n97335000002"}
+                    dir="ltr"
+                    rows={3}
+                    className="font-mono text-sm"
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, manager_whatsapp: e.target.value }))
+                    }
+                  />
+                  {parseWhatsAppNumbers(editForm.manager_whatsapp).length > 0 ? (
+                    <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]" dir="ltr">
+                      Will message {formatWhatsAppDisplayList(editForm.manager_whatsapp)}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-[var(--color-destructive)]">
+                      Enter at least one valid number to send on save.
+                    </p>
+                  )}
+                </Field>
+              </>
+            ) : null}
+          </div>
         </div>
       </Dialog>
 
@@ -1167,6 +1546,7 @@ function AllocationPage() {
             <Button
               variant="outline"
               disabled={!printing || printBusy}
+              data-testid="btn-download-a4-pdf"
               onClick={() => printing && printTicketPdf(printing)}
             >
               {printBusy ? "Preparing…" : "Download A4 PDF"}
@@ -1174,6 +1554,7 @@ function AllocationPage() {
             <Button
               variant="gradient"
               disabled={!printing}
+              data-testid="btn-print-allocation"
               onClick={() => window.print()}
             >
               <Printer size={14} /> Print
@@ -1182,7 +1563,7 @@ function AllocationPage() {
         }
       >
         {printing ? (
-          <div className="overflow-auto bg-[hsl(210_20%_96%)] p-4">
+          <div className="overflow-auto bg-[hsl(210_20%_96%)] p-4" data-testid="allocation-print-preview">
             <AllocationPrintSheet ticket={printing} className="shadow-[var(--shadow-card)]" />
           </div>
         ) : null}

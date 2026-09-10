@@ -1,14 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, FileDown, Pencil, Printer, Trash2, UserRound, X } from "lucide-react";
+import { Eye, FileDown, MessageCircle, Pencil, Printer, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { EmployeeCombobox } from "@/components/employee-combobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConfirmDialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/input";
+import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
+import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { CardsSkeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
@@ -16,6 +16,10 @@ import { api, authedFetch, download, ApiError, errorMessage } from "@/lib/api";
 import { usePrimaryCompany } from "@/lib/branding";
 import { fmtDate, fmtDateTime, titleCase, todayLocal } from "@/lib/format";
 import type { Company, Employee } from "@/lib/types";
+import {
+  formatWhatsAppDisplayList,
+  parseWhatsAppNumbers,
+} from "@/lib/whatsapp-click-to-chat";
 
 export type DocumentKind = "offer_letter" | "contract";
 
@@ -142,6 +146,10 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
   const [editing, setEditing] = useState<{ id: string; version: number; voucherNo: string } | null>(
     null
   );
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
+  const [managerWhatsapp, setManagerWhatsapp] = useState("");
+  const [waSendTarget, setWaSendTarget] = useState<DocumentRow | null>(null);
+  const [waSendNumbers, setWaSendNumbers] = useState("");
   const { logo: brandLogo } = usePrimaryCompany();
 
   const companies = useQuery({
@@ -242,17 +250,53 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
 
   const selectedCompanyLogo = companyId ? `/v1/companies/${companyId}/logo` : brandLogo;
 
-  const payload = () => ({
-    kind,
-    template_key: template?.key,
-    employee_id: employeeId || null,
-    company_id: companyId || null,
-    params: {
-      ...params,
-      signatory_name: params.signatory_name || "Authorized Signatory",
-      signatory_title: params.signatory_title || "Human Resources",
-    },
-  });
+  const payload = () => {
+    const waNumbers = parseWhatsAppNumbers(managerWhatsapp);
+    return {
+      kind,
+      template_key: template?.key,
+      employee_id: employeeId || null,
+      company_id: companyId || null,
+      params: {
+        ...params,
+        signatory_name: params.signatory_name || "Authorized Signatory",
+        signatory_title: params.signatory_title || "Human Resources",
+      },
+      notify_whatsapp: notifyWhatsapp,
+      manager_whatsapp: waNumbers[0] || "",
+      manager_whatsapp_numbers: waNumbers,
+    };
+  };
+
+  const toastWhatsappResult = (base: string, wa: Record<string, unknown> | undefined) => {
+    if (!wa) {
+      toast.success(base);
+      return;
+    }
+    const recipients = Array.isArray(wa.recipients)
+      ? (wa.recipients as string[])
+      : wa.to
+        ? [String(wa.to)]
+        : [];
+    const toLabel =
+      recipients.length > 1 ? `${recipients.length} numbers` : recipients[0] || "recipient";
+    const pdfPart = wa.pdf_attached
+      ? " PDF attached."
+      : wa.pdf_error
+        ? ` PDF: ${String(wa.pdf_error)}`
+        : "";
+    if (wa.sent && wa.pdf_attached) {
+      toast.success(`${base} · WhatsApp + PDF`, `Evolution → ${toLabel}.${pdfPart}`);
+    } else if (wa.sent) {
+      toast.success(`${base} · WhatsApp sent`, `Evolution → ${toLabel}.${pdfPart}`);
+    } else if (wa.queued) {
+      toast.warning(`${base} · WhatsApp queued`, String(wa.error || "") + pdfPart);
+    } else if (wa.error) {
+      toast.warning(`${base} · WhatsApp failed`, String(wa.error) + pdfPart);
+    } else {
+      toast.success(base, pdfPart.trim() || undefined);
+    }
+  };
 
   const fetchPreview = async () => {
     if (!ready) {
@@ -288,32 +332,76 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
       if (!ready) {
         throw new ApiError(400, "missing_fields", `Missing: ${missingRequired.join(", ")}`);
       }
-      if (editing) {
-        return api<DocumentRow>(`/documents/${editing.id}`, {
-          method: "PUT",
-          headers: { "If-Match": String(editing.version) },
-          body: {
-            template_key: template?.key,
-            employee_id: employeeId || null,
-            company_id: companyId || null,
-            params: payload().params,
-          },
-        });
+      if (notifyWhatsapp && parseWhatsAppNumbers(managerWhatsapp).length === 0) {
+        throw new ApiError(
+          400,
+          "manager_whatsapp_required",
+          "Enter at least one valid WhatsApp number, or uncheck Send WhatsApp with PDF."
+        );
       }
-      return api<DocumentRow>("/documents", {
+      const body = payload();
+      if (editing) {
+        return api<DocumentRow & { whatsapp?: Record<string, unknown> }>(
+          `/documents/${editing.id}`,
+          {
+            method: "PUT",
+            headers: { "If-Match": String(editing.version) },
+            body: {
+              template_key: template?.key,
+              employee_id: employeeId || null,
+              company_id: companyId || null,
+              params: body.params,
+              notify_whatsapp: body.notify_whatsapp,
+              manager_whatsapp: body.manager_whatsapp,
+              manager_whatsapp_numbers: body.manager_whatsapp_numbers,
+            },
+          }
+        );
+      }
+      return api<DocumentRow & { whatsapp?: Record<string, unknown> }>("/documents", {
         method: "POST",
-        body: payload(),
+        body,
       });
     },
     onSuccess: (doc) => {
-      toast.success(
-        editing ? "Document updated" : "Document issued",
-        `${doc.voucher_no || doc.title} — ${doc.has_pdf ? "PDF stored." : "recorded."}`
-      );
+      const base = editing ? "Document updated" : "Document issued";
+      const detail = `${doc.voucher_no || doc.title} — ${doc.has_pdf ? "PDF stored." : "recorded."}`;
+      if (notifyWhatsapp) {
+        toastWhatsappResult(`${base} · ${detail}`, doc.whatsapp);
+      } else {
+        toast.success(base, detail);
+      }
       setEditing(doc.id ? { id: doc.id, version: doc.version, voucherNo: doc.voucher_no || "" } : null);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["wa-events"] });
     },
     onError: (error) => toast.error(editing ? "Update failed" : "Issue failed", errorMessage(error)),
+  });
+
+  const sendWhatsappMut = useMutation({
+    mutationFn: async () => {
+      if (!waSendTarget) throw new Error("No document selected");
+      const nums = parseWhatsAppNumbers(waSendNumbers);
+      if (nums.length === 0) {
+        throw new ApiError(400, "manager_whatsapp_required", "Enter at least one valid WhatsApp number.");
+      }
+      return api<{ whatsapp?: Record<string, unknown> }>(`/documents/${waSendTarget.id}/whatsapp`, {
+        method: "POST",
+        body: {
+          manager_whatsapp: nums[0],
+          manager_whatsapp_numbers: nums,
+        },
+      });
+    },
+    onSuccess: (data) => {
+      toastWhatsappResult(
+        `Sent ${waSendTarget?.voucher_no || "document"}`,
+        data.whatsapp
+      );
+      setWaSendTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["wa-events"] });
+    },
+    onError: (error) => toast.error("WhatsApp send failed", errorMessage(error)),
   });
 
   const loadForEdit = async (doc: DocumentRow) => {
@@ -408,6 +496,7 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
           type={paramInputType(key)}
           step="any"
           value={params[key] ?? ""}
+          data-testid={`field-document-${key}`}
           onChange={(e) => setParams((p) => ({ ...p, [key]: e.target.value }))}
         />
       </Field>
@@ -536,6 +625,49 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
               {otherFields.map((k) => renderField(k, template?.required_params.includes(k)))}
             </div>
 
+            <div
+              className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[hsl(243_40%_98%)] p-3"
+              data-testid="panel-document-whatsapp"
+            >
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  data-testid="chk-document-notify-whatsapp"
+                  checked={notifyWhatsapp}
+                  onChange={(e) => setNotifyWhatsapp(e.target.checked)}
+                />
+                <span>
+                  <span className="font-semibold">Send WhatsApp with PDF</span>
+                  <span className="block text-xs text-[var(--color-muted-foreground)]">
+                    Opt-in. Evolution sends a notice + the issued PDF (max 5 numbers).
+                  </span>
+                </span>
+              </label>
+              {notifyWhatsapp ? (
+                <Field label="WhatsApp numbers (required when sending)">
+                  <Textarea
+                    value={managerWhatsapp}
+                    data-testid="input-document-whatsapp"
+                    placeholder={"97335000001\n97335000002"}
+                    dir="ltr"
+                    rows={3}
+                    className="font-mono text-sm"
+                    onChange={(e) => setManagerWhatsapp(e.target.value)}
+                  />
+                  {parseWhatsAppNumbers(managerWhatsapp).length > 0 ? (
+                    <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]" dir="ltr">
+                      Will message {formatWhatsAppDisplayList(managerWhatsapp)}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-[var(--color-destructive)]">
+                      Enter at least one valid number (8–15 digits), one per line.
+                    </p>
+                  )}
+                </Field>
+              ) : null}
+            </div>
+
             <div className="flex gap-2 pt-1">
               <Button
                 variant="outline"
@@ -550,10 +682,21 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
                 variant="gradient"
                 className="flex-1"
                 data-testid="btn-document-issue"
-                disabled={!ready || issue.isPending}
+                disabled={
+                  !ready ||
+                  issue.isPending ||
+                  (notifyWhatsapp && parseWhatsAppNumbers(managerWhatsapp).length === 0)
+                }
                 onClick={() => {
                   if (!ready) {
                     toast.error("Missing required fields", titleCase(missingRequired.join(", ")));
+                    return;
+                  }
+                  if (notifyWhatsapp && parseWhatsAppNumbers(managerWhatsapp).length === 0) {
+                    toast.warning(
+                      "WhatsApp number required",
+                      "Enter at least one valid number, or uncheck Send WhatsApp with PDF."
+                    );
                     return;
                   }
                   issue.mutate();
@@ -565,8 +708,12 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
                     ? "Saving…"
                     : "Issuing…"
                   : editing
-                    ? "Save & PDF"
-                    : "Issue & PDF"}
+                    ? notifyWhatsapp
+                      ? "Save & WhatsApp"
+                      : "Save & PDF"
+                    : notifyWhatsapp
+                      ? "Issue & WhatsApp"
+                      : "Issue & PDF"}
               </Button>
             </div>
             {editing ? (
@@ -591,6 +738,7 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
             {previewHtml ? (
               <iframe
                 title="Document preview"
+                data-testid="document-preview-frame"
                 srcDoc={previewHtml}
                 className="h-[min(842px,75vh)] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white"
               />
@@ -671,6 +819,19 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
                             <FileDown size={14} /> PDF
                           </Button>
                         ) : null}
+                        {doc.has_pdf ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            data-testid="btn-document-send-whatsapp"
+                            onClick={() => {
+                              setWaSendTarget(doc);
+                              setWaSendNumbers(managerWhatsapp);
+                            }}
+                          >
+                            <MessageCircle size={14} /> WhatsApp
+                          </Button>
+                        ) : null}
                         <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(doc)}>
                           <Trash2 size={14} className="text-[var(--color-destructive)]" />
                         </Button>
@@ -696,6 +857,56 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
         destructive
         busy={remove.isPending}
       />
+
+      <Dialog
+        open={Boolean(waSendTarget)}
+        onClose={() => setWaSendTarget(null)}
+        title="Send document via WhatsApp"
+        description={
+          waSendTarget
+            ? `${waSendTarget.voucher_no || waSendTarget.title} — Evolution sends text + stored PDF`
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setWaSendTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="gradient"
+              data-testid="btn-confirm-document-whatsapp"
+              disabled={
+                sendWhatsappMut.isPending || parseWhatsAppNumbers(waSendNumbers).length === 0
+              }
+              onClick={() => sendWhatsappMut.mutate()}
+            >
+              <MessageCircle size={15} />
+              {sendWhatsappMut.isPending ? "Sending…" : "Send WhatsApp"}
+            </Button>
+          </>
+        }
+      >
+        <Field label="WhatsApp numbers">
+          <Textarea
+            value={waSendNumbers}
+            data-testid="input-history-document-whatsapp"
+            placeholder={"97335000001\n97335000002"}
+            dir="ltr"
+            rows={4}
+            className="font-mono text-sm"
+            onChange={(e) => setWaSendNumbers(e.target.value)}
+          />
+          {parseWhatsAppNumbers(waSendNumbers).length > 0 ? (
+            <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]" dir="ltr">
+              Will message {formatWhatsAppDisplayList(waSendNumbers)}
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-[var(--color-destructive)]">
+              Enter at least one valid number (8–15 digits).
+            </p>
+          )}
+        </Field>
+      </Dialog>
     </div>
   );
 }

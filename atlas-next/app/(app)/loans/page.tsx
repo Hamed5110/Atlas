@@ -26,11 +26,13 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { fmtDate, money, statusTone, titleCase, todayLocal } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import type { Employee, Loan, LoanInstallment } from "@/lib/types";
 
 type ConfirmKind = "create" | "edit" | "pay" | "defer" | "settle" | "return" | "delete" | "emi-run" | null;
 
 function LoansPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -487,8 +489,8 @@ function LoansPage() {
   return (
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="loans-page">
       <PageHeader
-        title="Loans"
-        subtitle="Excess recovery loans with reducing-balance EMI schedules"
+        title={t("page.loans.title")}
+        subtitle={t("page.loans.subtitle")}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
