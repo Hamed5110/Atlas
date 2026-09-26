@@ -1,0 +1,78 @@
+{% extends "documents/lifecycle/letterhead.html" %}
+{% block content %}
+<div class="lc-wrap">
+  <table class="lc-meta">
+    <tr>
+      <td>Date: {{ doc.issue_date }}</td>
+      <td class="ref">{{ doc.ref }}</td>
+    </tr>
+  </table>
+
+  <h1 class="lc-title">Promotion Notice</h1>
+
+  <table class="lc-party">
+    <tr>
+      <td class="lbl">To</td>
+      <td>
+        <div class="name">{{ employee.full_name }}{% if employee.code %} ({{ employee.code }}){% endif %}</div>
+        {% if params.new_designation or params.designation or employee.designation %}
+        <div class="sub">{{ params.new_designation or params.designation or employee.designation }}</div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {% set _zone = 'header' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <p class="lc-intro">
+    We are pleased to confirm your promotion effective
+    <strong>{{ params.effective_date_long or params.effective_date or effective_date }}</strong>.
+  </p>
+
+  <div class="lc-section">Particulars</div>
+  <table class="lc-grid">
+    <colgroup><col class="lbl"/><col class="val"/></colgroup>
+    {% if params.previous_designation %}
+    <tr>
+      <th>Previous designation</th>
+      <td>{{ params.previous_designation }}</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <th>New designation</th>
+      <td><strong>{{ params.new_designation }}</strong></td>
+    </tr>
+    {% if params.new_grade %}
+    <tr>
+      <th>Grade</th>
+      <td>{{ params.new_grade }}</td>
+    </tr>
+    {% endif %}
+    {% if params.salary_note %}
+    <tr>
+      <th>Compensation note</th>
+      <td>{{ params.salary_note }}</td>
+    </tr>
+    {% endif %}
+  </table>
+  {% set _zone = 'particulars' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  {% if params.narration %}<p class="lc-intro">{{ params.narration }}</p>{% endif %}
+  <p class="lc-intro">Congratulations on this recognition of your contribution.</p>
+  {% set _zone = 'middle' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'footer' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'signatures' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <table class="lc-sigs">
+    <tr>
+      <td class="single">
+        <div class="lc-sig-cap">For the company</div>
+        <div class="lc-sig-line">
+          <div class="who">{{ params.signatory_name }}</div>
+          <div class="role">{{ params.signatory_title }}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endblock %}

@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping, Sequence
@@ -41,6 +42,29 @@ from airfare_management.application.documents import (
     preview_document,
     render_allocation_print_pdf,
     update_document,
+)
+from airfare_management.application.hr_lifecycle import (
+    KIND_TITLES,
+    LIFECYCLE_KINDS,
+    PRINT_ZONE_LABELS,
+    PRINT_ZONES,
+    convert_mistake_fine_to_loan,
+    create_form_definition,
+    create_lifecycle_document,
+    get_form_definition,
+    lifecycle_employee_defaults,
+    list_form_definitions,
+    list_lifecycle_templates,
+    plan_mistake_fine_recovery,
+    preview_lifecycle_document,
+    print_options_catalog,
+    seed_default_form_definitions,
+    soft_delete_form_definition,
+    soft_delete_form_field,
+    update_form_definition,
+    update_lifecycle_document,
+    update_signature_status,
+    upsert_db_template,
 )
 from airfare_management.application.contracts import (
     AllocationPreview,
@@ -108,12 +132,17 @@ from airfare_management.infrastructure.telemetry import (
     configure_logging,
     metrics_response,
 )
+import airfare_management.infrastructure.time_tracking_schema  # noqa: F401
 from airfare_management.infrastructure.schema import (
     AttachmentRow,
+    CommissionLineRow,
+    CommissionVoucherRow,
     CompanyRow,
     DocumentRow,
     EntitlementRateRow,
     EssRequestRow,
+    HrDocTemplateRow,
+    HrFormDefinitionRow,
     LoanInstallmentRow,
     LoanPaymentRow,
     LoanRow,
@@ -127,6 +156,7 @@ from airfare_management.infrastructure.schema import (
     UserRow,
     AiAgentAuditRow,
     AiRepairLogRow,
+    new_id,
 )
 from airfare_management.infrastructure.security import (
     create_refresh_token,
@@ -138,7 +168,12 @@ from airfare_management.infrastructure.security import (
 from airfare_management.shared import correlation_id
 
 LOGGER = logging.getLogger("airfare.api")
-DEFAULT_COMPANY_ID = "11111111-1111-1111-1111-111111111111"
+from airfare_management.company_ids import (  # noqa: E402
+    DEFAULT_COMPANY_ID,
+    CompanyId,
+    allocate_next_company_id,
+    remap_legacy_default_company_id,
+)
 DEFAULT_LOOKUPS: tuple[tuple[str, str, str], ...] = (
     ("departments", "FIN", "Finance"),
     ("departments", "OPS", "Operations"),
@@ -183,6 +218,7 @@ EMPLOYEE_API_FIELDS = (
     "last_airticket_date",
     "sub_section",
     "reporting_officer_id",
+    "whatsapp_mobile",
     "custom_airfare_rate",
     "max_entitlement_cap_rate",
     "grade",
@@ -253,6 +289,9 @@ class CompanyCreate(ApiModel):
     currency: str = Field(default="BHD", min_length=3, max_length=3)
     cr_no: str | None = Field(default=None, max_length=60)
     address: str | None = Field(default=None, max_length=500)
+    po_box: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=60)
+    email: str | None = Field(default=None, max_length=120)
 
 
 class CompanyUpdate(ApiModel):
@@ -263,6 +302,9 @@ class CompanyUpdate(ApiModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     cr_no: str | None = Field(default=None, max_length=60)
     address: str | None = Field(default=None, max_length=500)
+    po_box: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=60)
+    email: str | None = Field(default=None, max_length=120)
     active: bool | None = None
 
 
@@ -271,7 +313,7 @@ class EmployeeCreate(ApiModel):
 
     code: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     full_name: str = Field(min_length=2, max_length=200)
-    company_id: UUID
+    company_id: CompanyId
     join_date: date
     department: str = Field(default="", max_length=100)
     branch: str = Field(default="", max_length=100)
@@ -291,6 +333,7 @@ class EmployeeCreate(ApiModel):
     last_airticket_date: date | None = None
     sub_section: str = Field(default="", max_length=100)
     reporting_officer_id: str | None = Field(default=None, max_length=200)
+    whatsapp_mobile: str = Field(default="", max_length=32)
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
@@ -326,6 +369,7 @@ class EmployeeUpdate(ApiModel):
     last_airticket_date: date | None = None
     sub_section: str = Field(default="", max_length=100)
     reporting_officer_id: str | None = Field(default=None, max_length=200)
+    whatsapp_mobile: str = Field(default="", max_length=32)
     email: EmailStr | None = None
     custom_airfare_rate: Decimal | None = Field(default=None, ge=0)
     max_entitlement_cap_rate: Decimal | None = Field(default=None, ge=0)
@@ -344,8 +388,8 @@ class BalanceCreate(ApiModel):
 
     employee_id: UUID
     balance_year: int = Field(ge=2000, le=2200)
-    opening_days: Decimal = Field(ge=0, le=60)
-    paid_days: Decimal = Field(default=Decimal("0"), ge=0, le=60)
+    opening_days: Decimal = Field(ge=0, le=365)
+    paid_days: Decimal = Field(default=Decimal("0"), ge=0, le=365)
     opening_amount: Decimal = Field(ge=0)
     maximum_payout: Decimal = Field(ge=0)
 
@@ -353,8 +397,8 @@ class BalanceCreate(ApiModel):
 class BalanceUpdate(ApiModel):
     """Mutable opening-balance values."""
 
-    opening_days: Decimal = Field(ge=0, le=60)
-    paid_days: Decimal = Field(ge=0, le=60)
+    opening_days: Decimal = Field(ge=0, le=365)
+    paid_days: Decimal = Field(ge=0, le=365)
     opening_amount: Decimal = Field(ge=0)
     maximum_payout: Decimal = Field(ge=0)
 
@@ -430,6 +474,11 @@ class AllocationIssueRequest(ApiModel):
     manager_whatsapp: str = Field(default="", max_length=256)
     manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
     trip_type: Literal["ROUND_TRIP", "ONE_WAY"] = "ROUND_TRIP"
+    leave_start_date: date | None = None
+    leave_end_date: date | None = None
+    defer_whatsapp: bool = False
+    # Opt-in notify (PeopleSoft/greytHR pattern: Save without submit/notify).
+    notify_whatsapp: bool = False
 
     @field_validator("excess_option", "tenure_months", mode="before")
     @classmethod
@@ -437,6 +486,25 @@ class AllocationIssueRequest(ApiModel):
         if value == "" or value is None:
             return None
         return value
+
+    @field_validator("leave_start_date", "leave_end_date", mode="before")
+    @classmethod
+    def _blank_leave_to_none(cls, value: object) -> object:
+        if value == "" or value is None:
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _leave_window_consistent(self) -> "AllocationIssueRequest":
+        start = self.leave_start_date
+        end = self.leave_end_date
+        if (start is None) != (end is None):
+            raise ValueError(
+                "leave_start_date and leave_end_date must be provided together."
+            )
+        if start is not None and end is not None and end < start:
+            raise ValueError("leave_end_date cannot be before leave_start_date.")
+        return self
 
     @field_validator("manager_approval", "manager_whatsapp", "notes", mode="before")
     @classmethod
@@ -458,6 +526,17 @@ class AllocationIssueRequest(ApiModel):
         if value is None or value == "":
             return "ROUND_TRIP"
         return str(value).strip().upper()
+
+
+
+class TicketWhatsAppNotifyRequest(ApiModel):
+    """Notify managers on an existing ticket with A4 + Ticket + Leave settlement docs."""
+
+    manager_approval: str = Field(default="", max_length=200)
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=2)
+    trip_type: Literal["ROUND_TRIP", "ONE_WAY"] | None = None
+    purpose: Literal["issue", "update"] = "issue"
 
 
 class AllocationPrintRequest(AllocationPreviewRequest):
@@ -512,6 +591,27 @@ class TicketCreate(ApiModel):
         "CONVERT_TO_LOAN", "COMPANY_PAID", "SELF_PAID", "ENTITLEMENT_AMOUNT"
     ] = "SELF_PAID"
     notes: str = Field(default="", max_length=4000)
+    leave_start_date: date | None = None
+    leave_end_date: date | None = None
+
+    @field_validator("leave_start_date", "leave_end_date", mode="before")
+    @classmethod
+    def _blank_create_leave(cls, value: object) -> object:
+        if value == "" or value is None:
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _create_leave_window_consistent(self) -> "TicketCreate":
+        start = self.leave_start_date
+        end = self.leave_end_date
+        if (start is None) != (end is None):
+            raise ValueError(
+                "leave_start_date and leave_end_date must be provided together."
+            )
+        if start is not None and end is not None and end < start:
+            raise ValueError("leave_end_date cannot be before leave_start_date.")
+        return self
 
 
 class TicketUpdate(ApiModel):
@@ -528,10 +628,31 @@ class TicketUpdate(ApiModel):
     ] = "SELF_PAID"
     notes: str = Field(default="", max_length=4000)
     tenure_months: int | None = Field(default=None, ge=1, le=600)
+    leave_start_date: date | None = None
+    leave_end_date: date | None = None
     manager_approval: str = Field(default="", max_length=200)
     manager_whatsapp: str = Field(default="", max_length=256)
     manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
     notify_whatsapp: bool = False
+
+    @field_validator("leave_start_date", "leave_end_date", mode="before")
+    @classmethod
+    def _blank_ticket_leave(cls, value: object) -> object:
+        if value == "" or value is None:
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _ticket_leave_window_consistent(self) -> "TicketUpdate":
+        start = self.leave_start_date
+        end = self.leave_end_date
+        if (start is None) != (end is None):
+            raise ValueError(
+                "leave_start_date and leave_end_date must be provided together."
+            )
+        if start is not None and end is not None and end < start:
+            raise ValueError("leave_end_date cannot be before leave_start_date.")
+        return self
 
     @field_validator("manager_approval", "manager_whatsapp", "notes", mode="before")
     @classmethod
@@ -737,7 +858,7 @@ class EmployeeImportCommitRow(ApiModel):
     row: int = Field(ge=1)
     code: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9_-]+$")
     full_name: str = Field(min_length=2, max_length=200)
-    company_id: UUID
+    company_id: CompanyId
     join_date: date
     department: str = Field(default="", max_length=100)
     branch: str = Field(default="", max_length=100)
@@ -818,11 +939,28 @@ class DocumentRequest(ApiModel):
     kind: Literal["offer_letter", "contract"]
     template_key: str = Field(min_length=1, max_length=40)
     employee_id: UUID | None = None
-    company_id: UUID | None = None
+    company_id: CompanyId | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     notify_whatsapp: bool = False
     manager_whatsapp: str = Field(default="", max_length=256)
     manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_json_string_body(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not isinstance(data, dict):
+            return data
+        params = data.get("params")
+        if isinstance(params, str):
+            try:
+                data["params"] = json.loads(params)
+            except json.JSONDecodeError:
+                data["params"] = {}
+        elif params is None:
+            data["params"] = {}
+        return data
 
     @field_validator("manager_whatsapp", mode="before")
     @classmethod
@@ -844,7 +982,7 @@ class DocumentUpdateRequest(ApiModel):
 
     template_key: str | None = Field(default=None, min_length=1, max_length=40)
     employee_id: UUID | None = None
-    company_id: UUID | None = None
+    company_id: CompanyId | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     notify_whatsapp: bool = False
     manager_whatsapp: str = Field(default="", max_length=256)
@@ -886,6 +1024,196 @@ class DocumentWhatsAppRequest(ApiModel):
         return value
 
 
+LifecycleKind = Literal[
+    "warning_letter",
+    "salary_increment",
+    "experience_certificate",
+    "relieving_certificate",
+    "disciplinary_notice",
+    "promotion_notice",
+    "mistake_with_fine",
+]
+
+
+class LifecycleDocumentRequest(ApiModel):
+    """Preview / issue an HR lifecycle letter (warning, increment, certificates, …)."""
+
+    kind: LifecycleKind
+    template_key: str = Field(min_length=1, max_length=40)
+    employee_id: UUID | None = None
+    company_id: CompanyId | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["draft", "pending_signature", "signed", "issued"] = "issued"
+    notify_whatsapp: bool = False
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_json_string_body(cls, data: Any) -> Any:
+        """Tolerate accidental double-JSON (body or params sent as a string)."""
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not isinstance(data, dict):
+            return data
+        params = data.get("params")
+        if isinstance(params, str):
+            try:
+                data["params"] = json.loads(params)
+            except json.JSONDecodeError:
+                data["params"] = {}
+        elif params is None:
+            data["params"] = {}
+        return data
+
+    @field_validator("manager_whatsapp", mode="before")
+    @classmethod
+    def _blank_lc_wa(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_lc_wa_list(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
+
+
+class LifecycleDocumentUpdateRequest(ApiModel):
+    """Edit an issued lifecycle letter and regenerate PDF (keeps voucher_no)."""
+
+    template_key: str | None = Field(default=None, min_length=1, max_length=40)
+    employee_id: UUID | None = None
+    company_id: CompanyId | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["draft", "pending_signature", "signed", "issued"] | None = None
+    notify_whatsapp: bool = False
+    manager_whatsapp: str = Field(default="", max_length=256)
+    manager_whatsapp_numbers: list[str] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_json_string_body(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not isinstance(data, dict):
+            return data
+        params = data.get("params")
+        if isinstance(params, str):
+            try:
+                data["params"] = json.loads(params)
+            except json.JSONDecodeError:
+                data["params"] = {}
+        elif params is None:
+            data["params"] = {}
+        return data
+
+    @field_validator("manager_whatsapp", mode="before")
+    @classmethod
+    def _blank_lc_upd_wa(cls, value: object) -> object:
+        if value is None:
+            return ""
+        return value
+
+    @field_validator("manager_whatsapp_numbers", mode="before")
+    @classmethod
+    def _blank_lc_upd_wa_list(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        return value
+
+
+class HrFormFieldPayload(ApiModel):
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=120)
+    type: Literal["text", "textarea", "number", "date", "dropdown", "file", "signature"] = "text"
+    required: bool = False
+    active: bool = True
+    sort_order: int = 0
+    options: list[str] = Field(default_factory=list)
+    deleted_at: str | None = None
+    # Print format builder (Frappe / PDF-designer inspired)
+    print_zone: Literal[
+        "header", "particulars", "middle", "footer", "signatures", "hidden"
+    ] = "particulars"
+    print_after: str | None = Field(default=None, max_length=64)
+    print_align: Literal["left", "center", "right", "justify"] = "left"
+    print_width: Literal["full", "half", "third", "quarter"] = "full"
+    print_label_pos: Literal["beside", "above", "value_only", "label_only"] = "beside"
+    print_bold: bool = False
+    print_show_label: bool = True
+    print_format: Literal[
+        "plain",
+        "currency",
+        "percent",
+        "date_long",
+        "date_short",
+        "uppercase",
+        "lowercase",
+        "title",
+        "yes_no",
+        "multiline",
+    ] = "plain"
+    print_prefix: str = Field(default="", max_length=40)
+    print_suffix: str = Field(default="", max_length=40)
+    print_size: Literal["small", "normal", "large", "xlarge"] = "normal"
+    print_vspace: Literal["tight", "normal", "loose", "section"] = "normal"
+    print_border: Literal["none", "underline", "box", "top", "bottom"] = "none"
+    print_italic: bool = False
+    print_show_empty: bool = False
+    print_indent: Literal["none", "indent", "double"] = "none"
+    print_label_width: Literal["narrow", "normal", "wide"] = "normal"
+    print_hline: bool = False
+    print_role: Literal["field", "section", "spacer", "static"] = "field"
+    print_color: Literal["default", "muted", "emphasis", "danger"] = "default"
+    print_line_height: Literal["compact", "normal", "relaxed"] = "normal"
+    print_bg: Literal["none", "tint", "shade"] = "none"
+    print_page_break: bool = False
+    print_static_text: str = Field(default="", max_length=500)
+    print_include: bool = False
+    print_label_bold: bool = False
+    print_keep_together: bool = True
+    print_empty_as: Literal["dash", "blank", "na", "pending"] = "dash"
+
+
+class HrFormCreateRequest(ApiModel):
+    kind: LifecycleKind
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    fields: list[HrFormFieldPayload] = Field(default_factory=list)
+
+
+class HrFormUpdateRequest(ApiModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+    fields: list[HrFormFieldPayload] | None = None
+
+
+class HrTemplateUpsertRequest(ApiModel):
+    key: str = Field(min_length=1, max_length=40)
+    kind: LifecycleKind
+    label: str = Field(min_length=1, max_length=200)
+    body_html: str = Field(min_length=1)
+    description: str = Field(default="", max_length=1000)
+    required_params: list[str] = Field(default_factory=list)
+    optional_params: list[str] = Field(default_factory=list)
+    request_signature: bool = False
+
+
+class SignatureStatusRequest(ApiModel):
+    status: Literal["draft", "pending_signature", "signed", "issued"]
+    signature_data: str | None = Field(default=None, max_length=200_000)
+
+
+class ConvertFineToLoanRequest(ApiModel):
+    """Convert an issued Mistake with Fine document into an interest-free recovery loan."""
+
+    tenure_months: int | None = Field(default=None, ge=1, le=60)
+    annual_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    consent_acknowledged: bool = True
+
 class BackupCreateRequest(ApiModel):
     """Create a catalogued database backup."""
 
@@ -901,6 +1229,7 @@ class BackupRestoreRequest(ApiModel):
 
 TemplateName = Literal[
     "employees",
+    "commissions",
     "opening-balances",
     "tickets",
     "loans",
@@ -1146,7 +1475,7 @@ def _strip_wa_emoji(text: str) -> str:
     ).strip()
 
 
-MAX_WHATSAPP_RECIPIENTS = 5
+MAX_WHATSAPP_RECIPIENTS = 2
 WA_MULTI_SEND_DELAY_SEC = 1.2
 
 
@@ -1263,6 +1592,12 @@ def _build_ticket_allocation_print_data(
         **_ticket_display(ticket),
         **_loan_display(linked_loan),
         "travel_date": ticket.travel_date.isoformat(),
+        "leave_start_date": (
+            ticket.leave_start_date.isoformat() if ticket.leave_start_date else None
+        ),
+        "leave_end_date": (
+            ticket.leave_end_date.isoformat() if ticket.leave_end_date else None
+        ),
         "ticket_cost": _decimal_text(ticket.ticket_cost),
         "requested_ticket_amount": _decimal_text(ticket.ticket_cost),
         "entitlement_amount": _decimal_text(ticket.entitlement),
@@ -1299,6 +1634,42 @@ def _build_ticket_allocation_print_data(
     return company_id, data
 
 
+
+def _content_addressed_blob_rel(digest: str) -> str:
+    """Shared on-disk blob path (sha256) ? may be reused by many attachment rows."""
+    return f"{digest[:2]}/{digest}"
+
+
+def _unique_attachment_storage_key(digest: str) -> str:
+    """DB storage_key must be UNIQUE even when two uploads share identical bytes."""
+    return f"{digest[:2]}/{digest}-{new_id()}"
+
+
+def _write_attachment_blob(attachment_root: Path, digest: str, content: bytes) -> str:
+    """Write content-addressed bytes once; return a unique DB storage_key."""
+    blob_rel = _content_addressed_blob_rel(digest)
+    destination = attachment_root / blob_rel
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not destination.exists():
+        destination.write_bytes(content)
+    return _unique_attachment_storage_key(digest)
+
+
+def _resolve_attachment_disk_bytes(row: AttachmentRow, attachment_root: Path) -> bytes | None:
+    """Resolve bytes from storage_key path or legacy/shared sha256 blob path."""
+    key = (row.storage_key or "").strip()
+    if key:
+        path = attachment_root / key
+        if path.is_file():
+            return path.read_bytes()
+    digest = (row.sha256 or "").strip()
+    if len(digest) >= 4:
+        legacy = attachment_root / _content_addressed_blob_rel(digest)
+        if legacy.is_file():
+            return legacy.read_bytes()
+    return None
+
+
 def _persist_ticket_pdf_attachment(
     session: Session,
     attachment_root: Path,
@@ -1310,11 +1681,7 @@ def _persist_ticket_pdf_attachment(
 ) -> AttachmentRow:
     """Store A4 allocation PDF on disk + attachments row (entity_type=ticket)."""
     digest = hashlib.sha256(content).hexdigest()
-    storage_key = f"{digest[:2]}/{digest}"
-    destination = attachment_root / storage_key
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if not destination.exists():
-        destination.write_bytes(content)
+    storage_key = _write_attachment_blob(attachment_root, digest, content)
     item = AttachmentRow(
         entity_type="ticket",
         entity_id=str(ticket_id),
@@ -1323,7 +1690,7 @@ def _persist_ticket_pdf_attachment(
         size_bytes=len(content),
         sha256=digest,
         storage_key=storage_key,
-        content=None,
+        content=content,
         scan_status="pending",
         created_by=created_by,
     )
@@ -1404,6 +1771,59 @@ def _render_and_persist_issue_pdf(
         }
 
 
+
+def _load_ticket_whatsapp_docs(
+    session: Session,
+    attachment_root: Path,
+    ticket_id: str,
+) -> list[dict[str, Any]]:
+    """Load Ticket document + Leave settlement bytes for WhatsApp fan-out."""
+    wanted = ("ticket_receipt", "leave_settlement")
+    rows = list(
+        session.scalars(
+            select(AttachmentRow)
+            .where(
+                AttachmentRow.entity_id == str(ticket_id),
+                AttachmentRow.entity_type.in_(wanted),
+                AttachmentRow.deleted_at.is_(None),
+            )
+            .order_by(AttachmentRow.created_at.desc(), AttachmentRow.id)
+        )
+    )
+    picked: dict[str, AttachmentRow] = {}
+    for row in rows:
+        if row.entity_type not in picked:
+            picked[row.entity_type] = row
+    docs: list[dict[str, Any]] = []
+    labels = {
+        "ticket_receipt": "Ticket document",
+        "leave_settlement": "Leave settlement",
+    }
+    for kind in wanted:
+        row = picked.get(kind)
+        if row is None:
+            continue
+        payload = row.content or _resolve_attachment_disk_bytes(row, attachment_root)
+        if not payload:
+            continue
+        mime = (row.content_type or "application/octet-stream").split(";")[0].strip().lower()
+        if mime not in {"application/pdf", "image/jpeg", "image/png"}:
+            mime = "application/pdf" if str(row.original_name).lower().endswith(".pdf") else mime
+        mediatype = "document" if mime == "application/pdf" else "image"
+        docs.append(
+            {
+                "kind": kind,
+                "label": labels.get(kind, kind),
+                "filename": row.original_name or f"{kind}.bin",
+                "mimetype": mime,
+                "mediatype": mediatype,
+                "bytes": payload,
+                "attachment_id": row.id,
+            }
+        )
+    return docs
+
+
 def _fanout_whatsapp_pdf(
     *,
     recipients: Sequence[str],
@@ -1415,17 +1835,26 @@ def _fanout_whatsapp_pdf(
     purpose: str,
     event_detail: dict[str, Any] | None = None,
     pdf_meta: dict[str, Any] | None = None,
+    extra_docs: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Resolve Evolution session and fan-out text + PDF (base64) to recipients."""
+    """Resolve Evolution session and fan-out text + PDF + Ticket/Leave docs."""
     settings = get_settings()
     numbers = [n for n in recipients if n]
+    extras = [d for d in (extra_docs or []) if d.get("bytes")]
+    planned = (["a4_pdf"] if pdf_bytes else []) + [
+        str(d.get("kind") or d.get("filename") or "doc") for d in extras
+    ]
     meta = {
         "pdf_attached": False,
         "pdf_bytes": len(pdf_bytes) if pdf_bytes else 0,
         "attachment_id": None,
         "pdf_error": None,
+        "attachments_planned": planned,
+        "attachments_sent": [],
         **(pdf_meta or {}),
     }
+    if pdf_meta and pdf_meta.get("attachments_planned") is not None:
+        meta["attachments_planned"] = list(pdf_meta.get("attachments_planned") or [])
     detail_base = dict(event_detail or {})
 
     def _with_meta(result: dict[str, Any]) -> dict[str, Any]:
@@ -1433,6 +1862,8 @@ def _fanout_whatsapp_pdf(
         out.setdefault("pdf_attached", meta.get("pdf_attached", False))
         out.setdefault("pdf_bytes", meta.get("pdf_bytes", 0))
         out.setdefault("attachment_id", meta.get("attachment_id"))
+        out.setdefault("attachments_planned", meta.get("attachments_planned", []))
+        out.setdefault("attachments_sent", meta.get("attachments_sent", []))
         out.setdefault("recipients", numbers)
         out.setdefault("to", numbers[0] if numbers else None)
         if meta.get("pdf_error") and not out.get("pdf_error"):
@@ -1519,6 +1950,7 @@ def _fanout_whatsapp_pdf(
         results: list[dict[str, Any]] = []
         pdf_ok_any = False
         sent_any = False
+        sent_kinds: list[str] = []
         last_error: str | None = None
         for idx, digits in enumerate(numbers):
             if idx > 0:
@@ -1548,6 +1980,8 @@ def _fanout_whatsapp_pdf(
                         )
                         row["pdf_attached"] = True
                         pdf_ok_any = True
+                        if "a4_pdf" not in sent_kinds:
+                            sent_kinds.append("a4_pdf")
                         wa_events.push_event(
                             event_type="SEND_MEDIA",
                             instance=instance,
@@ -1568,6 +2002,45 @@ def _fanout_whatsapp_pdf(
                             summary=f"{purpose} PDF failed → {digits}",
                             detail={**detail_base, "error": str(media_exc)[:200]},
                         )
+                for doc in extras:
+                    try:
+                        time.sleep(0.35)
+                        doc_bytes = doc["bytes"]
+                        doc_b64 = base64.b64encode(doc_bytes).decode("ascii")
+                        doc_name = str(doc.get("filename") or "document.pdf")
+                        doc_mime = str(doc.get("mimetype") or "application/pdf")
+                        doc_media = str(doc.get("mediatype") or "document")
+                        doc_kind = str(doc.get("kind") or doc_name)
+                        client.send_media(
+                            instance,
+                            number=digits,
+                            mediatype=doc_media,
+                            mimetype=doc_mime,
+                            media=doc_b64,
+                            file_name=doc_name,
+                            caption=_strip_wa_emoji(
+                                f"ATLAS {doc.get('label') or doc_kind} — {external_id}"
+                            ),
+                        )
+                        row.setdefault("docs_sent", []).append(doc_kind)
+                        if doc_kind not in sent_kinds:
+                            sent_kinds.append(doc_kind)
+                        wa_events.push_event(
+                            event_type="SEND_MEDIA",
+                            instance=instance,
+                            summary=f"{purpose} {doc_kind} → {digits}",
+                            detail={
+                                **detail_base,
+                                "attachment_id": doc.get("attachment_id"),
+                                "file": doc_name,
+                                "kind": doc_kind,
+                            },
+                        )
+                    except Exception as doc_exc:  # noqa: BLE001
+                        row.setdefault("doc_errors", []).append(
+                            f"{doc.get('kind')}: {str(doc_exc)[:160]}"
+                        )
+                        last_error = f"Doc WhatsApp send failed: {str(doc_exc)[:200]}"
             except Exception as send_exc:  # noqa: BLE001
                 row["error"] = str(send_exc)[:200]
                 last_error = str(send_exc)[:240]
@@ -1585,6 +2058,7 @@ def _fanout_whatsapp_pdf(
             results.append(row)
 
         meta["pdf_attached"] = pdf_ok_any
+        meta["attachments_sent"] = sent_kinds
         if last_error and not pdf_ok_any and meta.get("pdf_error") is None:
             meta["pdf_error"] = last_error
 
@@ -1599,6 +2073,7 @@ def _fanout_whatsapp_pdf(
                 "results": results,
                 "raw_ok": sent_any,
                 "pdf_attached": pdf_ok_any,
+                "attachments_sent": sent_kinds,
                 "error": None if sent_any else (last_error or "WhatsApp send failed"),
             }
         )
@@ -1701,6 +2176,12 @@ def _notify_allocation_whatsapp(
         f"Ticket: {ticket.ticket_code or ticket.id}",
         f"Employee: {emp_label}" if emp_label else "",
         f"Travel date: {ticket.travel_date}",
+        (
+            f"Leave: {getattr(ticket, 'leave_start_date')} → {getattr(ticket, 'leave_end_date')}"
+            if getattr(ticket, "leave_start_date", None) is not None
+            and getattr(ticket, "leave_end_date", None) is not None
+            else ""
+        ),
         f"Route: {ticket.origin_code} → {ticket.destination_code}",
         f"Trip: {_trip_type_label(trip_type)}" if trip_type else "",
         f"Ticket amount: {ticket.ticket_cost}",
@@ -1714,9 +2195,15 @@ def _notify_allocation_whatsapp(
             else "Please review and approve this airfare allocation."
         ),
         "A4 allocation slip PDF is attached when WhatsApp delivery succeeds.",
+        "Ticket document and Leave settlement are attached when uploaded on the ticket.",
     ]
     text = "\n".join(ln for ln in lines if ln)
     caption = f"ATLAS allocation {ticket.ticket_code or ticket.id} — A4 print slip"
+    extra_docs: list[dict[str, Any]] = []
+    if session is not None and attachment_root is not None:
+        extra_docs = _load_ticket_whatsapp_docs(session, attachment_root, str(ticket.id))
+    planned = (["a4_pdf"] if pdf_bytes else []) + [str(d.get("kind")) for d in extra_docs]
+    pdf_meta["attachments_planned"] = planned
     return _fanout_whatsapp_pdf(
         recipients=recipients,
         text=text,
@@ -1727,6 +2214,7 @@ def _notify_allocation_whatsapp(
         purpose=f"allocation_{purpose}",
         event_detail={"ticket_id": str(ticket.id), "ticket_code": ticket.ticket_code},
         pdf_meta=pdf_meta,
+        extra_docs=extra_docs,
     )
 
 
@@ -1738,19 +2226,17 @@ def _notify_document_whatsapp(
     numbers: str | Sequence[str],
     prepared_by: str = "",
 ) -> dict[str, Any]:
-    """Send offer letter / contract PDF via Evolution (gate + base64 fan-out)."""
+    """Send any HR document PDF (offer/contract/lifecycle) via Evolution WhatsApp."""
     from airfare_management.whatsapp.gates import AttachmentGateError, validate_attachment_bytes
 
     settings = get_settings()
     recipients = _parse_whatsapp_recipients(numbers)
     row = get_document(session, document_id)
-    kind_label = (
-        "Offer Letter"
-        if row.kind == "offer_letter"
-        else "Employment Contract"
-        if row.kind == "contract"
-        else "Document"
-    )
+    kind_label = {
+        "offer_letter": "Offer Letter",
+        "contract": "Employment Contract",
+        **KIND_TITLES,
+    }.get(row.kind, row.title or "HR Document")
     voucher = row.voucher_no or row.title or row.id
     party = ""
     params = row.params if isinstance(getattr(row, "params", None), dict) else {}
@@ -2240,6 +2726,7 @@ def _ensure_employee_hcm_columns(bind: Any) -> None:
         ("employment_status", "VARCHAR(40) NOT NULL DEFAULT 'active'"),
         ("monthly_salary", "DECIMAL(19,4) NULL"),
         ("probation_end_date", "DATE NULL"),
+        ("whatsapp_mobile", "VARCHAR(32) NOT NULL DEFAULT ''"),
     ]
     with bind.begin() as connection:
         for name, ddl in additions:
@@ -2276,6 +2763,9 @@ def _ensure_company_profile_columns(bind: Any) -> None:
     additions: list[tuple[str, str]] = [
         ("cr_no", "VARCHAR(60) NULL"),
         ("address", "VARCHAR(500) NULL"),
+        ("po_box", "VARCHAR(120) NULL"),
+        ("phone", "VARCHAR(60) NULL"),
+        ("email", "VARCHAR(120) NULL"),
         ("arabic_name", "NVARCHAR(200) NULL" if dialect == "mssql" else "TEXT NULL"),
         (
             "logo_data",
@@ -2291,6 +2781,110 @@ def _ensure_company_profile_columns(bind: Any) -> None:
                 connection.execute(text(f"ALTER TABLE companies ADD {name} {ddl}"))
             else:
                 connection.execute(text(f"ALTER TABLE companies ADD COLUMN {name} {ddl}"))
+
+
+def _ensure_tt_alert_settings_columns(bind: Any) -> None:
+    """Additive TT WhatsApp policy columns (grace + buffer alert timing)."""
+    inspector = inspect(bind)
+    if "tt_company_alert_settings" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("tt_company_alert_settings")}
+    dialect = bind.dialect.name
+    additions: list[tuple[str, str]] = [
+        ("alert_buffer_minutes", "INT NOT NULL DEFAULT 15"),
+    ]
+    with bind.begin() as connection:
+        for name, ddl in additions:
+            if name in existing:
+                continue
+            if dialect == "mssql":
+                connection.execute(text(f"ALTER TABLE tt_company_alert_settings ADD {name} {ddl}"))
+            else:
+                connection.execute(
+                    text(f"ALTER TABLE tt_company_alert_settings ADD COLUMN {name} {ddl}")
+                )
+
+
+def _ensure_ticket_leave_columns(bind: Any) -> None:
+    """Add round-trip leave window columns on existing tickets tables."""
+    inspector = inspect(bind)
+    if "tickets" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("tickets")}
+    dialect = bind.dialect.name
+    additions: list[tuple[str, str]] = [
+        ("leave_start_date", "DATE NULL"),
+        ("leave_end_date", "DATE NULL"),
+    ]
+    with bind.begin() as connection:
+        for name, ddl in additions:
+            if name in existing:
+                continue
+            if dialect == "mssql":
+                connection.execute(text(f"ALTER TABLE tickets ADD {name} {ddl}"))
+            else:
+                connection.execute(text(f"ALTER TABLE tickets ADD COLUMN {name} {ddl}"))
+
+
+def _ensure_commission_voucher_columns(bind: Any) -> None:
+    """Add the voucher FK on existing commission_lines tables (runtime ensure)."""
+    inspector = inspect(bind)
+    tables = set(inspector.get_table_names())
+    if "commission_lines" not in tables:
+        return
+    existing = {column["name"] for column in inspector.get_columns("commission_lines")}
+    dialect = bind.dialect.name
+    with bind.begin() as connection:
+        if "voucher_id" not in existing:
+            if dialect == "mssql":
+                connection.execute(
+                    text("ALTER TABLE commission_lines ADD voucher_id VARCHAR(36) NULL")
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE commission_lines ADD COLUMN voucher_id VARCHAR(36) NULL"
+                    )
+                )
+        if "line_no" not in existing:
+            if dialect == "mssql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE commission_lines ADD line_no INT NOT NULL "
+                        "CONSTRAINT df_commission_lines_line_no DEFAULT 0"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE commission_lines ADD COLUMN line_no INTEGER "
+                        "NOT NULL DEFAULT 0"
+                    )
+                )
+        if dialect == "mssql" and "commission_vouchers" in tables:
+            fk_names = {
+                fk["name"]
+                for fk in inspector.get_foreign_keys("commission_lines")
+                if fk.get("name")
+            }
+            index_names = {
+                idx["name"] for idx in inspector.get_indexes("commission_lines")
+            }
+            if "ix_commission_lines_voucher_id" not in index_names:
+                connection.execute(
+                    text(
+                        "CREATE INDEX ix_commission_lines_voucher_id "
+                        "ON commission_lines (voucher_id)"
+                    )
+                )
+            if "fk_commission_lines_voucher" not in fk_names:
+                connection.execute(
+                    text(
+                        "ALTER TABLE commission_lines ADD CONSTRAINT "
+                        "fk_commission_lines_voucher FOREIGN KEY (voucher_id) "
+                        "REFERENCES commission_vouchers (id)"
+                    )
+                )
 
 
 def _ensure_document_hr_columns(bind: Any) -> None:
@@ -2386,6 +2980,27 @@ def _ensure_document_hr_columns(bind: Any) -> None:
                     )
         except Exception:  # noqa: BLE001
             pass
+
+
+def _ensure_hr_lifecycle_tables(bind: Any) -> None:
+    """Additive: widen documents.kind + create form/template tables (checkfirst)."""
+    inspector = inspect(bind)
+    dialect = bind.dialect.name
+    with bind.begin() as connection:
+        if "documents" in inspector.get_table_names():
+            try:
+                if dialect == "mssql":
+                    connection.execute(
+                        text(
+                            "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = "
+                            "OBJECT_ID(N'dbo.documents') AND name = N'kind' AND max_length < 80) "
+                            "ALTER TABLE documents ALTER COLUMN kind VARCHAR(40) NOT NULL"
+                        )
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+    HrFormDefinitionRow.__table__.create(bind=bind, checkfirst=True)
+    HrDocTemplateRow.__table__.create(bind=bind, checkfirst=True)
 
 
 def _first_of_next_month(anchor: date) -> date:
@@ -2668,15 +3283,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ReportTemplateRow.__table__.create(bind=engine, checkfirst=True)
         AiAgentAuditRow.__table__.create(bind=engine, checkfirst=True)
         AiRepairLogRow.__table__.create(bind=engine, checkfirst=True)
+        CommissionVoucherRow.__table__.create(bind=engine, checkfirst=True)
+        CommissionLineRow.__table__.create(bind=engine, checkfirst=True)
     _ensure_employee_hcm_columns(engine)
     _ensure_document_hr_columns(engine)
+    _ensure_hr_lifecycle_tables(engine)
     _ensure_company_profile_columns(engine)
+    _ensure_tt_alert_settings_columns(engine)
+    _ensure_ticket_leave_columns(engine)
+    _ensure_commission_voucher_columns(engine)
     attachment_root = Path(config.attachment_root).resolve()
     attachment_root.mkdir(parents=True, exist_ok=True)
+    branding_root = attachment_root / "branding"
+    branding_root.mkdir(parents=True, exist_ok=True)
     preference_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 
     if inspect(engine).has_table("users"):
         with sessions.begin() as session:
+            try:
+                remap_legacy_default_company_id(session)
+            except Exception:
+                LOGGER.exception("company_id short remap failed (non-fatal)")
             if session.get(CompanyRow, DEFAULT_COMPANY_ID) is None:
                 session.add(
                     CompanyRow(
@@ -2750,9 +3377,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         LOGGER.info("api_started", extra={"environment": config.environment, "port": config.port})
+        if config.environment != "test" and config.tt_auto_sync_enabled:
+            try:
+                from airfare_management.application.tt_scheduler import start_tt_scheduler
+
+                status = start_tt_scheduler(
+                    enabled=True,
+                    sync_interval_seconds=config.tt_auto_sync_seconds,
+                    alert_interval_seconds=config.tt_auto_alert_seconds,
+                )
+                LOGGER.info("tt_scheduler_boot", extra=status)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("tt_scheduler_boot_failed")
         try:
             yield
         finally:
+            try:
+                from airfare_management.application.tt_scheduler import stop_tt_scheduler
+
+                stop_tt_scheduler()
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("tt_scheduler_stop_failed")
             LOGGER.info("api_shutdown", extra={"port": config.port})
             engine.dispose()
 
@@ -2808,6 +3453,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "account_locked": 403,
             "forbidden": 403,
             "not_found": 404,
+            "gone": 410,
             "stale_version": 409,
             "password_reuse": 409,
             "pdf_missing": 503,
@@ -2841,9 +3487,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_entitlement_router(database, authorized))
     app.include_router(create_finance_router(database, authorized))
+    from airfare_management.api.routers.commissions import create_commissions_router
+
+    app.include_router(create_commissions_router(database, authorized))
     from airfare_management.api.routers.whatsapp import create_whatsapp_router
 
     app.include_router(create_whatsapp_router(database, authorized))
+    from airfare_management.api.routers.ai import create_ai_router
+    from airfare_management.api.routers.employees import create_employees_router
+    from airfare_management.api.routers.tickets import create_tickets_router
+    from airfare_management.api.routers.admin import create_admin_router
+
+    app.include_router(
+        create_ai_router(database, authenticated, authorized, _require_active_employee)
+    )
+
 
     def scoped_employee_id(session: Session, claims: Claims) -> UUID | None:
         """Return an employee restriction for non-privileged identities."""
@@ -2864,12 +3522,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("forbidden", "No employee profile is linked to this account.")
         return user.employee_id
 
+
+    app.include_router(
+        create_employees_router(database, authenticated, authorized, scoped_employee_id)
+    )
+    app.include_router(
+        create_tickets_router(
+            database, authenticated, authorized, scoped_employee_id, config
+        )
+    )
+    app.include_router(
+        create_admin_router(database, authorized, config, preference_cache)
+    )
+    from airfare_management.api.routers.time_tracking import create_time_tracking_router
+
+    app.include_router(create_time_tracking_router(database, authorized))
+
     web_assets = web_root / "assets"
     if web_assets.is_dir():
         app.mount("/assets", StaticFiles(directory=web_assets), name="web-assets")
+
+    class ImmutableStaticFiles(StaticFiles):
+        """Content-hashed build assets — safe to cache forever, never stale.
+
+        Next.js chunk filenames embed the build hash, so a new deploy means new
+        URLs; without an explicit header browsers fall back to heuristic caching.
+        """
+
+        async def get_response(self, path: str, scope: Any) -> Response:  # noqa: ANN401
+            response = await super().get_response(path, scope)
+            if response.status_code == 200:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return response
+
     next_assets = web_root / "_next"
     if next_assets.is_dir():
-        app.mount("/_next", StaticFiles(directory=next_assets), name="web-next-assets")
+        app.mount("/_next", ImmutableStaticFiles(directory=next_assets), name="web-next-assets")
 
     def _spa_index() -> FileResponse:
         index = web_root / "index.html"
@@ -3221,6 +3909,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "arabic_name": getattr(item, "arabic_name", None),
                     "cr_no": getattr(item, "cr_no", None),
                     "address": getattr(item, "address", None),
+                    "po_box": getattr(item, "po_box", None),
+                    "phone": getattr(item, "phone", None),
+                    "email": getattr(item, "email", None),
                     "has_logo": has_logo,
                     "logo_url": f"/v1/companies/{item.id}/logo" if has_logo else None,
                 }
@@ -3247,6 +3938,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item.cr_no = payload.cr_no.strip() or None
         if payload.address is not None:
             item.address = payload.address.strip() or None
+        if payload.po_box is not None:
+            item.po_box = payload.po_box.strip() or None
+        if payload.phone is not None:
+            item.phone = payload.phone.strip() or None
+        if payload.email is not None:
+            item.email = payload.email.strip() or None
         if payload.active is not None:
             item.active = payload.active
         item.version += 1
@@ -3264,6 +3961,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "arabic_name": getattr(item, "arabic_name", None),
             "cr_no": getattr(item, "cr_no", None),
             "address": getattr(item, "address", None),
+            "po_box": getattr(item, "po_box", None),
+            "phone": getattr(item, "phone", None),
+            "email": getattr(item, "email", None),
             "has_logo": has_logo,
             "logo_url": f"/v1/companies/{item.id}/logo" if has_logo else None,
         }
@@ -3364,7 +4064,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session: Annotated[Session, Depends(database)],
         _: Annotated[Claims, Depends(authorized("admin"))],
     ) -> dict[str, Any]:
-        item = CompanyRow(**payload.model_dump())
+        item = CompanyRow(
+            id=allocate_next_company_id(session),
+            **payload.model_dump(),
+        )
         if not item.currency:
             item.currency = "BHD"
         else:
@@ -3376,6 +4079,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "arabic_name": getattr(item, "arabic_name", None),
             "cr_no": getattr(item, "cr_no", None),
             "address": getattr(item, "address", None),
+            "po_box": getattr(item, "po_box", None),
+            "phone": getattr(item, "phone", None),
+            "email": getattr(item, "email", None),
             "has_logo": False,
             "logo_url": None,
         }
@@ -3521,233 +4227,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item.deleted_at = datetime.now(UTC)
         item.version += 1
         return Response(status_code=204)
-
-    @app.get("/v1/employees")
-    def employees(
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authenticated)],
-        search: Annotated[str, Query(max_length=100)] = "",
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-        offset: Annotated[int, Query(ge=0)] = 0,
-        sort_by: Literal["code", "full_name", "department", "branch", "join_date"] = "code",
-        sort_order: Literal["asc", "desc"] = "asc",
-    ) -> list[dict[str, Any]]:
-        query = select(EmployeeRow).where(EmployeeRow.deleted_at.is_(None))
-        employee_scope = scoped_employee_id(session, claims)
-        if employee_scope is not None:
-            query = query.where(EmployeeRow.id == employee_scope)
-        if search:
-            term = f"%{search}%"
-            linked_ids = select(UserRow.employee_id).where(
-                UserRow.username.ilike(term),
-                UserRow.deleted_at.is_(None),
-                UserRow.employee_id.is_not(None),
-            )
-            query = query.where(
-                EmployeeRow.code.ilike(term)
-                | EmployeeRow.full_name.ilike(term)
-                | EmployeeRow.passport_no.ilike(term)
-                | EmployeeRow.designation.ilike(term)
-                | EmployeeRow.department.ilike(term)
-                | EmployeeRow.nationality.ilike(term)
-                | EmployeeRow.email.ilike(term)
-                | EmployeeRow.id.in_(linked_ids)
-            )
-        sort_column = {
-            "code": EmployeeRow.code,
-            "full_name": EmployeeRow.full_name,
-            "department": EmployeeRow.department,
-            "branch": EmployeeRow.branch,
-            "join_date": EmployeeRow.join_date,
-        }[sort_by]
-        ordering = sort_column.desc() if sort_order == "desc" else sort_column.asc()
-        items = list(
-            session.scalars(query.order_by(ordering, EmployeeRow.id).limit(limit).offset(offset))
-        )
-        usernames = _employee_username_map(session, [item.id for item in items])
-        return [
-            {
-                **_row(item, *EMPLOYEE_API_FIELDS),
-                "username": usernames.get(item.id),
-            }
-            for item in items
-        ]
-
-    @app.get("/v1/employees/export.xlsx")
-    def export_employees(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authenticated)],
-    ) -> Response:
-        records = [
-            _row(item, *EMPLOYEE_COLUMNS)
-            for item in session.scalars(
-                select(EmployeeRow)
-                .where(EmployeeRow.deleted_at.is_(None))
-                .order_by(EmployeeRow.code)
-            )
-        ]
-        return Response(
-            export_workbook("Employees", EMPLOYEE_COLUMNS, records),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": 'attachment; filename="employees.xlsx"'},
-        )
-
-    @app.get("/v1/employees/{employee_id}")
-    def employee_detail(
-        employee_id: UUID,
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authenticated)],
-    ) -> dict[str, Any]:
-        scope = scoped_employee_id(session, claims)
-        if scope is not None and scope != employee_id:
-            raise DomainError("forbidden", "Employees may only access their own profile.")
-        item = session.scalar(
-            select(EmployeeRow).where(
-                EmployeeRow.id == employee_id, EmployeeRow.deleted_at.is_(None)
-            )
-        )
-        if item is None:
-            raise DomainError("not_found", "Employee not found.")
-        return _row(item, *EMPLOYEE_API_FIELDS)
-
-    @app.post("/v1/employees", status_code=201)
-    def create_employee(
-        payload: EmployeeCreate,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
-    ) -> dict[str, Any]:
-        if session.get(CompanyRow, str(payload.company_id)) is None:
-            raise DomainError("invalid_company", "The selected company does not exist.")
-        now = datetime.now(UTC)
-        fields = payload.model_dump()
-        fields["company_id"] = str(fields["company_id"])
-        if fields.get("reporting_officer_id") is not None:
-            fields["reporting_officer_id"] = str(fields["reporting_officer_id"])
-        item = EmployeeRow(
-            id=uuid4(),
-            active=True,
-            version=1,
-            created_at=now,
-            updated_at=now,
-            deleted_at=None,
-            **fields,
-        )
-        session.add(item)
-        session.flush()
-        return _row(item, *EMPLOYEE_API_FIELDS)
-
-    @app.put("/v1/employees/{employee_id}")
-    def update_employee(
-        employee_id: UUID,
-        payload: EmployeeUpdate,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
-        if_match: Annotated[int, Header(alias="If-Match")],
-    ) -> dict[str, Any]:
-        item = session.get(EmployeeRow, employee_id)
-        if item is None or item.deleted_at is not None:
-            raise DomainError("not_found", "Employee not found.")
-        if item.version != if_match:
-            raise DomainError("stale_version", "The employee was modified by another user.")
-        for key, value in payload.model_dump(exclude_unset=True).items():
-            if key in {"pay_group", "custom_airfare_rate", "max_entitlement_cap_rate"} and (
-                key not in payload.model_fields_set
-            ):
-                continue
-            if key == "reporting_officer_id" and value is not None:
-                value = str(value)
-            setattr(item, key, value)
-        item.version += 1
-        return _row(item, *EMPLOYEE_API_FIELDS)
-
-    @app.delete("/v1/employees/{employee_id}", status_code=204)
-    def delete_employee(
-        employee_id: UUID,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
-        if_match: Annotated[int, Header(alias="If-Match")],
-    ) -> Response:
-        item = session.get(EmployeeRow, employee_id)
-        if item is None or item.deleted_at is not None:
-            raise DomainError("not_found", "Employee not found.")
-        if item.version != if_match:
-            raise DomainError("stale_version", "The employee was modified by another user.")
-        item.deleted_at = datetime.now(UTC)
-        item.active = False
-        item.version += 1
-        now = item.deleted_at
-        for model in (TicketRow, LoanRow, OpeningBalanceRow, EssRequestRow):
-            session.execute(
-                update(model).where(
-                    model.employee_id == item.id,
-                    model.deleted_at.is_(None),
-                ).values(deleted_at=now, version=model.version + 1)
-            )
-        return Response(status_code=204)
-
-    @app.post("/v1/employees/import/preview")
-    async def preview_employee_import(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
-        file: Annotated[UploadFile, File()],
-    ) -> dict[str, Any]:
-        records = parse_employee_workbook(await file.read())
-        rows = _preview_employee_import(session, records)
-        return {
-            "file_name": file.filename or "employee-import.xlsx",
-            "summary": _import_summary(rows),
-            "rows": rows,
-        }
-
-    @app.post("/v1/employees/import/commit")
-    def commit_employee_import(
-        payload: EmployeeImportCommit,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
-    ) -> dict[str, Any]:
-        return _commit_employee_import(session, payload)
-
-    @app.post("/v1/employees/import")
-    async def import_employees(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
-        file: Annotated[UploadFile, File()],
-        dry_run: bool = True,
-    ) -> dict[str, Any]:
-        records = parse_employee_workbook(await file.read())
-        rows = _preview_employee_import(session, records)
-        summary = _import_summary(rows)
-        if not dry_run:
-            selected = [row for row in rows if row.get("selected")]
-            if summary["errors"]:
-                raise DomainError("import_validation_failed", "Resolve import errors before committing.")
-            return _commit_employee_import(
-                session,
-                EmployeeImportCommit(
-                    rows=[
-                        EmployeeImportCommitRow.model_validate(
-                            {
-                                key: value
-                                for key, value in row.items()
-                                if key not in {"severity", "status", "message", "action"}
-                            }
-                        )
-                        for row in selected
-                    ]
-                ),
-            )
-        return {
-            "rows": summary["total"],
-            "accepted": summary["ready"],
-            "errors": [
-                {"row": row["row"], "error": row["message"]}
-                for row in rows
-                if row.get("severity") == "ERROR"
-            ],
-            "committed": False,
-            "preview": rows,
-            "summary": summary,
-        }
 
     @app.get("/v1/opening-balances/export.xlsx")
     def export_opening_balances(
@@ -3927,7 +4406,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("not_found", "Opening balance not found.")
         if item.version != if_match:
             raise DomainError("stale_version", "The balance was modified by another user.")
-        _assert_unlocked(session, item.created_at, "Opening balances")
+        # Master-data delete: do not apply transaction_lock_days (imported legacy
+        # balances are often older than the lock window; edit already skips the lock).
         # Permanent delete so the employee+year key can be reused (user-requested;
         # soft-delete left ghost rows that tripped unique / IntegrityError conflicts).
         session.delete(item)
@@ -4457,11 +4937,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload.manager_whatsapp,
         )
         settings = get_settings()
-        if settings.evolution_enabled and not wa_recipients:
+        notify_wa = bool(getattr(payload, "notify_whatsapp", False))
+        if notify_wa and settings.evolution_enabled and not wa_recipients:
             raise DomainError(
                 "manager_whatsapp_required",
                 "At least one valid Manager WhatsApp number (8–15 digits) is required "
-                "to notify via Evolution when issuing a ticket.",
+                "when Issue & WhatsApp is selected.",
             )
         if is_loan_settlement(settlement.option) and not approval_ref:
             raise DomainError(
@@ -4489,6 +4970,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         note_parts: list[str] = []
         note_parts.append(f"Trip type: {_trip_type_label(payload.trip_type)}")
+        if payload.leave_start_date is not None and payload.leave_end_date is not None:
+            note_parts.append(
+                f"Leave: {payload.leave_start_date.isoformat()} → "
+                f"{payload.leave_end_date.isoformat()}"
+            )
         if approval_ref:
             note_parts.append(f"Approval authority: {approval_ref}")
         if wa_recipients:
@@ -4516,6 +5002,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             company_payout=settlement.company_payout,
             last_ticket_date=entitlement.last_ticket_date,
             as_of_date=payload.as_of_date,
+            leave_start_date=payload.leave_start_date,
+            leave_end_date=payload.leave_end_date,
             tenure_months=settlement.tenure_months,
             status="approved",
             notes=composed_notes,
@@ -4582,18 +5070,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 actor="system",
             )
         body = _decorate_allocation(session, preview, query, payload.employee_id)
-        whatsapp_notify = _notify_allocation_whatsapp(
-            manager_wa=wa_recipients,
-            approval_ref=approval_ref,
-            ticket=ticket,
-            employee=employee_row,
-            session=session,
-            attachment_root=attachment_root,
-            linked_loan=loan,
-            prepared_by=claims.username or "",
-            purpose="issue",
-            trip_type=payload.trip_type,
-        )
+        if not notify_wa:
+            whatsapp_notify = {
+                "attempted": False,
+                "skipped": "notify_disabled",
+                "recipients": list(wa_recipients),
+            }
+        elif bool(getattr(payload, "defer_whatsapp", False)):
+            whatsapp_notify = {
+                "attempted": False,
+                "deferred": True,
+                "skipped": "defer_whatsapp",
+                "recipients": list(wa_recipients),
+            }
+        else:
+            whatsapp_notify = _notify_allocation_whatsapp(
+                manager_wa=wa_recipients,
+                approval_ref=approval_ref,
+                ticket=ticket,
+                employee=employee_row,
+                session=session,
+                attachment_root=attachment_root,
+                linked_loan=loan,
+                prepared_by=claims.username or "",
+                purpose="issue",
+                trip_type=payload.trip_type,
+            )
         body.update(
             {
                 "id": ticket.id,
@@ -4857,332 +5359,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise DomainError("not_found", "Entitlement rate not found.")
         if item.version != if_match:
             raise DomainError("stale_version", "The rate was modified by another user.")
-        item.deleted_at = datetime.now(UTC)
-        item.version += 1
-        return Response(status_code=204)
-
-    @app.get("/v1/tickets")
-    def tickets(
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authenticated)],
-        search: Annotated[str, Query(max_length=100)] = "",
-        status: Literal["draft", "submitted", "approved", "rejected", "paid"] | None = None,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-        offset: Annotated[int, Query(ge=0)] = 0,
-        sort_by: Literal["travel_date", "ticket_cost", "entitlement", "status"] = "travel_date",
-        sort_order: Literal["asc", "desc"] = "desc",
-    ) -> list[dict[str, Any]]:
-        query = select(TicketRow).where(TicketRow.deleted_at.is_(None))
-        scope = scoped_employee_id(session, claims)
-        if scope is not None:
-            query = query.where(TicketRow.employee_id == scope)
-        if search:
-            term = f"%{search}%"
-            query = query.join(EmployeeRow).where(
-                EmployeeRow.code.ilike(term)
-                | EmployeeRow.full_name.ilike(term)
-                | TicketRow.notes.ilike(term)
-            )
-        if status is not None:
-            query = query.where(TicketRow.status == status)
-        sort_column = {
-            "travel_date": TicketRow.travel_date,
-            "ticket_cost": TicketRow.ticket_cost,
-            "entitlement": TicketRow.entitlement,
-            "status": TicketRow.status,
-        }[sort_by]
-        ordering = sort_column.desc() if sort_order == "desc" else sort_column.asc()
-        items = list(
-            session.scalars(query.order_by(ordering, TicketRow.id).limit(limit).offset(offset))
-        )
-        loan_by_ticket = {
-            loan.source_ticket_id: loan
-            for loan in session.scalars(
-                select(LoanRow).where(
-                    LoanRow.deleted_at.is_(None),
-                    LoanRow.source_ticket_id.in_([item.id for item in items] or ["__none__"]),
-                )
-            )
-            if loan.source_ticket_id
-        }
-        return _attach_employees(
-            session,
-            [
-                {
-                    **_row(
-                        item,
-                        "id",
-                        "employee_id",
-                        "travel_date",
-                        "origin_code",
-                        "destination_code",
-                        "ticket_cost",
-                        "entitlement",
-                        "company_paid",
-                        "excess_handling",
-                        "status",
-                        "notes",
-                        "version",
-                    ),
-                    **_ticket_display(item),
-                    **_loan_display(loan_by_ticket.get(item.id)),
-                    "tenure_months": item.tenure_months,
-                    "excess_cost": item.excess_cost,
-                    "excess_amount": item.excess_amount,
-                    "format": conditional_format(status=item.status, amount=item.excess_amount),
-                }
-                for item in items
-            ],
-        )
-
-    @app.post("/v1/tickets", status_code=201)
-    def create_ticket(
-        payload: TicketCreate,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
-    ) -> dict[str, Any]:
-        if payload.origin_code.upper() == payload.destination_code.upper():
-            raise DomainError("invalid_route", "Origin and destination must differ.")
-        _require_active_employee(session, payload.employee_id)
-        values = payload.model_dump(exclude={"origin_code", "destination_code"})
-        item = TicketRow(
-            **values,
-            origin_code=payload.origin_code.upper(),
-            destination_code=payload.destination_code.upper(),
-        )
-        session.add(item)
-        session.flush()
-        return {
-            **_row(
-                item,
-                "id",
-                "employee_id",
-                "travel_date",
-                "origin_code",
-                "destination_code",
-                "ticket_cost",
-                "entitlement",
-                "company_paid",
-                "excess_handling",
-                "status",
-                "version",
-            ),
-            **_ticket_display(item),
-            "excess_amount": item.excess_amount,
-        }
-
-    @app.put("/v1/tickets/{ticket_id}")
-    def update_ticket(
-        ticket_id: UUID,
-        payload: TicketUpdate,
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
-        if_match: Annotated[int, Header(alias="If-Match")],
-    ) -> dict[str, Any]:
-        item = session.get(TicketRow, str(ticket_id))
-        if item is None or item.deleted_at is not None:
-            raise DomainError("not_found", "Ticket not found.")
-        if item.version != if_match:
-            raise DomainError("stale_version", "The ticket was modified by another user.")
-        if payload.origin_code.upper() == payload.destination_code.upper():
-            raise DomainError("invalid_route", "Origin and destination must differ.")
-
-        handling = "CONVERT_TO_LOAN" if payload.excess_handling == "LOAN" else payload.excess_handling
-        try:
-            settlement = settle_excess_ticket(
-                payload.ticket_cost,
-                payload.entitlement,
-                ExcessSettlementOption(handling),
-                payload.tenure_months or item.tenure_months,
-            )
-        except ValidationError as exc:
-            raise DomainError(getattr(exc, "code", "invalid_settlement"), str(exc)) from exc
-
-        linked_loan = _active_source_loan(session, item.id)
-        money_changed = (
-            payload.ticket_cost != item.ticket_cost or payload.entitlement != item.entitlement
-        )
-        loan_aliases = {"LOAN", "CONVERT_TO_LOAN"}
-        handling_same = payload.excess_handling == item.excess_handling or (
-            payload.excess_handling in loan_aliases and item.excess_handling in loan_aliases
-        )
-        revise_recovery = _ticket_recovery_changed(
-            linked_loan=linked_loan,
-            settlement=settlement,
-            money_changed=money_changed,
-            handling_same=handling_same,
-        )
-        if revise_recovery and linked_loan is not None:
-            if _loan_has_payments(session, linked_loan.id):
-                raise DomainError(
-                    "loan_has_payments",
-                    "This ticket's recovery loan has posted payments. Reverse those "
-                    "payments before changing amount, tenure, or excess handling.",
-                )
-            _soft_delete_loan(session, linked_loan)
-            linked_loan = None
-
-        wa_recipients = _parse_whatsapp_recipients(
-            payload.manager_whatsapp_numbers,
-            payload.manager_whatsapp,
-        )
-        approval_ref = str(payload.manager_approval or "").strip()
-        if payload.notify_whatsapp:
-            settings = get_settings()
-            if settings.evolution_enabled and not wa_recipients:
-                raise DomainError(
-                    "manager_whatsapp_required",
-                    "Enter at least one valid WhatsApp number when Send WhatsApp on save is enabled.",
-                )
-
-        item.travel_date = payload.travel_date
-        item.origin_code = payload.origin_code.upper()
-        item.destination_code = payload.destination_code.upper()
-        item.ticket_cost = payload.ticket_cost
-        item.entitlement = payload.entitlement
-        item.company_paid = settlement.company_payout
-        item.excess_handling = settlement.option.value
-        item.excess_cost = settlement.excess_cost
-        item.employee_payable = settlement.employee_payable
-        item.company_payout = settlement.company_payout
-        item.tenure_months = settlement.tenure_months
-        item.notes = payload.notes
-        item.version += 1
-
-        loan = linked_loan
-        loan_created = False
-        if loan is None:
-            policy = load_policy(session)
-            loan = _create_loan_from_settlement(
-                session, ticket=item, settlement=settlement, policy=policy
-            )
-            loan_created = loan is not None
-
-        employee_row = session.scalar(
-            select(EmployeeRow).where(
-                EmployeeRow.id == item.employee_id,
-                EmployeeRow.deleted_at.is_(None),
-            )
-        )
-        whatsapp_notify: dict[str, Any] | None = None
-        if payload.notify_whatsapp:
-            whatsapp_notify = _notify_allocation_whatsapp(
-                manager_wa=wa_recipients,
-                approval_ref=approval_ref,
-                ticket=item,
-                employee=employee_row,
-                session=session,
-                attachment_root=attachment_root,
-                linked_loan=loan,
-                prepared_by=claims.username or "",
-                purpose="update",
-            )
-
-        body = {
-            **_row(
-                item,
-                "id",
-                "employee_id",
-                "travel_date",
-                "origin_code",
-                "destination_code",
-                "ticket_cost",
-                "entitlement",
-                "company_paid",
-                "excess_handling",
-                "status",
-                "notes",
-                "version",
-            ),
-            **_ticket_display(item),
-            **_loan_display(loan),
-            "tenure_months": item.tenure_months,
-            "excess_cost": item.excess_cost,
-            "excess_amount": item.excess_amount,
-            "loan_revised": bool(revise_recovery and loan_created),
-            "loan_created": bool(loan_created and not revise_recovery),
-        }
-        if whatsapp_notify is not None:
-            body["whatsapp"] = whatsapp_notify
-        return body
-
-    @app.patch("/v1/tickets/{ticket_id}/status")
-    def change_ticket_status(
-        ticket_id: str,
-        payload: StatusChange,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
-        if_match: Annotated[int, Header(alias="If-Match")],
-    ) -> dict[str, Any]:
-        item = session.get(TicketRow, ticket_id)
-        if item is None:
-            raise HTTPException(404, "Ticket not found.")
-        if item.version != if_match:
-            raise DomainError("stale_version", "The ticket was modified by another user.")
-        transitions = {
-            "draft": {"submitted"},
-            "submitted": {"approved", "rejected"},
-            "approved": {"paid"},
-            "rejected": {"draft"},
-            "paid": set(),
-        }
-        if payload.status not in transitions[item.status]:
-            raise DomainError(
-                "invalid_transition", f"Cannot change {item.status} to {payload.status}."
-            )
-        item.status = payload.status
-        item.version += 1
-        loan = _active_source_loan(session, item.id)
-        if (
-            payload.status in {"approved", "paid"}
-            and item.excess_handling in {"CONVERT_TO_LOAN", "LOAN"}
-            and loan is None
-        ):
-            tenure = item.tenure_months or 12
-            try:
-                settlement = settle_excess_ticket(
-                    item.ticket_cost,
-                    item.entitlement,
-                    ExcessSettlementOption.CONVERT_TO_LOAN,
-                    tenure,
-                )
-            except ValidationError as exc:
-                raise DomainError(getattr(exc, "code", "invalid_settlement"), str(exc)) from exc
-            policy = load_policy(session)
-            loan = _create_loan_from_settlement(
-                session, ticket=item, settlement=settlement, policy=policy
-            )
-            if settlement.tenure_months and item.tenure_months is None:
-                item.tenure_months = settlement.tenure_months
-            if settlement.excess_cost is not None:
-                item.excess_cost = settlement.excess_cost
-        return {
-            **_row(item, "id", "status", "version"),
-            **_loan_display(loan),
-        }
-
-    @app.delete("/v1/tickets/{ticket_id}", status_code=204)
-    def delete_ticket(
-        ticket_id: UUID,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager"))],
-        if_match: Annotated[int, Header(alias="If-Match")],
-    ) -> Response:
-        item = session.get(TicketRow, str(ticket_id))
-        if item is None or item.deleted_at is not None:
-            raise DomainError("not_found", "Ticket not found.")
-        if item.version != if_match:
-            raise DomainError("stale_version", "The ticket was modified by another user.")
-        linked_loan = _active_source_loan(session, item.id)
-        if linked_loan is not None:
-            if _loan_has_payments(session, linked_loan.id):
-                raise DomainError(
-                    "loan_has_payments",
-                    "This ticket's recovery loan has posted payments. Reverse those "
-                    "payments before deleting the ticket.",
-                )
-            _soft_delete_loan(session, linked_loan)
-        _assert_unlocked(session, item.created_at, "Tickets")
         item.deleted_at = datetime.now(UTC)
         item.version += 1
         return Response(status_code=204)
@@ -5777,11 +5953,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "invalid_attachment_size", "Attachment is empty or exceeds the size limit."
             )
         digest = hashlib.sha256(content).hexdigest()
-        storage_key = f"{digest[:2]}/{digest}"
-        destination = attachment_root / storage_key
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if not destination.exists():
-            destination.write_bytes(content)
+        storage_key = _write_attachment_blob(attachment_root, digest, content)
         item = AttachmentRow(
             entity_type=entity_type[:50],
             entity_id=str(entity_id),
@@ -5790,22 +5962,119 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             size_bytes=len(content),
             sha256=digest,
             storage_key=storage_key,
-            content=None,
+            content=content,
             scan_status="pending",
         )
-        session.add(item)
-        session.flush()
-        return _row(
-            item,
-            "id",
-            "entity_type",
-            "entity_id",
-            "original_name",
-            "content_type",
-            "size_bytes",
-            "sha256",
-            "scan_status",
+        try:
+            session.add(item)
+            session.flush()
+        except IntegrityError as exc:
+            session.rollback()
+            item.storage_key = _unique_attachment_storage_key(digest)
+            session.add(item)
+            try:
+                session.flush()
+            except IntegrityError as exc2:
+                raise DomainError(
+                    "duplicate_or_invalid_reference",
+                    "Could not store attachment (unique key conflict). Retry upload.",
+                ) from exc2
+        return {
+            **_row(
+                item,
+                "id",
+                "entity_type",
+                "entity_id",
+                "original_name",
+                "content_type",
+                "size_bytes",
+                "sha256",
+                "scan_status",
+            ),
+            "stored_in_mssql": bool(item.content),
+            "storage_key": item.storage_key,
+        }
+
+    @app.get("/v1/attachments")
+    def list_attachments(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance", "auditor"))],
+        entity_id: Annotated[UUID, Query()],
+        entity_type: Annotated[str | None, Query(max_length=50)] = None,
+    ) -> list[dict[str, Any]]:
+        """List MSSQL attachments for an entity (ticket receipt, leave settlement, A4 PDF)."""
+        query = select(AttachmentRow).where(
+            AttachmentRow.entity_id == str(entity_id),
+            AttachmentRow.deleted_at.is_(None),
         )
+        if entity_type:
+            query = query.where(AttachmentRow.entity_type == entity_type[:50])
+        rows = list(
+            session.scalars(query.order_by(AttachmentRow.created_at.desc(), AttachmentRow.id))
+        )
+        return [
+            {
+                **_row(
+                    item,
+                    "id",
+                    "entity_type",
+                    "entity_id",
+                    "original_name",
+                    "content_type",
+                    "size_bytes",
+                    "sha256",
+                    "scan_status",
+                    "created_at",
+                ),
+                "stored_in_mssql": bool(item.content),
+                "storage_key": item.storage_key,
+            }
+            for item in rows
+        ]
+
+    @app.get("/v1/attachments/{attachment_id}")
+    def get_attachment_meta(
+        attachment_id: UUID,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance", "auditor"))],
+    ) -> dict[str, Any]:
+        item = session.get(AttachmentRow, str(attachment_id))
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "Attachment not found.")
+        return {
+            **_row(
+                item,
+                "id",
+                "entity_type",
+                "entity_id",
+                "original_name",
+                "content_type",
+                "size_bytes",
+                "sha256",
+                "scan_status",
+                "created_at",
+            ),
+            "stored_in_mssql": bool(item.content),
+        }
+
+    @app.get("/v1/attachments/{attachment_id}/content")
+    def download_attachment_content(
+        attachment_id: UUID,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance", "auditor"))],
+    ) -> Response:
+        item = session.get(AttachmentRow, str(attachment_id))
+        if item is None or item.deleted_at is not None:
+            raise DomainError("not_found", "Attachment not found.")
+        payload = item.content
+        if not payload:
+            payload = _resolve_attachment_disk_bytes(item, attachment_root)
+        if not payload:
+            raise DomainError("not_found", "Attachment bytes are missing from MSSQL and disk.")
+        headers = {
+            "Content-Disposition": f'attachment; filename="{item.original_name}"',
+        }
+        return Response(content=payload, media_type=item.content_type or "application/octet-stream", headers=headers)
 
     @app.get("/v1/ess/dashboard")
     def ess_dashboard(
@@ -5882,390 +6151,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "opening_balance_amount": str(opening.opening_amount if opening else Decimal("0")),
             "opening_balance_days": str(opening.opening_days if opening else Decimal("0")),
         }
-
-    @app.post("/v1/ai/expense-anomaly")
-    def ai_expense_anomaly(
-        payload: ExpenseAnomalyRequest,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.travel_intelligence import detect_expense_anomaly
-
-        peers_query = select(TicketRow.ticket_cost).where(TicketRow.deleted_at.is_(None))
-        if payload.pay_group:
-            peer_employees = select(EmployeeRow.id).where(
-                EmployeeRow.pay_group == payload.pay_group,
-                EmployeeRow.deleted_at.is_(None),
-            )
-            peers_query = peers_query.where(TicketRow.employee_id.in_(peer_employees))
-        peers = list(session.scalars(peers_query.limit(500)))
-        return detect_expense_anomaly(payload.claim_amount, peers).as_dict()
-
-    @app.post("/v1/ai/emi-risk")
-    def ai_emi_risk(
-        payload: EmiRiskRequest,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.travel_intelligence import score_emi_default_risk
-
-        outstanding = Decimal("0")
-        prior_defaults = 0
-        entitlement = payload.entitlement
-        if payload.employee_id is not None:
-            outstanding = session.scalar(
-                select(func.coalesce(func.sum(LoanRow.outstanding), 0)).where(
-                    LoanRow.employee_id == payload.employee_id,
-                    LoanRow.deleted_at.is_(None),
-                    LoanRow.status.in_(["active", "deferred"]),
-                )
-            ) or Decimal("0")
-            prior_defaults = int(
-                session.scalar(
-                    select(func.count())
-                    .select_from(LoanRow)
-                    .where(
-                        LoanRow.employee_id == payload.employee_id,
-                        LoanRow.deleted_at.is_(None),
-                        LoanRow.status == "deferred",
-                        LoanRow.deferred_until < date.today(),
-                    )
-                )
-                or 0
-            )
-            employee = session.get(EmployeeRow, payload.employee_id)
-            if employee is not None and entitlement is None:
-                entitlement = employee.max_entitlement_cap_rate or employee.custom_airfare_rate
-        return score_emi_default_risk(
-            principal=payload.principal,
-            tenure_months=payload.tenure_months,
-            outstanding_loans=outstanding,
-            prior_defaults=prior_defaults,
-            entitlement=entitlement,
-        ).as_dict()
-
-    @app.post("/v1/ai/anomalies")
-    def ai_anomalies(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.anomaly_detector import score_ticket_anomalies
-
-        rows = [
-            {
-                "ticket_cost": str(t.ticket_cost),
-                "entitlement": str(t.entitlement if t.entitlement is not None else "0"),
-                "employee_id": str(t.employee_id),
-            }
-            for t in session.scalars(select(TicketRow).where(TicketRow.deleted_at.is_(None)).limit(500))
-        ]
-        try:
-            flagged = score_ticket_anomalies(rows)
-        except Exception as exc:  # noqa: BLE001
-            # TRUE MODE: never 500 the Insights dashboard on bad ticket math.
-            return {
-                "count": 0,
-                "items": [],
-                "ok": False,
-                "error": "anomaly_scan_failed",
-                "detail": str(exc)[:400],
-            }
-        return {"count": len(flagged), "items": flagged, "ok": True}
-
-    @app.post("/v1/ai/loans/{loan_id}/risk-score")
-    def ai_loan_risk_score(
-        loan_id: UUID,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.risk_engine import loan_risk_score
-
-        loan = session.get(LoanRow, str(loan_id))
-        if loan is None or loan.deleted_at is not None:
-            raise DomainError("not_found", "Loan not found.")
-        outstanding = session.scalar(
-            select(func.coalesce(func.sum(LoanRow.outstanding), 0)).where(
-                LoanRow.employee_id == loan.employee_id,
-                LoanRow.deleted_at.is_(None),
-                LoanRow.status.in_(("active", "deferred")),
-            )
-        ) or Decimal("0")
-        prior = int(
-            session.scalar(
-                select(func.count())
-                .select_from(LoanRow)
-                .where(
-                    LoanRow.employee_id == loan.employee_id,
-                    LoanRow.deleted_at.is_(None),
-                    LoanRow.status == "deferred",
-                    LoanRow.deferred_until < date.today(),
-                )
-            )
-            or 0
-        )
-        return loan_risk_score(
-            principal=loan.outstanding,
-            tenure_months=loan.installments,
-            outstanding_loans=outstanding,
-            prior_defaults=prior,
-        )
-
-    @app.get("/v1/ai/forecasts/budget")
-    def ai_budget_forecast(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.forecaster import forecast_monthly_spend
-
-        history = session.scalars(
-            select(TicketRow.ticket_cost)
-            .where(TicketRow.deleted_at.is_(None))
-            .order_by(TicketRow.travel_date.desc())
-            .limit(24)
-        )
-        return forecast_monthly_spend(list(history))
-
-    @app.post("/v1/ai/ess-sentiment")
-    def ai_ess_sentiment(
-        payload: dict[str, str],
-        _: Annotated[Claims, Depends(authenticated)],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.sentiment import analyze_sentiment
-
-        return analyze_sentiment(str(payload.get("text") or ""))
-
-    @app.get("/v1/ai/employees/{employee_id}/rate-recommendation")
-    def ai_rate_recommendation(
-        employee_id: UUID,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "manager", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.recommender import recommend_rate
-
-        employee = _require_active_employee(session, employee_id)
-        tenure_years = max(0, date.today().year - employee.join_date.year)
-        costs = session.scalars(
-            select(TicketRow.ticket_cost).where(
-                TicketRow.employee_id == employee_id, TicketRow.deleted_at.is_(None)
-            )
-        )
-        return recommend_rate(
-            tenure_years=tenure_years,
-            pay_group=employee.pay_group,
-            repair_center=employee.repair_center,
-            historical_ticket_costs=list(costs),
-        )
-
-    @app.get("/v1/ai/support/diagnose")
-    def ai_support_diagnose(
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.application import support
-
-        return support.run_diagnostics(session, actor=claims.username)
-
-    @app.post("/v1/ai/support/remediate")
-    def ai_support_remediate(
-        payload: dict[str, str],
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        from airfare_management.application import support
-
-        check_code = str(payload.get("check_code") or "").strip()
-        if not check_code:
-            raise HTTPException(status_code=422, detail="check_code is required")
-        try:
-            return support.apply_remediation(session, check_code, actor=claims.username)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.post("/v1/ai/support/feedback")
-    def ai_support_feedback(
-        payload: dict[str, Any],
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.application import support
-
-        check_code = str(payload.get("check_code") or "").strip()
-        if not check_code:
-            raise HTTPException(status_code=422, detail="check_code is required")
-        return support.record_feedback(
-            session,
-            check_code=check_code,
-            worked=bool(payload.get("worked")),
-            notes=str(payload.get("notes") or ""),
-            actor=claims.username,
-        )
-
-    @app.get("/v1/ai/support/learning")
-    def ai_support_learning(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.application import support
-
-        return support.learning_stats(session)
-
-    @app.post("/v1/ai/support/train")
-    def ai_support_train(
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        """Re-seed product knowledge into ai_learning_events and return learning stats.
-
-        Local-first training loop: upsert capability docs for BM25 recall, then
-        report store size. Does not call cloud APIs.
-        """
-        from airfare_management.ai_agent.knowledge_brain import brain_stats
-        from airfare_management.ai_agent.local_llm import llm_status
-        from airfare_management.ai_agent.product_knowledge import (
-            KNOWLEDGE_VERSION,
-            ensure_product_knowledge_learned,
-        )
-        from airfare_management.application import support
-        from airfare_management.config import get_settings
-
-        touched = ensure_product_knowledge_learned(session, actor=claims.username)
-        session.commit()
-        settings = get_settings()
-        return {
-            "trained": True,
-            "knowledge_version": KNOWLEDGE_VERSION,
-            "product_knowledge_upserts": touched,
-            "learning": support.learning_stats(session),
-            "brain": brain_stats(session),
-            "llm": llm_status(
-                ollama_enabled=settings.ai_ollama_enabled,
-                ollama_base_url=settings.ai_ollama_base_url,
-                ollama_model=settings.ai_ollama_model,
-                deepseek_api_key=settings.ai_deepseek_api_key or None,
-                deepseek_base_url=settings.ai_deepseek_base_url,
-                deepseek_model=settings.ai_deepseek_model,
-                provider=settings.ai_llm_provider,
-                openai_compat_enabled=settings.ai_openai_compat_enabled,
-                openai_compat_base_url=settings.ai_openai_compat_base_url,
-                openai_compat_model=settings.ai_openai_compat_model,
-                openai_compat_api_key=settings.ai_openai_compat_api_key,
-            ),
-        }
-
-    @app.get("/v1/ai/llm/status")
-    def ai_llm_status(
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
-    ) -> dict[str, Any]:
-        """LLM provider health: Ollama vs optional OpenAI-compat (LM Studio/Jan/AnythingLLM) vs DeepSeek."""
-        from airfare_management.ai_agent.local_llm import llm_status
-        from airfare_management.config import get_settings
-
-        settings = get_settings()
-        return llm_status(
-            ollama_enabled=settings.ai_ollama_enabled,
-            ollama_base_url=settings.ai_ollama_base_url,
-            ollama_model=settings.ai_ollama_model,
-            deepseek_api_key=settings.ai_deepseek_api_key or None,
-            deepseek_base_url=settings.ai_deepseek_base_url,
-            deepseek_model=settings.ai_deepseek_model,
-            provider=settings.ai_llm_provider,
-            openai_compat_enabled=settings.ai_openai_compat_enabled,
-            openai_compat_base_url=settings.ai_openai_compat_base_url,
-            openai_compat_model=settings.ai_openai_compat_model,
-            openai_compat_api_key=settings.ai_openai_compat_api_key,
-        )
-
-    @app.post("/v1/ai/agent/chat")
-    def ai_agent_chat(
-        payload: AgentChatRequest,
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.smart_agent import run_agent
-
-        try:
-            result = run_agent(
-                session,
-                message=payload.message,
-                apply_fix=payload.apply_fix,
-                auto_repair_mode=payload.auto_repair_mode,
-                apply_token=payload.apply_token,
-                confirm=payload.confirm,
-                actor=claims.username,
-            )
-            return result.model_dump(mode="json")
-        except Exception as exc:  # noqa: BLE001
-            # Prefer structured envelope over bare 500 (FastAPI production error handling).
-            # https://johal.in/fastapi-error-handling-and-exception-middleware-for-production-apis
-            session.rollback()
-            return {
-                "intent": "error",
-                "outcome": "error",
-                "reply": (
-                    "### Think\n- Agent hit an unexpected server error.\n"
-                    "### Logic\n- TRUE MODE: fail closed without crashing the UI.\n"
-                    f"### Answer\nAgent error: {str(exc)[:300]}\n"
-                    "### Next\n- Retry, or ask a narrower question (e.g. Teach me finance ledger export)."
-                ),
-                "confidence_score": 0.2,
-                "tools_used": ["error_guard"],
-                "sql": [],
-                "sql_preview": [],
-                "findings": [],
-                "schema_version": "hcm-airfare-v3",
-                "error": str(exc)[:400],
-            }
-
-    @app.post("/v1/ai/agent/repair/apply")
-    def ai_agent_repair_apply(
-        payload: AgentRepairApplyRequest,
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.smart_agent import apply_repair_token
-
-        if not payload.auto_repair_mode:
-            raise DomainError("auto_repair_off", "Auto-Repair Mode must be enabled.")
-        try:
-            return apply_repair_token(
-                session,
-                apply_token=payload.apply_token,
-                confirm=payload.confirm,
-                actor=claims.username,
-            )
-        except ValueError as exc:
-            raise DomainError("repair_rejected", str(exc)) from exc
-
-    @app.get("/v1/ai/agent/schema")
-    def ai_agent_schema(
-        _: Annotated[Claims, Depends(authorized("admin", "hr", "finance", "auditor"))],
-    ) -> dict[str, Any]:
-        from airfare_management.ai_agent.schema_dictionary import as_public_dict
-
-        return as_public_dict()
-
-    @app.post("/v1/ai/saa/baseline")
-    def ai_saa_baseline(
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
-    ) -> dict[str, Any]:
-        """Smart AI Agent OODA baseline: Focus catalog, DMVs, DQ flags, action queue."""
-        from airfare_management.ai_agent.smart_system_agent import run_baseline
-
-        return run_baseline(session, actor=claims.username).model_dump(mode="json")
-
-    @app.post("/v1/ai/saa/silent-fixes")
-    def ai_saa_silent_fixes(
-        payload: SaaSilentFixRequest,
-        session: Annotated[Session, Depends(database)],
-        claims: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        """Apply zero-risk whitelist only (e.g. UPDATE STATISTICS)."""
-        from airfare_management.ai_agent.smart_system_agent import apply_silent_fixes
-
-        if payload.confirm != "SILENT_APPLY":
-            raise DomainError("saa_confirm_required", "confirm must be SILENT_APPLY")
-        return apply_silent_fixes(session, codes=payload.codes, actor=claims.username)
 
     @app.get("/v1/report-templates")
     def list_report_templates(
@@ -6529,166 +6414,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item.version += 1
         return Response(status_code=204)
 
-    @app.post("/v1/admin/erase-data")
-    def erase_operational_data(
-        payload: EraseDataRequest,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        counts = _erase_operational_data(session)
-        restored = _seed_default_preferences(session)
-        preference_cache.clear()
-        return {
-            "status": "erased",
-            "confirm": payload.confirm,
-            "cleared": counts,
-            "defaults_restored": restored,
-            "erased_at": datetime.now(UTC),
-        }
-
-    @app.get("/v1/admin/backups")
-    def admin_list_backups(
-        _: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        rows = list_backups(config.backup_root)
-        native = str(config.database_url).startswith("mssql")
-        credentials_ready = False
-        credential_hint = ""
-        if native:
-            try:
-                resolve_mssql_login(
-                    config.database_url,
-                    db_user=config.db_user,
-                    db_password=config.db_password,
-                    server=config.db_server,
-                )
-                credentials_ready = True
-            except DomainError as error:
-                credential_hint = str(error)
-        return {
-            "backup_root": str(Path(config.backup_root).resolve()),
-            "retention_days": config.backup_retention_days,
-            "native_mssql_available": native,
-            "native_credentials_ready": credentials_ready,
-            "native_credential_hint": credential_hint,
-            "count": len(rows),
-            "backups": [
-                {
-                    "file_name": item.file_name,
-                    "kind": item.kind,
-                    "size_bytes": item.size_bytes,
-                    "created_at": item.created_at,
-                    "sha256": item.sha256,
-                }
-                for item in rows
-            ],
-        }
-
-    @app.post("/v1/admin/backups", status_code=201)
-    def admin_create_backup(
-        payload: BackupCreateRequest,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        if payload.kind == "mssql":
-            created = create_native_mssql_backup(
-                database_url=config.database_url,
-                root=config.backup_root,
-                db_user=config.db_user,
-                db_password=config.db_password,
-                server=config.db_server,
-            )
-        else:
-            created = create_logical_backup(session, config.backup_root, label="HCM")
-        pruned = prune_backups(config.backup_root, config.backup_retention_days)
-        return {
-            "status": "created",
-            "file_name": created.file_name,
-            "kind": created.kind,
-            "size_bytes": created.size_bytes,
-            "sha256": created.sha256,
-            "created_at": created.created_at,
-            "pruned": pruned,
-        }
-
-    @app.post("/v1/admin/backups/restore")
-    def admin_restore_backup(
-        payload: BackupRestoreRequest,
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> dict[str, Any]:
-        path = resolve_backup_file(config.backup_root, payload.file_name)
-        if path.suffix.lower() == ".bak":
-            result = restore_native_mssql(
-                database_url=config.database_url,
-                backup_path=path,
-                db_user=config.db_user,
-                db_password=config.db_password,
-                server=config.db_server,
-            )
-        else:
-            result = restore_logical_backup(
-                session,
-                path,
-                erase_fn=_erase_operational_data,
-                seed_preferences_fn=_seed_default_preferences,
-            )
-            preference_cache.clear()
-        return {**result, "confirm": payload.confirm, "restored_at": datetime.now(UTC)}
-
-    @app.delete("/v1/admin/backups/{file_name}", status_code=204)
-    def admin_delete_backup(
-        file_name: str,
-        _: Annotated[Claims, Depends(authorized("admin"))],
-    ) -> Response:
-        path = resolve_backup_file(config.backup_root, file_name)
-        path.unlink(missing_ok=False)
-        return Response(status_code=204)
-
-    @app.get("/v1/audit")
-    def list_audit_events(
-        session: Annotated[Session, Depends(database)],
-        _: Annotated[Claims, Depends(authorized("admin"))],
-        entity_type: Annotated[str, Query(max_length=100)] = "",
-        action: Annotated[str, Query(max_length=20)] = "",
-        limit: Annotated[int, Query(ge=1, le=500)] = 200,
-        offset: Annotated[int, Query(ge=0)] = 0,
-    ) -> dict[str, Any]:
-        query = select(AuditRow)
-        if entity_type:
-            query = query.where(AuditRow.entity_type == entity_type)
-        if action:
-            query = query.where(AuditRow.action == action)
-        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        rows = session.scalars(
-            query.order_by(AuditRow.occurred_at.desc(), AuditRow.id.desc())
-            .offset(offset)
-            .limit(limit)
-        ).all()
-        actors = {
-            user.id: user.username
-            for user in session.scalars(select(UserRow).where(UserRow.deleted_at.is_(None)))
-        }
-        return {
-            "total": total,
-            "events": [
-                {
-                    "id": row.id,
-                    "occurred_at": row.occurred_at.isoformat() if row.occurred_at else None,
-                    "actor": actors.get(row.actor_id or "", row.actor_id),
-                    "correlation_id": row.correlation_id,
-                    "ip_address": row.ip_address,
-                    "action": row.action,
-                    "entity_type": row.entity_type,
-                    "entity_id": row.entity_id,
-                    "changes": row.changes,
-                }
-                for row in rows
-            ],
-        }
-
-    branding_root = Path(config.attachment_root).resolve() / "branding"
-
     @app.get("/v1/documents/templates")
     def document_templates(
         _: Annotated[Claims, Depends(authenticated)],
@@ -6699,7 +6424,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def documents(
         session: Annotated[Session, Depends(database)],
         _: Annotated[Claims, Depends(authenticated)],
-        kind: Literal["offer_letter", "contract"] | None = None,
+        kind: str | None = None,
         employee_id: UUID | None = None,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -6926,6 +6651,337 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.flush()
         return Response(status_code=204)
 
+    # ---- HR Document Lifecycle (warning / increment / certificates / forms) ----
+
+    @app.get("/v1/hr-lifecycle/kinds")
+    def hr_lifecycle_kinds(_: Annotated[Claims, Depends(authenticated)]) -> dict[str, Any]:
+        return {"kinds": list(LIFECYCLE_KINDS)}
+
+    @app.get("/v1/hr-lifecycle/templates")
+    def hr_lifecycle_templates(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+    ) -> dict[str, Any]:
+        return {"templates": list_lifecycle_templates(session)}
+
+    @app.put("/v1/hr-lifecycle/templates")
+    def hr_lifecycle_upsert_template(
+        payload: HrTemplateUpsertRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        return upsert_db_template(
+            session,
+            key=payload.key,
+            kind=payload.kind,
+            label=payload.label,
+            body_html=payload.body_html,
+            description=payload.description,
+            required_params=payload.required_params,
+            optional_params=payload.optional_params,
+            request_signature=payload.request_signature,
+            actor=claims.username,
+        )
+
+    @app.get("/v1/hr-lifecycle/forms")
+    def hr_lifecycle_forms(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+        kind: LifecycleKind | None = None,
+    ) -> dict[str, Any]:
+        catalog = print_options_catalog()
+        return {
+            "forms": list_form_definitions(session, kind=kind),
+            **catalog,
+        }
+
+    @app.get("/v1/hr-lifecycle/forms/{form_id}")
+    def hr_lifecycle_form_detail(
+        form_id: str,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authenticated)],
+        include_deleted: bool = False,
+    ) -> dict[str, Any]:
+        return get_form_definition(session, form_id, include_deleted=include_deleted)
+
+    @app.post("/v1/hr-lifecycle/forms", status_code=201)
+    def hr_lifecycle_create_form(
+        payload: HrFormCreateRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        return create_form_definition(
+            session,
+            kind=payload.kind,
+            name=payload.name,
+            description=payload.description,
+            fields=[f.model_dump() for f in payload.fields],
+            actor=claims.username,
+        )
+
+    @app.put("/v1/hr-lifecycle/forms/{form_id}")
+    def hr_lifecycle_update_form(
+        form_id: str,
+        payload: HrFormUpdateRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        return update_form_definition(
+            session,
+            form_id,
+            name=payload.name,
+            description=payload.description,
+            fields=[f.model_dump() for f in payload.fields] if payload.fields is not None else None,
+            actor=claims.username,
+        )
+
+    @app.delete("/v1/hr-lifecycle/forms/{form_id}/fields/{field_key}")
+    def hr_lifecycle_soft_delete_field(
+        form_id: str,
+        field_key: str,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        return soft_delete_form_field(session, form_id, field_key, actor=claims.username)
+
+    @app.delete("/v1/hr-lifecycle/forms/{form_id}", status_code=204)
+    def hr_lifecycle_delete_form(
+        form_id: str,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> Response:
+        soft_delete_form_definition(session, form_id, actor=claims.username)
+        return Response(status_code=204)
+
+    @app.post("/v1/hr-lifecycle/forms/seed")
+    def hr_lifecycle_seed_forms(
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        n = seed_default_form_definitions(session)
+        return {"seeded": n, "forms": list_form_definitions(session)}
+
+    @app.get("/v1/hr-lifecycle/defaults/{employee_id}")
+    def hr_lifecycle_defaults(
+        employee_id: UUID,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        employee = session.scalar(
+            select(EmployeeRow).where(
+                EmployeeRow.id == employee_id, EmployeeRow.deleted_at.is_(None)
+            )
+        )
+        if employee is None:
+            raise DomainError("not_found", "Employee not found.")
+        return {
+            "employee_id": str(employee.id),
+            "employee_name": employee.full_name,
+            "params": lifecycle_employee_defaults(employee),
+        }
+
+    @app.post("/v1/hr-lifecycle/preview")
+    def hr_lifecycle_preview(
+        payload: LifecycleDocumentRequest,
+        session: Annotated[Session, Depends(database)],
+        _: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> Response:
+        html = preview_lifecycle_document(
+            session,
+            branding_root=branding_root,
+            kind=payload.kind,
+            template_key=payload.template_key,
+            employee_id=payload.employee_id,
+            company_id=payload.company_id,
+            raw_params=payload.params,
+        )
+        return Response(html, media_type="text/html")
+
+    @app.post("/v1/hr-lifecycle/documents", status_code=201)
+    def hr_lifecycle_create_document(
+        payload: LifecycleDocumentRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        if payload.notify_whatsapp:
+            settings = get_settings()
+            if settings.evolution_enabled and not wa_recipients:
+                raise DomainError(
+                    "manager_whatsapp_required",
+                    "Enter at least one valid WhatsApp number when Send WhatsApp with PDF is enabled.",
+                )
+        row = create_lifecycle_document(
+            session,
+            document_root=config.document_root,
+            branding_root=branding_root,
+            kind=payload.kind,
+            template_key=payload.template_key,
+            employee_id=payload.employee_id,
+            company_id=payload.company_id,
+            raw_params=payload.params,
+            actor=claims.username,
+            status=payload.status,
+        )
+        body: dict[str, Any] = {
+            "id": row.id,
+            "document_number": row.document_number,
+            "voucher_no": row.voucher_no,
+            "kind": row.kind,
+            "template_key": row.template_key,
+            "title": row.title,
+            "status": row.status,
+            "employee_id": str(row.employee_id) if row.employee_id else None,
+            "has_pdf": bool(row.pdf_key),
+            "version": row.version,
+        }
+        params = row.params if isinstance(row.params, dict) else {}
+        if params.get("loan_id"):
+            body["loan_id"] = params.get("loan_id")
+            body["loan_code"] = params.get("loan_code")
+        if payload.notify_whatsapp:
+            body["whatsapp"] = _notify_document_whatsapp(
+                session,
+                document_id=row.id,
+                document_root=config.document_root,
+                numbers=wa_recipients,
+                prepared_by=claims.username or "",
+            )
+        return body
+
+    @app.put("/v1/hr-lifecycle/documents/{document_id}")
+    def hr_lifecycle_update_document(
+        document_id: str,
+        payload: LifecycleDocumentUpdateRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+        if_match: Annotated[int, Header(alias="If-Match")],
+    ) -> dict[str, Any]:
+        wa_recipients = _parse_whatsapp_recipients(
+            payload.manager_whatsapp_numbers,
+            payload.manager_whatsapp,
+        )
+        if payload.notify_whatsapp:
+            settings = get_settings()
+            if settings.evolution_enabled and not wa_recipients:
+                raise DomainError(
+                    "manager_whatsapp_required",
+                    "Enter at least one valid WhatsApp number when Send WhatsApp with PDF is enabled.",
+                )
+        row = update_lifecycle_document(
+            session,
+            document_id=document_id,
+            document_root=config.document_root,
+            branding_root=branding_root,
+            raw_params=payload.params,
+            actor=claims.username,
+            if_match=if_match,
+            employee_id=payload.employee_id,
+            company_id=payload.company_id,
+            template_key=payload.template_key,
+            status=payload.status,
+        )
+        body: dict[str, Any] = {
+            "id": row.id,
+            "document_number": row.document_number,
+            "voucher_no": row.voucher_no,
+            "kind": row.kind,
+            "template_key": row.template_key,
+            "title": row.title,
+            "status": row.status,
+            "employee_id": str(row.employee_id) if row.employee_id else None,
+            "has_pdf": bool(row.pdf_key),
+            "version": row.version,
+        }
+        params = row.params if isinstance(row.params, dict) else {}
+        if params.get("loan_id"):
+            body["loan_id"] = params.get("loan_id")
+            body["loan_code"] = params.get("loan_code")
+        if payload.notify_whatsapp:
+            body["whatsapp"] = _notify_document_whatsapp(
+                session,
+                document_id=row.id,
+                document_root=config.document_root,
+                numbers=wa_recipients,
+                prepared_by=claims.username or "",
+            )
+        return body
+
+    @app.post("/v1/hr-lifecycle/documents/{document_id}/signature")
+    def hr_lifecycle_signature(
+        document_id: str,
+        payload: SignatureStatusRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr"))],
+    ) -> dict[str, Any]:
+        row = update_signature_status(
+            session,
+            document_id,
+            status=payload.status,
+            signature_data=payload.signature_data,
+            actor=claims.username,
+        )
+        return {
+            "id": row.id,
+            "status": row.status,
+            "version": row.version,
+            "signature_present": bool((row.params or {}).get("signature_present")),
+        }
+
+    @app.post("/v1/hr-lifecycle/documents/{document_id}/convert-to-loan", status_code=201)
+    def hr_lifecycle_convert_fine_to_loan(
+        document_id: str,
+        payload: ConvertFineToLoanRequest,
+        session: Annotated[Session, Depends(database)],
+        claims: Annotated[Claims, Depends(authorized("admin", "hr", "finance"))],
+    ) -> dict[str, Any]:
+        """Convert Mistake with Fine → interest-free recovery loan (PDF regenerated)."""
+        row, loan, warnings = convert_mistake_fine_to_loan(
+            session,
+            document_id=document_id,
+            document_root=config.document_root,
+            branding_root=branding_root,
+            actor=claims.username,
+            tenure_months=payload.tenure_months,
+            annual_rate=payload.annual_rate,
+            consent_acknowledged=payload.consent_acknowledged,
+        )
+        plan = plan_mistake_fine_recovery(
+            fine_amount=Decimal(str((row.params or {}).get("fine_amount") or loan.principal)),
+            recovery_method="convert_to_loan",
+            tenure_months=loan.installments,
+            monthly_salary=(
+                Decimal(str((row.params or {}).get("monthly_salary_reference")))
+                if (row.params or {}).get("monthly_salary_reference")
+                else None
+            ),
+            annual_rate=loan.annual_rate,
+        )
+        return {
+            "ok": True,
+            "document_id": row.id,
+            "voucher_no": row.voucher_no,
+            "version": row.version,
+            "has_pdf": bool(row.pdf_key),
+            "loan": {
+                "id": loan.id,
+                "loan_code": loan.loan_code,
+                "loan_number": loan.loan_number,
+                "principal": str(loan.principal),
+                "monthly_installment": str(loan.monthly_installment),
+                "installments": loan.installments,
+                "annual_rate": str(loan.annual_rate),
+                "outstanding": str(loan.outstanding),
+                "first_due_date": loan.first_due_date.isoformat(),
+                "status": loan.status,
+            },
+            "plan": plan,
+            "warnings": warnings,
+        }
+
     redis_client = None
     if config.environment != "test":
         try:
@@ -6938,15 +6994,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             redis_client = None
     register_health_routes(app, config, redis_client, database)
 
-    @app.get("/{full_path:path}", response_class=FileResponse, include_in_schema=False)
-    def spa_fallback(full_path: str) -> FileResponse:
+    # Explicit tombstones: removed admin utilities must not soft-200 via SPA index.
+    _REMOVED_SPA_PATHS = frozenset(
+        {
+            "tools/merge-files",
+        }
+    )
+
+    @app.api_route(
+        "/v1/admin/merge-dedupe",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+    @app.api_route(
+        "/v1/admin/merge-dedupe/{rest:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+    def merge_dedupe_removed(rest: str = "") -> None:
+        """Merge & dedupe was removed from the product — always 404 (never 405)."""
+        raise HTTPException(404, "Not found.")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str) -> Response:
         """Client-side routes resolve to the SPA; API paths still 404 normally."""
-        if full_path.split("/", 1)[0] in {"v1", "assets", "_next", "health", "metrics", "docs", "redoc", "openapi.json"}:
+        from fastapi.responses import RedirectResponse
+
+        if full_path.split("/", 1)[0] in {
+            "v1",
+            "assets",
+            "_next",
+            "health",
+            "metrics",
+            "docs",
+            "redoc",
+            "openapi.json",
+            "ready",
+            "favicon.ico",
+        }:
             raise HTTPException(404, "Not found.")
-        # Static-export route: serve its prerendered document when present.
-        candidate = (web_root / full_path / "index.html").resolve()
-        if full_path and candidate.is_file() and candidate.is_relative_to(web_root):
-            return FileResponse(candidate, headers={"Cache-Control": "no-store"})
+        cleaned = full_path.strip("/")
+        for removed in _REMOVED_SPA_PATHS:
+            if cleaned == removed or cleaned.startswith(removed + "/"):
+                raise HTTPException(404, "Not found.")
+        root_resolved = web_root.resolve()
+        if cleaned and not full_path.endswith("/") and "." not in cleaned.split("/")[-1]:
+            candidate = (web_root / cleaned / "index.html").resolve()
+            if candidate.is_file() and candidate.is_relative_to(root_resolved):
+                return RedirectResponse(url=f"/{cleaned}/", status_code=307)
+        if cleaned:
+            candidate = (web_root / cleaned / "index.html").resolve()
+            if candidate.is_file() and candidate.is_relative_to(root_resolved):
+                return FileResponse(candidate, headers={"Cache-Control": "no-store"})
         return _spa_index()
 
     return app

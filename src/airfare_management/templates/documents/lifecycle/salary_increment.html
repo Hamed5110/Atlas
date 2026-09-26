@@ -1,0 +1,87 @@
+{% extends "documents/lifecycle/letterhead.html" %}
+{% block content %}
+<div class="lc-wrap">
+  <table class="lc-meta">
+    <tr>
+      <td>Date: {{ doc.issue_date }}</td>
+      <td class="ref">{{ doc.ref }}</td>
+    </tr>
+  </table>
+
+  <h1 class="lc-title">Salary Revision Letter</h1>
+
+  <table class="lc-party">
+    <tr>
+      <td class="lbl">To</td>
+      <td>
+        <div class="name">{{ employee.full_name }}{% if employee.code %} ({{ employee.code }}){% endif %}</div>
+        {% if params.designation or employee.designation %}
+        <div class="sub">{{ params.designation or employee.designation }}</div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {% set _zone = 'header' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <p class="lc-intro">
+    We are pleased to confirm a revision to your compensation effective
+    <strong>{{ params.effective_date_long or params.effective_date or effective_date }}</strong>
+    {% if params.increment_percentage or increment.percentage %}
+    (increase of <strong>{{ params.increment_percentage or increment.percentage }}%</strong>)
+    {% endif %}.
+  </p>
+
+  <div class="lc-section">Compensation</div>
+  <table class="lc-pay">
+    <tr>
+      <th>Component</th>
+      <th class="num">Before (BHD)</th>
+      <th class="num">After (BHD)</th>
+    </tr>
+    <tr>
+      <td>Basic</td>
+      <td class="num">{{ params.basic_before }}</td>
+      <td class="num">{{ params.basic_after }}</td>
+    </tr>
+    {% if params.hra_before or params.hra_after %}
+    <tr>
+      <td>Housing (HRA)</td>
+      <td class="num">{{ params.hra_before or "0" }}</td>
+      <td class="num">{{ params.hra_after or "0" }}</td>
+    </tr>
+    {% endif %}
+    {% if params.allowance_before or params.allowance_after %}
+    <tr>
+      <td>Other allowances</td>
+      <td class="num">{{ params.allowance_before or "0" }}</td>
+      <td class="num">{{ params.allowance_after or "0" }}</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <td><strong>Total</strong></td>
+      <td class="num"><strong>{{ params.total_before }}</strong></td>
+      <td class="num"><strong>{{ params.total_after }}</strong></td>
+    </tr>
+  </table>
+  {% set _zone = 'particulars' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  {% if params.reason %}<p class="lc-intro">Reason: {{ params.reason }}</p>{% endif %}
+  {% if params.narration %}<p class="lc-intro">{{ params.narration }}</p>{% endif %}
+  {% set _zone = 'middle' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'footer' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'signatures' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <table class="lc-sigs">
+    <tr>
+      <td class="single">
+        <div class="lc-sig-cap">For the company</div>
+        <div class="lc-sig-line">
+          <div class="who">{{ params.signatory_name }}</div>
+          <div class="role">{{ params.signatory_title }}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endblock %}

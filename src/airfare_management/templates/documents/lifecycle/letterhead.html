@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ doc.title }}</title>
+<style>
+  /*
+    ATLAS HR lifecycle — professional A4 print chrome (Chromium).
+    Research: @page size A4 + mm margins; table layout (not flex/grid) for print;
+    break-inside:avoid on signatures; fixed label columns for alignment.
+  */
+  @page {
+    size: A4 portrait;
+    margin: 20mm 16mm 18mm 16mm;
+    @frame footer_frame {
+      -pdf-frame-content: footer_content;
+      left: 16mm;
+      width: 178mm;
+      bottom: 6mm;
+      height: 14mm;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: DocSans, Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+    color: #374151;
+    line-height: 1.45;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* ---- Header ---- */
+  #header_content,
+  .letterhead {
+    margin: 0 0 10pt 0;
+    padding: 0 0 8pt 0;
+    border-bottom: 0.6pt solid #9ca3af;
+  }
+  .lh-table { width: 100%; border-collapse: collapse; }
+  .lh-table td { vertical-align: middle; padding: 0; }
+  .lh-logo { width: 48px; padding-right: 10px; }
+  .lh-logo img {
+    width: 44px;
+    height: 44px;
+    display: block;
+  }
+  .brand-primary {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #6b7280;
+    letter-spacing: 0.02em;
+    line-height: 1.05;
+    margin: 0;
+  }
+  .brand-secondary {
+    font-size: 9pt;
+    font-weight: 400;
+    color: #9ca3af;
+    letter-spacing: 0.04em;
+    margin: 2pt 0 0 0;
+  }
+
+  /* ---- Shared lifecycle print blocks ---- */
+  .lc-wrap { width: 100%; }
+
+  table.lc-meta {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 10pt 0;
+  }
+  table.lc-meta td {
+    padding: 0;
+    font-size: 9pt;
+    color: #4b5563;
+    vertical-align: baseline;
+  }
+  table.lc-meta .ref {
+    text-align: right;
+    font-weight: 700;
+    font-family: DocSans, Arial, monospace;
+    color: #111827;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  h1.lc-title {
+    font-size: 12.5pt;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: center;
+    margin: 0 0 12pt 0;
+    padding: 6pt 0;
+    border-top: 0.8pt solid #9ca3af;
+    border-bottom: 0.8pt solid #9ca3af;
+  }
+
+  table.lc-party {
+    margin: 0 0 8pt 0;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  table.lc-party td {
+    padding: 1pt 0;
+    vertical-align: top;
+    font-size: 10pt;
+  }
+  table.lc-party .lbl {
+    width: 22mm;
+    color: #6b7280;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+    padding-top: 2.5pt;
+  }
+  table.lc-party .name {
+    font-weight: 700;
+    color: #111827;
+    font-size: 11pt;
+  }
+  table.lc-party .sub {
+    color: #4b5563;
+    font-size: 9.5pt;
+    margin-top: 1pt;
+  }
+
+  .lc-intro {
+    margin: 0 0 8pt 0;
+    font-size: 9.5pt;
+    line-height: 1.45;
+    color: #374151;
+    text-align: justify;
+  }
+
+  .lc-section {
+    margin: 8pt 0 4pt 0;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #4b5563;
+  }
+
+  table.lc-grid {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 8pt 0;
+    table-layout: fixed;
+  }
+  table.lc-grid col.lbl { width: 38%; }
+  table.lc-grid col.val { width: 62%; }
+  table.lc-grid th,
+  table.lc-grid td {
+    border: 0.5pt solid #d1d5db;
+    padding: 4.5pt 7pt;
+    text-align: left;
+    vertical-align: top;
+    font-size: 9.5pt;
+    line-height: 1.35;
+  }
+  table.lc-grid th {
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.045em;
+  }
+  table.lc-grid td.num {
+    font-family: DocSans, Arial, monospace;
+    font-weight: 700;
+    color: #111827;
+    text-align: right;
+  }
+  table.lc-grid td.mono {
+    font-family: DocSans, Arial, monospace;
+    font-weight: 600;
+  }
+
+  /* Compensation 3-col grid */
+  table.lc-pay {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 8pt 0;
+    table-layout: fixed;
+  }
+  table.lc-pay th,
+  table.lc-pay td {
+    border: 0.5pt solid #d1d5db;
+    padding: 4.5pt 7pt;
+    font-size: 9.5pt;
+    vertical-align: top;
+  }
+  table.lc-pay th {
+    background: #4b5563;
+    color: #fff;
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.045em;
+    text-align: left;
+  }
+  table.lc-pay th.num,
+  table.lc-pay td.num {
+    text-align: right;
+    font-family: DocSans, Arial, monospace;
+  }
+
+  .lc-ack {
+    margin: 8pt 0 0 0;
+    padding: 6pt 0 0 0;
+    border-top: 0.5pt solid #d1d5db;
+    font-size: 9pt;
+    line-height: 1.4;
+    color: #374151;
+    text-align: justify;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  table.lc-sigs {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 14pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  table.lc-sigs td {
+    width: 50%;
+    vertical-align: top;
+    padding: 0 8pt 0 0;
+    font-size: 9pt;
+    color: #374151;
+  }
+  table.lc-sigs td.single { width: 100%; }
+  table.lc-sigs td + td {
+    padding: 0 0 0 8pt;
+    border-left: 0.4pt solid #e5e7eb;
+  }
+  .lc-sig-cap {
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6b7280;
+    margin: 0 0 22pt 0;
+  }
+  .lc-sig-line {
+    border-top: 0.8pt solid #374151;
+    width: 70%;
+    padding-top: 4pt;
+    margin-top: 2pt;
+    line-height: 1.35;
+  }
+  .lc-sig-line .who { font-weight: 600; color: #111827; }
+  .lc-sig-line .role { color: #6b7280; font-size: 8pt; }
+
+  .lc-warn {
+    margin: 4pt 0 0 0;
+    font-size: 8pt;
+    color: #6b7280;
+    font-style: italic;
+  }
+
+  /* Dynamic print-field adjustments */
+  .lc-align-left { text-align: left; }
+  .lc-align-center { text-align: center; }
+  .lc-align-right { text-align: right; }
+  .lc-align-justify { text-align: justify; }
+  .lc-hline {
+    border: none;
+    border-top: 0.6pt solid #d1d5db;
+    margin: 6pt 0 4pt 0;
+  }
+  .lc-page-break { page-break-before: always; break-before: page; height: 0; }
+  .lc-spacer { display: block; min-height: 8pt; }
+  .lc-vspace-section { margin-bottom: 14pt !important; min-height: 12pt; }
+  .lc-size-xlarge { font-size: 13pt; font-weight: 700; letter-spacing: 0.02em; }
+  .lc-border-top { border-top: 0.6pt solid #9ca3af; padding-top: 2pt; }
+  .lc-border-bottom { border-bottom: 0.6pt solid #9ca3af; padding-bottom: 2pt; }
+  .lc-color-default { color: inherit; }
+  .lc-color-muted { color: #6b7280; }
+  .lc-color-emphasis { color: #111827; }
+  .lc-color-danger { color: #b91c1c; }
+  .lc-lh-compact { line-height: 1.25; }
+  .lc-lh-normal { line-height: 1.45; }
+  .lc-lh-relaxed { line-height: 1.7; }
+  .lc-bg-none { background: transparent; }
+  .lc-bg-tint { background: #f3f4f6; padding: 2pt 4pt; }
+  .lc-bg-shade { background: #e5e7eb; padding: 3pt 5pt; }
+  .lc-pre { white-space: pre-wrap; }
+  .lc-keep { page-break-inside: avoid; break-inside: avoid; }
+  .lc-bold { font-weight: 700; color: #111827; }
+  .lc-size-small { font-size: 8pt; }
+  .lc-size-normal { font-size: inherit; }
+  .lc-size-large { font-size: 11pt; font-weight: 600; }
+  .lc-vspace-tight { margin-bottom: 1pt !important; }
+  .lc-vspace-normal { margin-bottom: 4pt !important; }
+  .lc-vspace-loose { margin-bottom: 10pt !important; }
+  .lc-border-none { border: none; }
+  .lc-border-underline {
+    border-bottom: 0.6pt solid #9ca3af;
+    padding-bottom: 1pt;
+  }
+  .lc-border-box {
+    border: 0.6pt solid #d1d5db;
+    padding: 2pt 4pt;
+    border-radius: 2pt;
+  }
+  .lc-italic { font-style: italic; }
+  .lc-indent-none { padding-left: 0; }
+  .lc-indent-indent { padding-left: 12pt; }
+  .lc-indent-double { padding-left: 24pt; }
+  table.lc-lblw-narrow col.lbl { width: 28% !important; }
+  table.lc-lblw-normal col.lbl { width: 38% !important; }
+  table.lc-lblw-wide col.lbl { width: 48% !important; }
+  .lc-mini-lbl {
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+    margin: 0 0 1pt 0;
+  }
+  .lc-mini-val {
+    font-size: 9.5pt;
+    color: #374151;
+    margin: 0 0 4pt 0;
+  }
+  .lc-stack { margin: 0 0 6pt 0; }
+  table.lc-grid-multi td { border: none !important; }
+
+  /* ---- Footer ---- */
+  #footer_content,
+  .doc-footer {
+    font-size: 7pt;
+    color: #6b7280;
+    text-align: center;
+    line-height: 1.4;
+  }
+  body.pdf-chromium #footer_content {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 4pt 0 0 0;
+    border-top: 0.4pt solid #d1d5db;
+  }
+  .doc-footer .line { margin: 0; padding: 0 8mm; }
+</style>
+{% block extra_css %}{% endblock %}
+</head>
+<body class="letterhead-print">
+  <div class="letterhead" id="header_content">
+    <table class="lh-table">
+      <tr>
+        <td class="lh-logo">
+          {% if logo_src %}
+          <img src="{{ logo_src }}" width="44" height="44" alt="" />
+          {% endif %}
+        </td>
+        <td>
+          <div class="brand-primary">{{ company.brand_primary or company.name }}</div>
+          {% if company.brand_secondary %}
+          <div class="brand-secondary">{{ company.brand_secondary }}</div>
+          {% endif %}
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  {% block content %}{% endblock %}
+
+  <script type="application/json" id="letterhead-footer-meta">{{ letterhead_footer_json | safe }}</script>
+
+  <div id="footer_content" class="doc-footer">
+    {% if letterhead_line1 %}{{ letterhead_line1 }}{% endif %}
+    {% if letterhead_line1 and letterhead_line2 %}<br/>{% endif %}
+    {% if letterhead_line2 %}{{ letterhead_line2 }}{% endif %}
+  </div>
+</body>
+</html>

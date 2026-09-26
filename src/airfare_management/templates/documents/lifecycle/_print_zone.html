@@ -1,0 +1,71 @@
+{# Dynamic custom-field print zone — Frappe/PDF-designer style packing.
+   Bands: row|band; cells carry align/size/vspace/border/indent/role/color/bg/page_break.
+#}
+{% set bands = (print_layout or {}).get(_zone) or [] %}
+{% macro cell_classes(cell) -%}
+lc-align-{{ cell.print_align or 'left' }} lc-size-{{ cell.print_size or 'normal' }} lc-vspace-{{ cell.print_vspace or 'normal' }} lc-border-{{ cell.print_border or 'none' }} lc-indent-{{ cell.print_indent or 'none' }} lc-color-{{ cell.print_color or 'default' }} lc-lh-{{ cell.print_line_height or 'normal' }} lc-bg-{{ cell.print_bg or 'none' }}{% if cell.print_bold %} lc-bold{% endif %}{% if cell.print_italic %} lc-italic{% endif %}{% if cell.print_keep_together %} lc-keep{% endif %}{% if cell.print_format == 'multiline' %} lc-pre{% endif %}{% if cell.type == 'number' or cell.print_format == 'currency' or cell.print_format == 'percent' %} num{% endif %}
+{%- endmacro %}
+{% if bands %}
+  {% if _zone not in ['particulars'] %}
+  <div class="lc-section">{{ {
+    "header":"Additional details",
+    "particulars":"Particulars",
+    "middle":"Additional particulars",
+    "footer":"Closing notes",
+    "signatures":"Signature notes"
+  }.get(_zone, _zone) }}</div>
+  {% endif %}
+  {% for band in bands %}
+    {% set lead = band.cells[0] if band.cells else none %}
+    {% if lead and lead.print_page_break %}<div class="lc-page-break"></div>{% endif %}
+    {% if lead and lead.print_hline %}<hr class="lc-hline"/>{% endif %}
+    {% if lead and lead.print_role == 'spacer' %}
+    <div class="lc-spacer lc-vspace-{{ lead.print_vspace or 'section' }}" aria-hidden="true">&nbsp;</div>
+    {% elif band.kind == 'band' and band.cols > 1 %}
+    <table class="lc-grid lc-grid-multi" style="table-layout:fixed; width:100%; margin:0 0 4pt 0;">
+      <tr>
+        {% for cell in band.cells %}
+        <td style="width:{{ (100 / band.cols)|round(2) }}%; vertical-align:top; padding:0 3pt 0 0; border:none;">
+          {% if cell.print_label_pos == 'above' and cell.print_show_label %}
+          <div class="lc-mini-lbl">{{ cell.label }}</div>
+          <div class="lc-mini-val {{ cell_classes(cell) }}">{{ cell.value }}</div>
+          {% elif cell.print_label_pos == 'label_only' or cell.print_role == 'section' %}
+          <div class="lc-section {{ cell_classes(cell) }}" style="margin:2pt 0;">{% if cell.print_label_bold %}<strong>{{ cell.label }}</strong>{% else %}{{ cell.label }}{% endif %}</div>
+          {% elif cell.print_label_pos == 'value_only' or not cell.print_show_label %}
+          <div class="lc-mini-val {{ cell_classes(cell) }}">{% if cell.print_format == 'multiline' %}{{ cell.value | e | replace('\n', '<br/>') | safe }}{% else %}{{ cell.value }}{% endif %}</div>
+          {% else %}
+          <table class="lc-grid lc-lblw-{{ cell.print_label_width or 'normal' }}" style="margin:0;">
+            <colgroup><col class="lbl"/><col class="val"/></colgroup>
+            <tr>
+              <th{% if cell.print_label_bold %} class="lc-bold"{% endif %}>{{ cell.label }}</th>
+              <td class="{{ cell_classes(cell) }}">{% if cell.print_format == 'multiline' %}{{ cell.value | e | replace('\n', '<br/>') | safe }}{% else %}{{ cell.value }}{% endif %}</td>
+            </tr>
+          </table>
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+    </table>
+    {% else %}
+      {% set cell = band.cells[0] %}
+      {% if cell.print_role == 'section' or cell.print_label_pos == 'label_only' %}
+      <div class="lc-section {{ cell_classes(cell) }}" style="margin:4pt 0 2pt;">{{ cell.label }}</div>
+      {% elif cell.print_label_pos == 'above' and cell.print_show_label %}
+      <div class="lc-stack lc-vspace-{{ cell.print_vspace or 'normal' }}">
+        <div class="lc-mini-lbl">{{ cell.label }}</div>
+        <div class="lc-mini-val {{ cell_classes(cell) }}">{% if cell.print_format == 'multiline' %}{{ cell.value | e | replace('\n', '<br/>') | safe }}{% else %}{{ cell.value }}{% endif %}</div>
+      </div>
+      {% elif cell.print_label_pos == 'value_only' or not cell.print_show_label %}
+      <p class="lc-intro {{ cell_classes(cell) }}">{% if cell.print_format == 'multiline' %}{{ cell.value | e | replace('\n', '<br/>') | safe }}{% else %}{{ cell.value }}{% endif %}</p>
+      {% else %}
+      <table class="lc-grid lc-lblw-{{ cell.print_label_width or 'normal' }} lc-vspace-{{ cell.print_vspace or 'normal' }}" style="margin:0 0 4pt 0;">
+        <colgroup><col class="lbl"/><col class="val"/></colgroup>
+        <tr>
+          <th{% if cell.print_label_bold %} class="lc-bold"{% endif %}>{{ cell.label }}</th>
+          <td class="{{ cell_classes(cell) }}">{% if cell.print_format == 'multiline' %}{{ cell.value | e | replace('\n', '<br/>') | safe }}{% else %}{{ cell.value }}{% endif %}</td>
+        </tr>
+      </table>
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+{% endif %}

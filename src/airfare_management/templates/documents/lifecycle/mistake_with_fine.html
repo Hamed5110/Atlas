@@ -1,0 +1,138 @@
+{% extends "documents/lifecycle/letterhead.html" %}
+{% block content %}
+<div class="lc-wrap">
+  <table class="lc-meta">
+    <tr>
+      <td>Date: {{ doc.issue_date }}</td>
+      <td class="ref">{{ doc.ref }}</td>
+    </tr>
+  </table>
+
+  <h1 class="lc-title">Mistake with Fine Notice</h1>
+
+  <table class="lc-party">
+    <tr>
+      <td class="lbl">To</td>
+      <td>
+        <div class="name">{{ employee.full_name }}{% if employee.code %} ({{ employee.code }}){% endif %}</div>
+        {% if params.designation or employee.designation %}
+        <div class="sub">{{ params.designation or employee.designation }}</div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {% set _zone = 'header' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <p class="lc-intro">
+    This notice records a documented workplace mistake and the monetary fine applied under company policy.
+    Recovery is limited to the method below. Where recovery is converted to a loan, it is interest-free and
+    requires the employee’s written consent for payroll deduction.
+  </p>
+
+  <div class="lc-section">Particulars</div>
+  <table class="lc-grid">
+    <colgroup><col class="lbl"/><col class="val"/></colgroup>
+    <tr>
+      <th>Incident date</th>
+      <td>{{ params.incident_date_long or params.incident_date }}</td>
+    </tr>
+    <tr>
+      <th>Policy reference</th>
+      <td>{{ params.policy_reference }}</td>
+    </tr>
+    <tr>
+      <th>Mistake summary</th>
+      <td>{{ params.mistake_summary }}</td>
+    </tr>
+    <tr>
+      <th>Fine amount</th>
+      <td class="num">BHD {{ params.fine_amount }}</td>
+    </tr>
+    <tr>
+      <th>Recovery method</th>
+      <td>{{ params.recovery_method_label or params.recovery_method }}</td>
+    </tr>
+    {% if params.corrective_action %}
+    <tr>
+      <th>Corrective action</th>
+      <td>{{ params.corrective_action }}</td>
+    </tr>
+    {% endif %}
+    {% if params.hearing_date %}
+    <tr>
+      <th>Hearing date</th>
+      <td>{{ params.hearing_date_long or params.hearing_date }}</td>
+    </tr>
+    {% endif %}
+  </table>
+  {% set _zone = 'particulars' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  {% if params.recovery_method == 'convert_to_loan' or params.loan_id %}
+  <div class="lc-section">Loan recovery schedule</div>
+  <table class="lc-grid">
+    <colgroup><col class="lbl"/><col class="val"/></colgroup>
+    <tr>
+      <th>Tenure</th>
+      <td>{{ params.tenure_months }} month{% if params.tenure_months != '1' %}s{% endif %}</td>
+    </tr>
+    <tr>
+      <th>Monthly installment</th>
+      <td class="num">BHD {{ params.planned_monthly_installment or params.loan_principal }}</td>
+    </tr>
+    <tr>
+      <th>Interest rate</th>
+      <td>{{ params.loan_annual_rate or '0' }}% — interest-free employer loan</td>
+    </tr>
+    {% if params.loan_code %}
+    <tr>
+      <th>Loan voucher</th>
+      <td class="mono">{{ params.loan_code }}</td>
+    </tr>
+    {% endif %}
+    {% if params.loan_first_due_date or params.loan_first_due_date_long %}
+    <tr>
+      <th>First due date</th>
+      <td>{{ params.loan_first_due_date_long or params.loan_first_due_date }}</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <th>Consent</th>
+      <td>{{ params.consent_label or params.consent_acknowledged }}</td>
+    </tr>
+  </table>
+  {% if params.recovery_warnings %}
+  <p class="lc-warn">{{ params.recovery_warnings }}</p>
+  {% endif %}
+  {% endif %}
+
+  {% if params.narration %}<p class="lc-intro">{{ params.narration }}</p>{% endif %}
+  {% set _zone = 'middle' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <div class="lc-ack">
+    I acknowledge the mistake and the fine amount stated above. Where recovery is by payroll loan,
+    I authorize equal interest-free installments until the principal is fully settled.
+  </div>
+  {% set _zone = 'footer' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'signatures' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <table class="lc-sigs">
+    <tr>
+      <td>
+        <div class="lc-sig-cap">Employee acknowledgment</div>
+        <div class="lc-sig-line">
+          <div class="who">{{ employee.full_name }}</div>
+          <div class="role">Signature / Date</div>
+        </div>
+      </td>
+      <td>
+        <div class="lc-sig-cap">For the company</div>
+        <div class="lc-sig-line">
+          <div class="who">{{ params.signatory_name }}</div>
+          <div class="role">{{ params.signatory_title }}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endblock %}

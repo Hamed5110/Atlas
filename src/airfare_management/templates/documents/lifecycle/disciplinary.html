@@ -1,0 +1,85 @@
+{% extends "documents/lifecycle/letterhead.html" %}
+{% block content %}
+<div class="lc-wrap">
+  <table class="lc-meta">
+    <tr>
+      <td>Date: {{ doc.issue_date }}</td>
+      <td class="ref">{{ doc.ref }}</td>
+    </tr>
+  </table>
+
+  <h1 class="lc-title">Disciplinary Notice</h1>
+
+  <table class="lc-party">
+    <tr>
+      <td class="lbl">To</td>
+      <td>
+        <div class="name">{{ employee.full_name }}{% if employee.code %} ({{ employee.code }}){% endif %}</div>
+        {% if params.designation or employee.designation %}
+        <div class="sub">{{ params.designation or employee.designation }}</div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {% set _zone = 'header' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <p class="lc-intro">
+    This notice records a disciplinary matter under company policy. Please review the particulars below and retain a copy for your records.
+  </p>
+
+  <div class="lc-section">Particulars</div>
+  <table class="lc-grid">
+    <colgroup><col class="lbl"/><col class="val"/></colgroup>
+    <tr>
+      <th>Incident date</th>
+      <td>{{ params.incident_date_long or params.incident_date }}</td>
+    </tr>
+    <tr>
+      <th>Policy reference</th>
+      <td>{{ params.policy_reference }}</td>
+    </tr>
+    <tr>
+      <th>Summary</th>
+      <td>{{ params.incident_summary }}</td>
+    </tr>
+    {% if params.sanction %}
+    <tr>
+      <th>Sanction</th>
+      <td>{{ params.sanction }}</td>
+    </tr>
+    {% endif %}
+    {% if params.hearing_date %}
+    <tr>
+      <th>Hearing date</th>
+      <td>{{ params.hearing_date_long or params.hearing_date }}</td>
+    </tr>
+    {% endif %}
+  </table>
+  {% set _zone = 'particulars' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  {% if params.narration %}<p class="lc-intro">{{ params.narration }}</p>{% endif %}
+  {% set _zone = 'middle' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'footer' %}{% include "documents/lifecycle/_print_zone.html" %}
+  {% set _zone = 'signatures' %}{% include "documents/lifecycle/_print_zone.html" %}
+
+  <table class="lc-sigs">
+    <tr>
+      <td>
+        <div class="lc-sig-cap">Employee acknowledgment</div>
+        <div class="lc-sig-line">
+          <div class="who">{{ employee.full_name }}</div>
+          <div class="role">Signature / Date</div>
+        </div>
+      </td>
+      <td>
+        <div class="lc-sig-cap">For the company</div>
+        <div class="lc-sig-line">
+          <div class="who">{{ params.signatory_name }}</div>
+          <div class="role">{{ params.signatory_title }}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endblock %}
