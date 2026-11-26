@@ -48,7 +48,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Node 22+ can strip .ts imports used by atlas-next contract tests.
+          node-version: "22"
           cache: npm
           cache-dependency-path: atlas-next/package-lock.json
 
@@ -62,7 +63,8 @@ jobs:
 
       - name: Source contract tests
         working-directory: atlas-next
-        run: node --test tests/*.mjs
+        # Contract suites import ../lib/*.ts — strip types so Node can load them.
+        run: node --experimental-strip-types --test tests/*.mjs
 
   agentic-api:
     name: Agentic Data Agent API gate
