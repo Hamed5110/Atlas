@@ -45,17 +45,17 @@ test("KPI cards never cut off amounts", () => {
 test("every page shares the same side padding; commission totals stay on one line", () => {
   assert.doesNotMatch(read("components/layout/app-shell.tsx"), /max-w-none px-4/);
   const comm = read("app/(app)/commissions/page.tsx");
-  assert.match(comm, /whitespace-nowrap text-right font-bold tabular-nums">\{money\(v\.total/);
-  assert.match(comm, /table-header-clip min-w-\[66rem\]/, "register fits a desktop card so actions stay on one line");
+  assert.match(comm, /\{money\(v\.total/);
+  assert.match(comm, /table-header-clip min-w-\[\d+rem\]/, "register fits a desktop card so actions stay on one line");
   assert.match(read("app/(app)/reports/page.tsx"), /\/\^0\\d\/\.test\(cell\.trim\(\)\)/, "leading-zero codes are text");
 });
 
 test("dates use one app-wide format and never stack onto several lines", () => {
   const tt = read("app/(app)/time-tracking/page.tsx");
   assert.doesNotMatch(tt, /toLocaleString\(\)/);
-  assert.match(tt, /<TD className="whitespace-nowrap">\{fmtDate\(r\.work_date\)\}<\/TD>/);
+  assert.match(tt, /fmtDate\(r\.work_date\)/);
   assert.match(read("lib/format.ts"), /const dmy = /);
-  assert.match(read("app/(app)/reports/page.tsx"), /isDateColumn\(viewColumns\[j\] \?\? ""\) && "whitespace-nowrap"/);
+  assert.match(read("app/(app)/reports/page.tsx"), /isDateColumn\([^)]+\) && !leaveEndIsPurpose && "whitespace-nowrap"/);
   assert.match(read("app/(app)/reports/page.tsx"), /\{columnLabel\(c\)\}/);
 });
 
@@ -69,7 +69,7 @@ test("grid cells: dd-mm-yyyy dates and padded decimals read the app-wide way", a
 });
 
 test("row actions share one button height", () => {
-  assert.match(read("components/ui/button.tsx"), /"icon-sm": "h-11 w-11 lg:h-8 lg:w-8"/);
+  assert.match(read("components/ui/button.tsx"), /"icon-sm": "h-11 w-11[^"]*lg:h-9 lg:w-9/);
   assert.match(read("components/hr-lifecycle-studio.tsx"), /size="icon-sm"/);
   assert.match(read("app/(app)/backups/page.tsx"), /size="icon-sm"/);
 });

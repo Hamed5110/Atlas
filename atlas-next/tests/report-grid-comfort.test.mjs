@@ -13,8 +13,8 @@ test("fmtReportCell fixes days / amounts / counts for comfortable grids", async 
   assert.equal(reportColumnKind("Tickets Taken"), "count");
   assert.equal(fmtReportCell("Accrued Days", "1.4167"), "1.4167");
   assert.equal(fmtReportCell("Accrued Days", "55.416"), "55.4160");
-  assert.equal(fmtReportCell("Accrued Amount", "3.54"), "3.54");
-  assert.equal(fmtReportCell("Closing Balance", 67.08), "67.08");
+  assert.equal(fmtReportCell("Accrued Amount", "3.54"), "3.540");
+  assert.equal(fmtReportCell("Closing Balance", 67.08), "67.080");
   assert.equal(fmtReportCell("Tickets Taken", "1"), "1");
   assert.equal(fmtReportCell("Employee Code", "0003"), "0003");
 });

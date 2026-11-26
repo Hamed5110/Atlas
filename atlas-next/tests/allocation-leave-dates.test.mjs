@@ -47,7 +47,7 @@ test("ticket register and print sheet surface the stored leave window", () => {
   const page = read("app/(app)/allocation/page.tsx");
   // Register row meta line shows employee · ticket · travel date; the stored leave
   // window surfaces on the print sheet and the Dashboard Leave Tracker.
-  assert.match(page, /fmtDate\(t\.travel_date\)/);
+  assert.match(page, /fmtDate\([^)]*travel_date\)/);
   const sheet = read("components/allocation-print-sheet.tsx");
   assert.match(sheet, /Leave Dates/);
   assert.match(sheet, /ticket\.leave_start_date/);

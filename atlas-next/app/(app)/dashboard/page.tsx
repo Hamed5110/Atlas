@@ -34,6 +34,7 @@ import {
   type LeaveFilter,
   type LeaveRangeKey,
 } from "@/components/dashboard/leave-tracker";
+import { WorkInbox } from "@/components/dashboard/work-inbox";
 import { PendingTicketCountBar } from "@/components/dashboard/pending-ticket-count-bar";
 import {
   PENDING_RANGE_STORAGE_KEY,
@@ -276,6 +277,7 @@ function DashboardPage() {
 
       {staffDesk ? (
         <>
+          <WorkInbox />
           <LeaveTracker
             filter={leaveFilter}
             onFilterChange={setLeaveFilter}

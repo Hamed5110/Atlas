@@ -103,7 +103,7 @@ test("commissions register does not pin columns (sticky overlays neighbouring he
   assert.match(src, /min-w-\[9rem\]/, "voucher-date column has a header-fit min-width");
   assert.match(src, /tracking-normal/, "register headers drop tracking-wider so labels fit");
   assert.match(css, /\.table-header-clip/);
-  assert.match(src, /text-right">Actions<\/TH>/);
+  assert.match(src, /text-(?:right|end)">Actions<\/TH>/);
 });
 
 test("commissions nav entry sits after Loans with BadgeDollarSign", () => {

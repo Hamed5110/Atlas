@@ -2017,7 +2017,7 @@ function ReportsPage() {
               Opening · Accrued · Already paid · Balance · Closing · Entitlement — balances are computed on the To date
             </p>
           </div>
-          <CardContent className="flex flex-wrap items-end gap-4 py-4">
+          <CardContent className="flex flex-wrap items-start gap-4 py-4">
             <DateRangeFilter
               idPrefix="payable"
               value={range}

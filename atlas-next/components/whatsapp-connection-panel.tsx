@@ -445,7 +445,7 @@ export function WhatsAppConnectionPanel() {
                 </p>
                 {portReport?.wrong_infra_port ? (
                   <p
-                    className="rounded-[var(--radius-sm)] border border-[hsl(var(--destructive)/0.35)] bg-[hsl(var(--destructive)/0.08)] px-2 py-1.5 text-xs text-[var(--color-destructive)]"
+                    className="rounded-[var(--radius-sm)] border border-[color-mix(in_hsl,var(--color-destructive)_35%,transparent)] bg-[color-mix(in_hsl,var(--color-destructive)_8%,transparent)] px-2 py-1.5 text-xs text-[var(--color-destructive)]"
                     dir="ltr"
                     data-testid="wa-port-infra-warning"
                   >

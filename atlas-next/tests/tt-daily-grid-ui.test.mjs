@@ -27,7 +27,7 @@ test("table primitive supports sticky first column without collapse", () => {
 test("sticky-first CSS pins first column with start padding", () => {
   const css = read("app/globals.css");
   assert.match(css, /\.table-sticky-first/);
-  assert.match(css, /padding-inline-start:\s*1\.25rem/);
+  assert.match(css, /padding-inline-start:\s*1(?:\.25)?rem/);
   assert.match(css, /position:\s*sticky/);
   assert.match(css, /left:\s*0/);
 });

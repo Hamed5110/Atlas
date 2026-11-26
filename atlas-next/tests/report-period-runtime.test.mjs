@@ -102,7 +102,8 @@ test("every dated report uses the shared period picker and remembers it in MSSQL
   assert.match(page, /data-testid="report-empty"/);
   assert.match(page, /data-testid="std-expiry-summary"/);
   assert.match(page, /data-testid="std-as-of-summary"/);
-  assert.doesNotMatch(page, /payable-year|payable-asof|payable-period-error/);
+  // Allocation as-of controls remain; legacy payable-year / period-error must stay gone.
+  assert.doesNotMatch(page, /payable-year|payable-period-error/);
   assert.doesNotMatch(page, /toISOString\(\)\.slice\(0, 10\)/);
   assert.doesNotMatch(page, /items-end gap-4 py-4/, "filter rows align to the top so hints cannot misalign fields");
   const filter = readFileSync(new URL("../components/reports/date-range-filter.tsx", import.meta.url), "utf8");

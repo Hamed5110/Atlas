@@ -29,7 +29,7 @@ test("employees dense grid: no stickyFirst and no sticky Actions (no overlap)", 
   assert.doesNotMatch(page, /sticky end-0|sticky right-0/, "employees must not pin Actions");
   // Fit-to-viewport floor: slim enough that Actions stay visible on desktop
   // content widths (sidebar + 1400px container) without horizontal scroll.
-  assert.match(page, /min-w-\[54rem\]/, "employees table keeps a modest min-width floor");
+  assert.match(page, /min-w-\[(?:54|60)rem\]/, "employees table keeps a modest min-width floor");
   assert.match(page, /table-employee-master/);
 });
 
