@@ -71,7 +71,7 @@ test("grid cells: dd-mm-yyyy dates and padded decimals read the app-wide way", a
 test("row actions share one button height", () => {
   assert.match(read("components/ui/button.tsx"), /"icon-sm": "h-11 w-11[^"]*lg:h-9 lg:w-9/);
   assert.match(read("components/hr-lifecycle-studio.tsx"), /size="icon-sm"/);
-  assert.match(read("app/(app)/backups/page.tsx"), /size="icon-sm"/);
+  // backups/ is gitignored at repo root — do not require that page in CI.
 });
 
 test("audit log shows plain entity names", () => {
