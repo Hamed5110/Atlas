@@ -10,7 +10,7 @@ export const options = {
   }
 };
 
-const baseUrl = __ENV.ATLAS_LIVE_API_BASE || "http://127.0.0.1:3355/api";
+const baseUrl = (__ENV.ATLAS_LIVE_API_BASE || __ENV.ATLAS_E2E_BASE_URL || "http://127.0.0.1:3389").replace(/\/$/, "") + "/v1";
 const token = __ENV.ATLAS_E2E_TOKEN;
 const sessionId = __ENV.ATLAS_E2E_SESSION_ID || "k6-airfare-entitlement";
 const asOfDate = __ENV.ATLAS_E2E_AS_OF_DATE || "2026-12-31";

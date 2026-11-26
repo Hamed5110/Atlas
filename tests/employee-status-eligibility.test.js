@@ -1,7 +1,7 @@
 const assert = require('assert/strict');
 const sql = require('mssql');
 
-const BASE_URL = process.env.ATLAS_TEST_URL || 'http://localhost:3355/api';
+const BASE_URL = process.env.ATLAS_TEST_URL || 'http://127.0.0.1:3389/v1';
 const USERNAME = process.env.ATLAS_TEST_USER || 'sa';
 const PASSWORD = process.env.ATLAS_TEST_PASSWORD || 'Atlas@25';
 const YEAR = Number(process.env.ATLAS_TEST_YEAR || new Date().getFullYear());

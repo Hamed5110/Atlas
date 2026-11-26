@@ -1,0 +1,19 @@
+{
+  "name": "atlas-platform",
+  "version": "3.0.0",
+  "private": true,
+  "description": "ATLAS Airfare & Loan Manager — clean monorepo rebuild",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @atlas/api & npm run dev --workspace @atlas/web",
+    "build": "npm run build --workspace @atlas/shared && npm run build --workspace @atlas/api && npm run build --workspace @atlas/web",
+    "start": "npm run start --workspace @atlas/api",
+    "test": "npm run test --workspace @atlas/shared && npm run test --workspace @atlas/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

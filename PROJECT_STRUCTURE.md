@@ -1,11 +1,27 @@
 # ATLAS Project Structure
 
-## Active Application
+## Active Applications
 
-- `server.js` - Active backend API for SQL Server.
-- `atlas-hcm-next/` - Active dashboard frontend build, served directly from backend at `http://localhost:3355`.
-- `.env` - Local SQL/API configuration.
-- `start-atlas.ps1` - Starts the backend API.
+### Legacy (production today)
+- `server.js` - Backend API on port **3355**
+- `atlas-hcm-next/` - Frontend build served by legacy API
+- `start-atlas.ps1` - Starts legacy backend
+
+### ATLAS Platform 3.0 (clean rebuild)
+- `atlas-platform/` - Modern monorepo (TypeScript API + Next.js UI)
+- Port **3360** — runs alongside legacy without conflict
+- See [atlas-platform/README.md](atlas-platform/README.md)
+
+```powershell
+cd .\atlas-platform
+.\start-atlas.ps1
+```
+
+### Canonical Python platform
+- `airfare_management/` - Python 3.11+ Clean Architecture implementation
+  - PySide6 desktop client + FastAPI + SQLAlchemy 2 / MSSQL
+  - See [airfare_management/README.md](airfare_management/README.md)
+  - Architecture decisions: [airfare_management/docs/architecture.md](airfare_management/docs/architecture.md)
 
 ## Organized Folders
 

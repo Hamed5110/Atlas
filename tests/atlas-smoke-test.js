@@ -1,6 +1,6 @@
-﻿const assert = require('node:assert/strict');
+const assert = require('node:assert/strict');
 
-const BASE_URL = process.env.ATLAS_TEST_BASE_URL || 'http://localhost:3355/api';
+const BASE_URL = process.env.ATLAS_TEST_BASE_URL || 'http://127.0.0.1:3389/v1';
 const USERNAME = process.env.ATLAS_TEST_USERNAME || 'sa';
 const PASSWORD = process.env.ATLAS_TEST_PASSWORD || 'Atlas@25';
 

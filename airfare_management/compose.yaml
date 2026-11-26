@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    environment:
+      AIRFARE_ENVIRONMENT: production
+      AIRFARE_DATABASE_URL: ${AIRFARE_DATABASE_URL}
+      AIRFARE_JWT_SECRET: ${AIRFARE_JWT_SECRET}
+      AIRFARE_CORS_ORIGINS: ${AIRFARE_CORS_ORIGINS:-[]}
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true

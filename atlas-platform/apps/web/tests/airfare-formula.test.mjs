@@ -1,0 +1,106 @@
+﻿import assert from "node:assert/strict";
+
+const { calculateAirfare, currentAirfareDaysFromWorkingDays } = await import("../lib/airfare-engine.ts");
+
+function closingBalanceDays(employee) {
+  if (typeof employee.ClosingBalanceDays === "number" && Number.isFinite(employee.ClosingBalanceDays)) return employee.ClosingBalanceDays;
+  if (typeof employee.RemainingBalance === "number" && Number.isFinite(employee.RemainingBalance)) return employee.RemainingBalance;
+  return employee.OpeningDays || 0;
+}
+
+function calculateExcelTotal(employee) {
+  const sqlClosingAmount = Number(employee.ClosingBalanceBHD);
+  return Number.isFinite(sqlClosingAmount) ? Math.round(sqlClosingAmount * 100) / 100 : 0;
+}
+
+const excelCase = calculateAirfare({
+  openingDays: 28.41666666666667,
+  currentWorkingDays: 360,
+  paidDays: 33.417,
+  maximumPayout: 150
+});
+
+assert.equal(currentAirfareDaysFromWorkingDays(360), 30);
+assert.equal(excelCase.currentAirfareDays, 30);
+assert.equal(excelCase.remainingDays, 24.9997);
+assert.equal(excelCase.payableBhd, 62.5);
+
+const fullyPaid = calculateAirfare({
+  openingDays: 0,
+  currentWorkingDays: 360,
+  paidDays: 60,
+  maximumPayout: 150
+});
+assert.equal(fullyPaid.payableBhd, 0);
+
+const halfCycle = calculateAirfare({
+  openingDays: 0,
+  currentWorkingDays: 360,
+  paidDays: 0,
+  maximumPayout: 150
+});
+assert.equal(halfCycle.remainingDays, 30);
+assert.equal(halfCycle.payableBhd, 75);
+
+const june18Case = calculateAirfare({
+  openingDays: 0,
+  currentWorkingDays: 168,
+  paidDays: 0,
+  maximumPayout: 150
+});
+assert.equal(june18Case.currentAirfareDays, 14);
+assert.equal(june18Case.payableBhd, 35);
+
+const cappedCycleCase = calculateAirfare({
+  openingDays: 90,
+  currentWorkingDays: 168,
+  paidDays: 0,
+  maximumPayout: 150
+});
+assert.equal(cappedCycleCase.remainingDays, 60);
+assert.equal(cappedCycleCase.payableBhd, 150);
+
+const dynamicPayoutCase = calculateAirfare({
+  openingDays: 60,
+  currentWorkingDays: 360,
+  paidDays: 0,
+  maximumPayout: 500
+});
+assert.equal(dynamicPayoutCase.currentAirfareDays, 30);
+assert.equal(dynamicPayoutCase.remainingDays, 60);
+assert.equal(dynamicPayoutCase.payableBhd, 500);
+
+const partialOneWayCase = calculateAirfare({
+  openingDays: 12,
+  currentWorkingDays: 120,
+  paidDays: 10,
+  maximumPayout: 150
+});
+assert.equal(partialOneWayCase.currentAirfareDays, 10);
+assert.equal(partialOneWayCase.remainingDays, 12);
+assert.equal(partialOneWayCase.payableBhd, 30);
+
+const employeeFromExcelBalance = {
+  ClosingBalanceDays: 25,
+  ClosingBalanceBHD: 62.5,
+  RemainingBalance: 55,
+  OpeningDays: 25,
+  MaximumPayout: 150
+};
+assert.equal(closingBalanceDays(employeeFromExcelBalance), 25);
+assert.equal(calculateExcelTotal(employeeFromExcelBalance), 62.5);
+
+const importedWorkbookCase = {
+  ClosingBalanceDays: 24.99966666666667,
+  ClosingBalanceBHD: 62.5,
+  MaximumPayout: 150
+};
+assert.equal(calculateExcelTotal(importedWorkbookCase), 62.5);
+
+const missingSqlClosingAmount = {
+  ClosingBalanceDays: 25,
+  MaximumPayout: 150
+};
+assert.equal(calculateExcelTotal(missingSqlClosingAmount), 0);
+
+console.log("Airfare formula tests passed");
