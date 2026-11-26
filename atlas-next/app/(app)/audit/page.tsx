@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { fmtDateTime, statusTone, titleCase } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { ExcelToolbar } from "@/components/excel-toolbar";
 
 interface AuditEventRow {
   id: number;
@@ -23,6 +24,15 @@ interface AuditEventRow {
   entity_type: string;
   entity_id: string;
   changes: Record<string, unknown>;
+}
+
+/** "TtSyncRunRow" → "Time tracking sync run": table class names read as plain words. */
+function entityLabel(type: string): string {
+  const words = type
+    .replace(/Row$/, "")
+    .replace(/^Tt(?=[A-Z])/, "TimeTracking")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase();
 }
 
 function AuditPage() {
@@ -41,7 +51,7 @@ function AuditPage() {
     return (events.data?.events ?? []).filter((e) => {
       if (actionFilter && e.action !== actionFilter) return false;
       if (!term) return true;
-      return [e.actor, e.entity_type, e.entity_id, e.action]
+      return [e.actor, e.entity_type, entityLabel(e.entity_type), e.entity_id, e.action]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(term));
     });
@@ -57,6 +67,7 @@ function AuditPage() {
       <PageHeader
         title={t("page.audit.title")}
         subtitle={`${t("page.audit.subtitle")} · ${events.data?.total ?? 0}`}
+        actions={<ExcelToolbar dataset="audit" />}
       />
 
       <Card>
@@ -66,14 +77,19 @@ function AuditPage() {
               <CardTitle>Events</CardTitle>
               <CardDescription>Newest first — click a row to inspect the change payload</CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="w-40">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <Select
+                aria-label="Filter by action"
+                value={actionFilter}
+                onChange={(e) => setActionFilter(e.target.value)}
+                className="w-full sm:w-40"
+              >
                 <option value="">All actions</option>
                 {actions.map((a) => (
                   <option key={a} value={a}>{titleCase(a)}</option>
                 ))}
               </Select>
-              <SearchInput value={search} onChange={setSearch} placeholder="Actor, entity…" className="w-56" />
+              <SearchInput value={search} onChange={setSearch} placeholder="Actor, entity…" className="w-full sm:w-56" />
             </div>
           </div>
         </CardHeader>
@@ -97,8 +113,8 @@ function AuditPage() {
                     ) : (
                       <ChevronRight size={14} className="shrink-0 text-[var(--color-muted-foreground)]" />
                     )}
-                    <Badge variant={statusTone(e.action) as never} className="shrink-0">{e.action}</Badge>
-                    <span className="text-sm font-bold">{e.entity_type}</span>
+                    <Badge variant={statusTone(e.action) as never} className="shrink-0">{titleCase(e.action)}</Badge>
+                    <span className="text-sm font-bold" title={e.entity_type}>{entityLabel(e.entity_type)}</span>
                     <span className="max-w-[200px] truncate font-mono text-xs text-[var(--color-muted-foreground)]">
                       {e.entity_id}
                     </span>
@@ -112,7 +128,7 @@ function AuditPage() {
                         {e.correlation_id ? <span>correlation: <span className="font-mono">{e.correlation_id.slice(0, 12)}…</span></span> : null}
                         {e.ip_address ? <span>ip: <span className="font-mono">{e.ip_address}</span></span> : null}
                       </div>
-                      <pre className={cn("max-h-72 overflow-auto rounded-[var(--radius-sm)] bg-[hsl(222_47%_9%)] p-3 font-mono text-xs text-[hsl(220_14%_85%)]")}>
+                      <pre className={cn("max-h-72 overflow-auto rounded-[var(--radius-sm)] bg-[var(--neutral-950)] p-3 font-mono text-xs text-[var(--neutral-300)]")}>
                         {JSON.stringify(e.changes, null, 2)}
                       </pre>
                     </div>

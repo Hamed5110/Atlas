@@ -48,14 +48,18 @@ const icons: Record<ToastKind, React.ReactNode> = {
 export function Toaster() {
   const { toasts, dismiss } = useToasts();
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-2">
+    <div
+      data-testid="toast-viewport"
+      className="pointer-events-none fixed z-[100] flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-2"
+      style={{ bottom: "var(--toast-inset)", right: "var(--toast-inset)" }}
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
           role="alert"
           data-testid={`toast-${t.kind}`}
           className={cn(
-            "pointer-events-auto flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white p-4 shadow-[var(--shadow-pop)] animate-[slide-up_0.25s_cubic-bezier(0.16,1,0.3,1)]"
+            "pointer-events-auto flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-card)] p-4 text-[var(--color-foreground)] shadow-[var(--shadow-pop)] animate-[slide-up_0.25s_cubic-bezier(0.16,1,0.3,1)]"
           )}
         >
           <div className="mt-0.5 shrink-0">{icons[t.kind]}</div>
@@ -69,9 +73,10 @@ export function Toaster() {
           </div>
           <button
             onClick={() => dismiss(t.id)}
+            aria-label="Dismiss notification"
             className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-secondary)] cursor-pointer"
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       ))}

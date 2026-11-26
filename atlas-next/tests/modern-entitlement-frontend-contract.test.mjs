@@ -25,7 +25,11 @@ test("modern entitlement front-end has no period-end product path", () => {
   );
   assert.match(shell, /nav-rates/, "Rates must remain in primary nav");
   assert.match(shell, /nav-airfare-allocation/, "Allocation must remain in primary nav");
-  assert.match(yearEnd, /router\.replace\("\/allocation\/"\)/, "legacy year-end URL must redirect to Allocation");
+  assert.match(
+    yearEnd,
+    /router\.replace\(appPath\("\/allocation"\)\)/,
+    "legacy year-end URL must redirect to Allocation via appPath"
+  );
   assert.doesNotMatch(
     yearEnd,
     /btn-run-period-end|btn-run-year-end-close/,

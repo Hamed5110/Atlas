@@ -81,6 +81,9 @@ function OpeningBalancesPage() {
 
   const saveMutation = useMutation({
     mutationFn: () => {
+      if (!form.opening_amount.trim() || !form.maximum_payout.trim()) {
+        throw new Error("Enter the opening amount and maximum payout (use 0 if there is none).");
+      }
       const body = {
         opening_days: Number(form.opening_days),
         paid_days: Number(form.paid_days),
@@ -163,7 +166,7 @@ function OpeningBalancesPage() {
 
       <Card className="mt-4">
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <CardTitle>Balance register</CardTitle>
               <CardDescription>{filtered.length} records</CardDescription>
@@ -179,21 +182,21 @@ function OpeningBalancesPage() {
           ) : filtered.length === 0 ? (
             <EmptyState icon={<Scale size={22} />} title="No balances" message="Add a balance manually or import from Excel." />
           ) : (
-            <Table>
+            <Table stickyFirst cards className="min-w-[56rem]">
               <THead>
                 <TR>
                   <TH>Employee</TH>
                   <TH>Year</TH>
                   <TH>Opening days</TH>
                   <TH>Paid days</TH>
-                  <TH>Opening amount</TH>
-                  <TH>Max payout</TH>
-                  <TH className="text-right">Actions</TH>
+                  <TH className="desk-num">Opening amount</TH>
+                  <TH className="desk-num">Max payout</TH>
+                  <TH className="text-end">Actions</TH>
                 </TR>
               </THead>
               <TBody>
                 {filtered.map((b) => (
-                  <TR key={b.id}>
+                  <TR key={b.id} data-testid={`row-opening-balance-${b.id}`}>
                     <TD>
                       <p className="font-semibold">{b.employee_name || "—"}</p>
                       <p className="text-xs font-mono text-[var(--color-muted-foreground)]">{b.employee_code}</p>
@@ -201,15 +204,33 @@ function OpeningBalancesPage() {
                     <TD className="font-semibold">{b.balance_year}</TD>
                     <TD>{num(b.opening_days)}</TD>
                     <TD>{num(b.paid_days)}</TD>
-                    <TD>{money(b.opening_amount)}</TD>
-                    <TD>{money(b.maximum_payout)}</TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(b)} title="Edit">
-                          <Pencil size={15} />
+                    <TD className="desk-num">{money(b.opening_amount)}</TD>
+                    <TD className="desk-num">{money(b.maximum_payout)}</TD>
+                    <TD className="text-end">
+                      <div
+                        className="inline-flex flex-nowrap justify-end gap-1.5"
+                        role="group"
+                        aria-label={`Actions for ${b.employee_name || b.employee_code || "opening balance"}`}
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEdit(b)}
+                          title="Edit opening balance"
+                          aria-label={`Edit opening balance for ${b.employee_name || b.employee_code || b.id}`}
+                          data-testid={`btn-edit-opening-balance-${b.id}`}
+                        >
+                          <Pencil size={14} aria-hidden /> Edit
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleting(b)} title="Delete">
-                          <Trash2 size={15} className="text-[var(--color-destructive)]" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleting(b)}
+                          title="Delete opening balance"
+                          aria-label={`Delete opening balance for ${b.employee_name || b.employee_code || b.id}`}
+                          data-testid={`btn-delete-opening-balance-${b.id}`}
+                        >
+                          <Trash2 size={14} className="text-[var(--color-destructive)]" aria-hidden /> Delete
                         </Button>
                       </div>
                     </TD>
@@ -232,7 +253,7 @@ function OpeningBalancesPage() {
               Cancel
             </Button>
             <Button variant="gradient" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
-              {saveMutation.isPending ? "Saving…" : editing ? "Save changes" : "Save balance"}
+              {saveMutation.isPending ? t("state.saving") : editing ? "Save changes" : "Save balance"}
             </Button>
           </>
         }
@@ -256,27 +277,27 @@ function OpeningBalancesPage() {
               onChange={(e) => setForm((f) => ({ ...f, balance_year: e.target.value }))}
             />
           </Field>
-          <Field label="Opening days" hint="0 – 60">
+          <Field label="Opening days" hint="0 – 365 carry-forward days (not Settings × rate)">
             <Input
               type="number"
               min="0"
-              max="60"
+              max="365"
               step="0.0001"
               value={form.opening_days}
               onChange={(e) => setForm((f) => ({ ...f, opening_days: e.target.value }))}
             />
           </Field>
-          <Field label="Paid days">
+          <Field label="Paid days" hint="Already consumed from this opening">
             <Input
               type="number"
               min="0"
-              max="60"
+              max="365"
               step="0.0001"
               value={form.paid_days}
               onChange={(e) => setForm((f) => ({ ...f, paid_days: e.target.value }))}
             />
           </Field>
-          <Field label="Opening amount">
+          <Field label="Opening amount" hint="0 = auto from days × rate/60">
             <Input
               type="number"
               min="0"
@@ -285,7 +306,7 @@ function OpeningBalancesPage() {
               onChange={(e) => setForm((f) => ({ ...f, opening_amount: e.target.value }))}
             />
           </Field>
-          <Field label="Maximum payout">
+          <Field label="Maximum payout" hint="Annual rate BHD; 0 uses policy default">
             <Input
               type="number"
               min="0"

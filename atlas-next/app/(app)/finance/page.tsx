@@ -13,8 +13,9 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, download, errorMessage } from "@/lib/api";
-import { num } from "@/lib/format";
+import { fmtDate, num } from "@/lib/format";
 import { useT } from "@/lib/i18n";
+import { appPath } from "@/lib/paths";
 
 interface FinanceStatus {
   ready: boolean;
@@ -215,19 +216,19 @@ function FinancePage() {
           </ol>
           <p className="text-xs text-[var(--color-muted-foreground)]">
             Also:{" "}
-            <Link href="/allocation" className="underline">
+            <Link href={appPath("/allocation")} className="underline">
               Airfare Allocation
             </Link>
             {" · "}
-            <Link href="/loans" className="underline">
+            <Link href={appPath("/loans")} className="underline">
               Loans
             </Link>
             {" · "}
-            <Link href="/reports" className="underline">
+            <Link href={appPath("/reports")} className="underline">
               Ops Reports
             </Link>
             {" · "}
-            <Link href="/ai-insights" className="underline">
+            <Link href={appPath("/ai-insights")} className="underline">
               AI Insights
             </Link>
           </p>
@@ -293,7 +294,7 @@ function FinancePage() {
           </CardTitle>
           <CardDescription>Ticket expense, loan receivable, cash, and entitlement liability.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {accountsQ.isLoading ? (
             <TableSkeleton rows={6} />
           ) : accounts.length === 0 ? (
@@ -330,7 +331,7 @@ function FinancePage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-end gap-3">
             <Field label="Account">
               <Select
                 value={accountCode}
@@ -354,14 +355,14 @@ function FinancePage() {
             <TableSkeleton rows={8} />
           ) : (
             <>
-              <Table>
+              <Table stickyFirst>
                 <THead>
                   <TR>
                     <TH>Code</TH>
                     <TH>Name</TH>
-                    <TH className="text-right">Debit</TH>
-                    <TH className="text-right">Credit</TH>
-                    <TH className="text-right">Net</TH>
+                    <TH className="desk-num">Debit</TH>
+                    <TH className="desk-num">Credit</TH>
+                    <TH className="desk-num">Net</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -369,9 +370,9 @@ function FinancePage() {
                     <TR key={row.code}>
                       <TD className="font-mono">{row.code}</TD>
                       <TD>{row.name}</TD>
-                      <TD className="text-right">{num(row.debit)}</TD>
-                      <TD className="text-right">{num(row.credit)}</TD>
-                      <TD className="text-right">{num(row.net)}</TD>
+                      <TD className="desk-num">{num(row.debit)}</TD>
+                      <TD className="desk-num">{num(row.credit)}</TD>
+                      <TD className="desk-num">{num(row.net)}</TD>
                     </TR>
                   ))}
                 </TBody>
@@ -400,19 +401,19 @@ function FinancePage() {
                       <TH>Account</TH>
                       <TH>Source</TH>
                       <TH>Narration</TH>
-                      <TH className="text-right">Debit</TH>
-                      <TH className="text-right">Credit</TH>
+                      <TH className="desk-num">Debit</TH>
+                      <TH className="desk-num">Credit</TH>
                     </TR>
                   </THead>
                   <TBody>
                     {report!.entries.map((e, i) => (
                       <TR key={`${e.entry_date}-${e.account_code}-${i}`}>
-                        <TD>{e.entry_date}</TD>
+                        <TD>{fmtDate(e.entry_date)}</TD>
                         <TD className="font-mono">{e.account_code}</TD>
                         <TD>{e.source_type}</TD>
                         <TD>{e.narration}</TD>
-                        <TD className="text-right">{num(e.debit)}</TD>
-                        <TD className="text-right">{num(e.credit)}</TD>
+                        <TD className="desk-num">{num(e.debit)}</TD>
+                        <TD className="desk-num">{num(e.credit)}</TD>
                       </TR>
                     ))}
                   </TBody>

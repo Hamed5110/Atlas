@@ -36,15 +36,20 @@ export const useAuth = create<AuthState>((set) => ({
     if (typeof window !== "undefined") {
       if (session) {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+        void import("./session-idle").then((m) => m.touchSessionActivity());
       } else {
         sessionStorage.removeItem(STORAGE_KEY);
+        void import("./session-idle").then((m) => m.clearSessionActivity());
       }
     }
     set({ session });
   },
   setMe: (me) => set({ me }),
   clear: () => {
-    if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(STORAGE_KEY);
+      void import("./session-idle").then((m) => m.clearSessionActivity());
+    }
     set({ session: null, me: null });
   },
 }));

@@ -2,6 +2,7 @@
 
 import { money } from "@/lib/format";
 import { usePrimaryCompany } from "@/lib/branding";
+import { ticketPayBreakdown } from "@/lib/ticket-money";
 import { cn } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 
@@ -36,7 +37,7 @@ function BiHeader({ en, ar, align = "left" }: { en: string; ar: string; align?: 
   return (
     <th
       className={cn(
-        "px-2 py-1.5 text-[10px] font-bold uppercase leading-tight text-[hsl(210_50%_30%)]",
+        "px-2 py-1.5 text-[10px] font-bold uppercase leading-tight text-[var(--color-primary-emphasis)]",
         align === "right" ? "text-right" : "text-left"
       )}
     >
@@ -57,16 +58,14 @@ export function AllocationPrintSheet({
   className?: string;
 }) {
   const { company, logo } = usePrimaryCompany();
-  const excess = Math.max(
-    0,
-    Number(ticket.excess_cost ?? Number(ticket.ticket_cost) - Number(ticket.entitlement))
-  );
-  const employeePayable = Number(
-    ticket.employee_payable ?? excess
-  );
-  const companyPaid = Number(ticket.company_paid ?? ticket.entitlement ?? 0);
-  const isLoan =
-    ticket.excess_handling === "CONVERT_TO_LOAN" || ticket.excess_handling === "LOAN";
+  const handling = String(ticket.excess_handling || "").toUpperCase();
+  const isLoan = handling === "CONVERT_TO_LOAN" || handling === "LOAN";
+  // Shared settle desk (lib/ticket-money.ts) — same money as the register,
+  // CSV export and the backend Ticket Cost report, incl. legacy rows.
+  const pay = ticketPayBreakdown(ticket);
+  const companyPaid = pay.companyPays;
+  const employeePayable = pay.employeePays;
+  const excess = pay.loanAmount; // print "Loan" uses the loan-principal field
   const docNo =
     ticket.ticket_code ||
     (ticket.ticket_number != null
@@ -75,9 +74,7 @@ export function AllocationPrintSheet({
   const currency = company?.currency || "BHD";
   const status = String(ticket.status || "APPROVED").toUpperCase();
   const statusArabic = statusAr(status);
-  const excessHandling = String(ticket.excess_handling || "SELF_PAID")
-    .replace(/_/g, " ")
-    .toUpperCase();
+  const excessHandling = (handling || "SELF_PAID").replace(/_/g, " ");
   const loanLabel = ticket.loan_code
     ? `${ticket.loan_code}${ticket.loan_status ? ` (${String(ticket.loan_status).toUpperCase()})` : ""}`
     : isLoan && ticket.tenure_months
@@ -91,38 +88,38 @@ export function AllocationPrintSheet({
   return (
     <article
       className={cn(
-        "print-page allocation-print-a4 mx-auto bg-white text-[hsl(222_47%_11%)]",
+        "print-page allocation-print-a4 mx-auto bg-white text-[var(--color-foreground)]",
         className
       )}
     >
-      <div className="mb-2 h-1 w-full bg-[hsl(217_91%_50%)]" />
-      <header className="border-b border-[hsl(210_50%_30%)] pb-3 text-center">
+      <div className="mb-2 h-1 w-full bg-[var(--color-primary)]" />
+      <header className="border-b border-[var(--color-primary-emphasis)] pb-3 text-center">
         {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logo} alt={company?.name || "Company"} className="mx-auto h-14 w-14 object-contain" />
         ) : (
           <>
-            <p className="text-base font-bold text-[hsl(210_50%_30%)]">{company?.name || "Company"}</p>
-            <p className="text-[10px] text-[hsl(215_16%_47%)]">Confidential · Human Resources</p>
+            <p className="text-base font-bold text-[var(--color-primary-emphasis)]">{company?.name || "Company"}</p>
+            <p className="text-[10px] text-[var(--color-muted-foreground)]">Confidential · Human Resources</p>
           </>
         )}
       </header>
 
       <div className="mt-3 text-center">
-        <h1 className="text-base font-bold uppercase tracking-[0.12em] text-[hsl(210_50%_30%)]">
+        <h1 className="text-base font-bold uppercase tracking-[0.12em] text-[var(--color-primary-emphasis)]">
           Airfare Allocation
         </h1>
-        <p className="mt-0.5 text-[15px] font-semibold leading-snug text-[hsl(210_50%_30%)]" dir="rtl" lang="ar">
+        <p className="mt-0.5 text-[15px] font-semibold leading-snug text-[var(--color-primary-emphasis)]" dir="rtl" lang="ar">
           تخصيص بدل تذاكر السفر
         </p>
-        <div className="mx-auto mt-2 h-px w-full bg-[hsl(214_32%_84%)]" />
+        <div className="mx-auto mt-2 h-px w-full bg-[var(--color-border)]" />
       </div>
 
       <table className="mt-3 w-full table-fixed text-[13px]">
         <tbody>
           <tr>
             <td className="w-[55%] py-0.5 align-top">
-              <span className="text-[hsl(215_16%_47%)]">Document No.</span>{" "}
+              <span className="text-[var(--color-muted-foreground)]">Document No.</span>{" "}
               <span className="font-semibold" dir="ltr">
                 {docNo}
               </span>
@@ -136,7 +133,7 @@ export function AllocationPrintSheet({
           </tr>
           <tr>
             <td className="py-0.5 align-top">
-              <span className="text-[hsl(215_16%_47%)]">Travel Date :</span>{" "}
+              <span className="text-[var(--color-muted-foreground)]">Travel Date :</span>{" "}
               <span className="font-semibold" dir="ltr">
                 {printDate(ticket.travel_date)}
               </span>
@@ -148,9 +145,25 @@ export function AllocationPrintSheet({
               </span>
             </td>
           </tr>
+          {ticket.leave_start_date && ticket.leave_end_date ? (
+            <tr>
+              <td className="py-0.5 align-top">
+                <span className="text-[var(--color-muted-foreground)]">Leave Dates :</span>{" "}
+                <span className="font-semibold" dir="ltr">
+                  {printDate(ticket.leave_start_date)} → {printDate(ticket.leave_end_date)}
+                </span>
+              </td>
+              <td className="py-0.5 text-right align-top" dir="rtl" lang="ar">
+                تواريخ الإجازة{" "}
+                <span dir="ltr" className="font-semibold">
+                  {printDate(ticket.leave_start_date)} → {printDate(ticket.leave_end_date)}
+                </span>
+              </td>
+            </tr>
+          ) : null}
           <tr>
             <td className="py-0.5 align-top">
-              <span className="text-[hsl(215_16%_47%)]">As of Date :</span>{" "}
+              <span className="text-[var(--color-muted-foreground)]">As of Date :</span>{" "}
               <span className="font-semibold" dir="ltr">
                 {printDate(asOf)}
               </span>
@@ -164,7 +177,7 @@ export function AllocationPrintSheet({
           </tr>
           <tr>
             <td className="py-0.5 align-top">
-              <span className="text-[hsl(215_16%_47%)]">Status :</span>{" "}
+              <span className="text-[var(--color-muted-foreground)]">Status :</span>{" "}
               <span className="font-semibold" dir="ltr">
                 {status}
               </span>
@@ -196,14 +209,14 @@ export function AllocationPrintSheet({
             ] as [string, string, string, string][]
           ).map(([en, value, ar, arVal]) => (
               <tr key={en}>
-                <td className="w-[22%] py-1 text-[hsl(215_16%_47%)]">{en}</td>
+                <td className="w-[22%] py-1 text-[var(--color-muted-foreground)]">{en}</td>
                 <td className="w-[34%] py-1 font-semibold" dir="ltr">
                   {value}
                 </td>
                 <td className="w-[22%] py-1 text-right font-semibold" dir="rtl" lang="ar">
                   {arVal}
                 </td>
-                <td className="w-[22%] py-1 text-right text-[hsl(215_16%_47%)]" dir="rtl" lang="ar">
+                <td className="w-[22%] py-1 text-right text-[var(--color-muted-foreground)]" dir="rtl" lang="ar">
                   {ar}
                 </td>
               </tr>
@@ -211,9 +224,9 @@ export function AllocationPrintSheet({
         </tbody>
       </table>
 
-      <section className="mt-4 overflow-hidden rounded border border-[hsl(215_16%_70%)]">
+      <section className="mt-4 overflow-hidden rounded border border-[var(--neutral-300)]">
         <table className="w-full table-fixed text-[13px]">
-          <thead className="bg-[hsl(210_40%_96%)] text-[hsl(210_50%_30%)]">
+          <thead className="bg-[var(--color-muted)] text-[var(--color-primary-emphasis)]">
             <tr>
               <th className="w-[40%] px-2 py-1.5 text-left text-[10px] font-bold uppercase">
                 Ticket &amp; entitlement
@@ -234,10 +247,10 @@ export function AllocationPrintSheet({
                 ["Ticket Amount", money(ticket.ticket_cost), "مبلغ التذكرة"],
                 ["Company Payout", money(companyPaid), "حصة الشركة"],
                 ["Employee Payable", money(employeePayable), "المبلغ المستحق على الموظف"],
-                ["Excess / Handling", `${money(excess)} / ${excessHandling}`, "الفائض / المعالجة"],
+                ["Loan / Handling", `${money(excess)} / ${excessHandling}`, "القرض / المعالجة"],
               ] as const
             ).map(([en, value, ar]) => (
-              <tr key={en} className="border-t border-[hsl(214_32%_91%)]">
+              <tr key={en} className="border-t border-[var(--color-border)]">
                 <td className="px-2 py-1.5">{en}</td>
                 <td className="px-2 py-1.5 text-right font-semibold" dir="ltr">
                   {value}
@@ -248,7 +261,7 @@ export function AllocationPrintSheet({
               </tr>
             ))}
             {loanLabel ? (
-              <tr className="border-t border-[hsl(214_32%_91%)]">
+              <tr className="border-t border-[var(--color-border)]">
                 <td className="px-2 py-1.5">Recovery Loan</td>
                 <td className="px-2 py-1.5 text-right font-semibold" dir="ltr">
                   {loanLabel}
@@ -258,7 +271,7 @@ export function AllocationPrintSheet({
                 </td>
               </tr>
             ) : null}
-            <tr className="border-t border-[hsl(214_32%_91%)] bg-[hsl(226_100%_97%)]">
+            <tr className="border-t border-[var(--color-border)] bg-[var(--color-primary-muted)]">
               <td className="px-2 py-1.5 font-semibold">Settlement</td>
               <td className="px-2 py-1.5 text-right font-semibold" dir="ltr">
                 Company {money(companyPaid)} · Employee {money(employeePayable)}
@@ -271,9 +284,9 @@ export function AllocationPrintSheet({
         </table>
       </section>
 
-      <section className="mt-3 overflow-hidden rounded border border-[hsl(215_16%_70%)]">
+      <section className="mt-3 overflow-hidden rounded border border-[var(--neutral-300)]">
         <table className="w-full table-fixed text-[12px]">
-          <thead className="bg-[hsl(210_40%_96%)]">
+          <thead className="bg-[var(--color-muted)]">
             <tr>
               <BiHeader en="Balance" ar="الرصيد" align="left" />
               <BiHeader en="Opening" ar="الافتتاحي" align="right" />
@@ -284,10 +297,10 @@ export function AllocationPrintSheet({
             </tr>
           </thead>
           <tbody>
-            <tr className="border-t border-[hsl(214_32%_91%)]">
+            <tr className="border-t border-[var(--color-border)]">
               <td className="px-2 py-1.5">
                 <div>Airfare</div>
-                <div className="text-[11px] text-[hsl(215_16%_47%)]" dir="rtl" lang="ar">
+                <div className="text-[11px] text-[var(--color-muted-foreground)]" dir="rtl" lang="ar">
                   تذاكر السفر
                 </div>
               </td>
@@ -317,16 +330,16 @@ export function AllocationPrintSheet({
         </p>
       ) : null}
 
-      <p className="mt-3 text-[11px] text-[hsl(215_16%_47%)]">
+      <p className="mt-3 text-[11px] text-[var(--color-muted-foreground)]">
         Computer-generated allocation slip — retain with the ticket voucher.
       </p>
 
-      <footer className="mt-8 grid grid-cols-2 gap-8 text-xs text-[hsl(215_16%_47%)]">
+      <footer className="mt-8 grid grid-cols-2 gap-8 text-xs text-[var(--color-muted-foreground)]">
         <div>
-          <div className="mb-8 border-t border-[hsl(222_47%_11%)] pt-1">Prepared by / أعدّه</div>
+          <div className="mb-8 border-t border-[var(--color-foreground)] pt-1">Prepared by / أعدّه</div>
         </div>
         <div className="text-right">
-          <div className="mb-8 ml-auto w-[78%] border-t border-[hsl(222_47%_11%)] pt-1">
+          <div className="mb-8 ml-auto w-[78%] border-t border-[var(--color-foreground)] pt-1">
             Approved by / اعتمد من
           </div>
         </div>

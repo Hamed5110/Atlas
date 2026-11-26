@@ -17,6 +17,7 @@ import { api, errorMessage } from "@/lib/api";
 import { titleCase } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import type { Lookup } from "@/lib/types";
+import { ExcelToolbar } from "@/components/excel-toolbar";
 
 const TYPES = [
   "designations",
@@ -24,6 +25,7 @@ const TYPES = [
   "pay_groups",
   "sub_sections",
   "departments",
+  "emp_departments",
   "repair_centers",
 ];
 
@@ -94,9 +96,12 @@ function LookupsPage() {
         title={t("page.lookups.title")}
         subtitle={t("page.lookups.subtitle")}
         actions={
-          <Button variant="gradient" onClick={openCreate}>
-            <Plus size={15} /> New entry
-          </Button>
+          <>
+            <ExcelToolbar dataset="lookups" />
+            <Button variant="gradient" onClick={openCreate}>
+              <Plus size={15} /> New entry
+            </Button>
+          </>
         }
       />
 
@@ -118,19 +123,19 @@ function LookupsPage() {
         </CardHeader>
         <CardContent className="p-0">
           {lookups.isPending ? (
-            <TableSkeleton />
+            <TableSkeleton label={t("state.loading")} />
           ) : lookups.isError ? (
             <ErrorState error={lookups.error} onRetry={lookups.refetch} />
           ) : (lookups.data ?? []).length === 0 ? (
             <EmptyState icon={<ListTree size={22} />} title="No entries" message="Add the first entry for this list." />
           ) : (
-            <Table>
+            <Table stickyFirst cards>
               <THead>
                 <TR>
                   <TH>Code</TH>
                   <TH>Name</TH>
                   <TH>Status</TH>
-                  <TH className="text-right">Actions</TH>
+                  <TH className="text-end">Actions</TH>
                 </TR>
               </THead>
               <TBody>
@@ -143,13 +148,13 @@ function LookupsPage() {
                         {item.active ? "Active" : "Inactive"}
                       </Badge>
                     </TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(item)} title="Edit">
-                          <Pencil size={15} />
+                    <TD className="text-end">
+                      <div className="inline-flex flex-nowrap justify-end gap-1.5" role="group" aria-label={`Actions for ${item.name}`}>
+                        <Button variant="ghost" size="icon-sm" onClick={() => openEdit(item)} title="Edit" aria-label={`Edit ${item.name}`}>
+                          <Pencil size={15} aria-hidden="true" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleting(item)} title="Delete">
-                          <Trash2 size={15} className="text-[var(--color-destructive)]" />
+                        <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(item)} title="Delete" aria-label={`Delete ${item.name}`}>
+                          <Trash2 size={15} className="text-[var(--color-destructive)]" aria-hidden="true" />
                         </Button>
                       </div>
                     </TD>
@@ -171,7 +176,7 @@ function LookupsPage() {
               Cancel
             </Button>
             <Button variant="gradient" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
-              {saveMutation.isPending ? "Saving…" : editing ? "Save changes" : "Save entry"}
+              {saveMutation.isPending ? t("state.saving") : editing ? "Save changes" : "Save entry"}
             </Button>
           </>
         }

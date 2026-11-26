@@ -43,7 +43,7 @@ export default function PayrollExportPage() {
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-payroll-export">
       <PageHeader title={t("page.payroll.title")} subtitle={t("page.payroll.subtitle")} />
       <Card className="mb-4">
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:items-end">
           <Field label="Payroll run">
             <Input
               data-testid="select-payroll-run"
@@ -63,6 +63,7 @@ export default function PayrollExportPage() {
           <div className="flex items-end">
             <Button
               variant="gradient"
+              className="h-10"
               data-testid="btn-export-to-payroll"
               disabled={exportMut.isPending}
               onClick={() => exportMut.mutate()}
@@ -82,26 +83,30 @@ export default function PayrollExportPage() {
           <p data-testid="text-total-export-amount" className="mb-3">
             Total: {Number(result.total_amount).toFixed(2)}
           </p>
-          <Table data-testid="table-export-preview">
-            <THead>
-              <TR>
-                <TH>Txn</TH>
-                <TH>Employee</TH>
-                <TH>Type</TH>
-                <TH>Amount</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {result.preview.map((r) => (
-                <TR key={r.transaction_id}>
-                  <TD className="font-mono text-xs">{r.transaction_id.slice(0, 8)}</TD>
-                  <TD className="font-mono text-xs">{r.employee_id.slice(0, 8)}</TD>
-                  <TD>{r.txn_type}</TD>
-                  <TD>{Number(r.amount).toFixed(2)}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+          <Card>
+            <CardContent className="p-0">
+              <Table data-testid="table-export-preview">
+                <THead>
+                  <TR>
+                    <TH>Txn</TH>
+                    <TH>Employee</TH>
+                    <TH>Type</TH>
+                    <TH>Amount</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {result.preview.map((r) => (
+                    <TR key={r.transaction_id}>
+                      <TD className="font-mono text-xs">{r.transaction_id.slice(0, 8)}</TD>
+                      <TD className="font-mono text-xs">{r.employee_id.slice(0, 8)}</TD>
+                      <TD>{r.txn_type}</TD>
+                      <TD>{Number(r.amount).toFixed(2)}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
         </>
       ) : null}
     </div>

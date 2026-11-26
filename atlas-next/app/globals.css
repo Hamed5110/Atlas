@@ -1,50 +1,59 @@
 @import "tailwindcss";
 
+/*
+  ============================================================================
+  ATLAS design tokens — three-tier architecture (primitive → semantic →
+  component), with the color tiers living in a SWAPPABLE THEME FILE.
+
+  ACTIVE THEME: arctic-sky (cerulean brand, icy neutrals, mint accent,
+  glacier-blue sidebar). Alternates, ready to swap by editing the ONE import below:
+    ./themes/slate-indigo.css  — Linear/Stripe-adjacent blurple, cool slate
+    ./themes/warm-sand.css     — warm paper neutrals, deep azure, bronze accent
+  After changing the import: `npm run build` and redeploy. No component ever
+  references a raw color — every component consumes var(--color-*) tokens, so
+  a theme swap cannot break screens.
+
+  PALETTE ALGORITHM (implemented in scripts/generate-theme.mjs — run
+  `node scripts/generate-theme.mjs` to regenerate all theme files from seeds):
+    1. ONE seed brand color per theme is converted to OKLCH (perceptually
+       uniform space — equal numeric steps look equal to the eye).
+    2. The 10-step brand scale (50..900) walks a fixed OKLCH lightness ramp
+       (0.972 → 0.224), hue following a ±12° arc (light steps drift toward
+       azure, dark steps toward violet) so tints feel airy and darks feel rich
+       instead of muddy.
+    3. Chroma peaks at the 500 core and tapers toward both extremes
+       (Material HCT-style), then is gamut-mapped into sRGB by chroma
+       bisection (CSS Color 4) — no channel clipping, no hue shifts.
+    4. Interactive steps are SOLVED, not picked: lightness is binary-searched
+       until white-on-color ≥ 4.5:1 (accents 5.5:1, since they also sit on
+       their own muted tint). WCAG 2.1 AA holds by construction and is
+       re-verified numerically by tests/design-system-contract.test.mjs
+       against every theme file.
+    5. Neutrals carry a whisper of the brand hue (chroma ≈ 0.01–0.02 OKLCH):
+       slate, not pure gray — surfaces and brand read as one family.
+  Refs: Material Design 3 HCT color system; Stripe/SAP Fiori/Salesforce
+  Lightning token hierarchies; OKLCH scale research (ColorFYI, CSS
+  Architecture, Canonical APCA work); NN/g light-mode readability findings.
+  ============================================================================
+*/
+@import "./themes/arctic-sky.css";
+/* Runtime presets (user-selectable): <html data-theme="ocean-teal"> etc. Generated with the files above. */
+@import "./theme-runtime.css";
+@import "./enterprise-vibrant.css";
+
+/* ---- Theme-agnostic tokens: type, motion, shape (colors live in the theme) ---- */
 @theme inline {
   --font-sans: "Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-
-  --color-background: hsl(220 20% 97%);
-  --color-foreground: hsl(222 47% 11%);
-  --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(222 47% 11%);
-  --color-popover: hsl(0 0% 100%);
-  --color-popover-foreground: hsl(222 47% 11%);
-  --color-primary: hsl(243 75% 59%);
-  --color-primary-foreground: hsl(0 0% 100%);
-  --color-primary-muted: hsl(243 75% 97%);
-  --color-secondary: hsl(220 14% 96%);
-  --color-secondary-foreground: hsl(222 47% 11%);
-  --color-muted: hsl(220 14% 96%);
-  --color-muted-foreground: hsl(220 9% 46%);
-  --color-accent: hsl(262 83% 58%);
-  --color-accent-foreground: hsl(0 0% 100%);
-  --color-destructive: hsl(0 72% 51%);
-  --color-destructive-foreground: hsl(0 0% 100%);
-  --color-success: hsl(142 71% 39%);
-  --color-success-foreground: hsl(0 0% 100%);
-  --color-warning: hsl(38 92% 44%);
-  --color-warning-foreground: hsl(0 0% 100%);
-  --color-info: hsl(217 91% 55%);
-  --color-info-foreground: hsl(0 0% 100%);
-  --color-border: hsl(220 13% 91%);
-  --color-input: hsl(220 13% 91%);
-  --color-ring: hsl(243 75% 59%);
-  --color-sidebar: hsl(222 47% 9%);
-  --color-sidebar-foreground: hsl(220 14% 75%);
-  --color-sidebar-active: hsl(0 0% 100%);
-  --color-sidebar-accent: hsl(222 40% 14%);
 
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-xl: 1.25rem;
 
-  --shadow-card: 0 1px 2px hsl(222 47% 11% / 0.04), 0 4px 16px -4px hsl(222 47% 11% / 0.06);
-  --shadow-pop: 0 8px 30px -6px hsl(222 47% 11% / 0.18);
-
   --animate-fade-in: fade-in 0.25s ease-out;
   --animate-slide-up: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-skeleton-shimmer: skeleton-shimmer 1.6s ease-in-out infinite;
 
   @keyframes fade-in {
     from { opacity: 0; }
@@ -54,6 +63,46 @@
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  /* Slow, steady, left-to-right sweep — perceived shorter than pulsing
+     (UXCollective skeleton research; NN/g). 1.6s loop, never attention-grabbing. */
+  @keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
+
+/* Systematic spacing — every screen uses the same rhythm */
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  /* 1rem on phones, 1.5rem from ~600px wide. */
+  --page-pad-x: clamp(var(--space-4), 4vw, var(--space-6));
+  --page-pad-y: clamp(var(--space-4), 4vw, var(--space-6));
+  --field-gap: 1.5rem;
+  --section-gap: clamp(var(--space-4), 4vw, var(--space-6));
+  --btn-height: 2.5rem;
+  --row-height: 2.75rem;
+  --toast-inset: 1.25rem;
+
+  /* Attendance status palette (calendar / muster roll). Present, late and absent follow the
+     theme's semantic colors; the other statuses use fixed hues so every status reads differently
+     in every theme. Each fixed hue keeps white text >= 4.5:1 (solid exception cells). */
+  --att-present: var(--color-success);
+  --att-late: var(--color-warning);
+  --att-absent: var(--color-destructive);
+  --att-half-day: hsl(22 90% 40%);
+  --att-missing: hsl(292 60% 42%);
+  --att-on-duty: hsl(172 80% 26%);
+  --att-holiday: hsl(204 85% 36%);
+  --att-leave: hsl(240 55% 52%);
+  --att-overtime: hsl(262 55% 48%);
+  --att-off: var(--color-muted-foreground);
+  --att-none: hsl(215 12% 45%);
 }
 
 @layer base {
@@ -63,54 +112,782 @@
   html {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    /* Reserve gutter so content does not jump when a pane grows a scrollbar. */
+    scrollbar-gutter: stable;
   }
   body {
     background: var(--color-background);
     color: var(--color-foreground);
+    overflow-x: hidden;
   }
   body.locale-ar {
     font-family: "Noto Sans Arabic", "Inter", ui-sans-serif, system-ui, sans-serif;
   }
-  html[dir="rtl"] .no-print {
-    /* keep print helpers stable */
+  /* WCAG 2.4.7 safety net: every interactive element shows a visible focus
+     indicator (ring token ≥ 3:1 vs white, passes 1.4.11 non-text). */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
   ::selection {
-    background: hsl(243 75% 59% / 0.18);
+    background: var(--color-selection);
+  }
+  /*
+    Smart scrollbars (ERP density):
+    - thin, themed thumb; transparent track (does not fight the card)
+    - Firefox: scrollbar-width / scrollbar-color
+    - data panes: thumb sleeps until hover / focus-within (less visual noise)
+  */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in hsl, var(--neutral-400) 70%, transparent) transparent;
   }
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(220 13% 82%);
-    border-radius: 8px;
+    background: color-mix(in hsl, var(--neutral-400) 65%, transparent);
+    border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(220 13% 70%);
+    background: var(--neutral-500);
     background-clip: content-box;
     border: 2px solid transparent;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  /* Vestibular safety: shimmer + non-essential motion off for reduced-motion
+     users (72Technologies: "the prefers-reduced-motion block is non-negotiable"). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .page-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+    width: 100%;
+  }
+  .form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--field-gap);
+  }
+  .form-stack label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .form-stack .field-error {
+    margin-top: var(--space-1);
+    font-size: 0.75rem;
+    color: var(--color-destructive);
+  }
+  .btn-standard {
+    min-height: var(--btn-height);
+    padding-inline: var(--space-4);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: var(--row-height);
+    background: var(--color-card);
+    text-align: start;
+    vertical-align: middle;
+  }
+  .data-table tbody td {
+    height: var(--row-height);
+    vertical-align: middle;
+  }
+  /*
+    Sticky first column — research-backed pattern:
+    border-separate (collapse breaks sticky), opaque bg, z-index stack,
+    deliberate start padding so text is never flush/clipped at the scrollport edge.
+    Refs: Polypane sticky pitfalls; Internetstiftelsen sticky-first table; Carbon densetable padding.
+
+    Do NOT add sticky last/Actions columns (position:sticky; right/end:0). Carbon and
+    practice show sticky-right Actions permanently overlay the preceding data cells
+    whenever the table is wider than the viewport — prefer horizontal scroll instead.
+  */
+  .table-sticky-first > thead > tr > th:first-child,
+  .table-sticky-first > tbody > tr > td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    min-width: 6.5rem;
+    max-width: 16rem;
+    padding-inline-start: 1rem;
+    padding-inline-end: 0.75rem;
+    background: var(--color-card);
+    box-shadow: 6px 0 10px -6px color-mix(in hsl, var(--color-umbra) 14%, transparent);
+  }
+  .table-sticky-first > thead > tr > th:first-child {
+    z-index: 3;
+    background: var(--neutral-50);
+  }
+  .table-sticky-first > tbody > tr:hover > td:first-child {
+    background: var(--brand-50);
+  }
+  /* Pin Code + Name while amounts scroll (financial statement pattern). */
+  .table-sticky-2 > thead > tr > th:nth-child(1),
+  .table-sticky-2 > tbody > tr > td:nth-child(1),
+  .table-sticky-2 > tfoot > tr > td:nth-child(1) {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    min-width: 4.75rem;
+    max-width: 7rem;
+    padding-inline-start: 1rem;
+    padding-inline-end: 0.5rem;
+    background: var(--color-card);
+  }
+  .table-sticky-2 > thead > tr > th:nth-child(2),
+  .table-sticky-2 > tbody > tr > td:nth-child(2),
+  .table-sticky-2 > tfoot > tr > td:nth-child(2) {
+    position: sticky;
+    left: 4.75rem;
+    z-index: 2;
+    min-width: 11rem;
+    max-width: 18rem;
+    padding-inline-end: 0.75rem;
+    background: var(--color-card);
+    box-shadow: 6px 0 10px -6px color-mix(in hsl, var(--color-umbra) 14%, transparent);
+  }
+  .table-sticky-2 > thead > tr > th:nth-child(1),
+  .table-sticky-2 > thead > tr > th:nth-child(2) {
+    z-index: 3;
+    background: var(--neutral-50);
+  }
+  .table-sticky-2 > tbody > tr:hover > td:nth-child(1),
+  .table-sticky-2 > tbody > tr:hover > td:nth-child(2) {
+    background: var(--brand-50);
+  }
+  .table-zebra > tbody > tr:nth-child(even):not(:hover) > td {
+    background: color-mix(in hsl, var(--neutral-50) 88%, transparent);
+  }
+  .table-zebra > tbody > tr:nth-child(even):not(:hover) > td:first-child,
+  .table-zebra.table-sticky-2 > tbody > tr:nth-child(even):not(:hover) > td:nth-child(2) {
+    background: color-mix(in hsl, var(--neutral-50) 92%, var(--color-card));
+  }
+  .table-density-compact > thead > tr > th {
+    height: 2.25rem;
+    padding-block: 0.35rem;
+  }
+  .table-density-compact > tbody > tr > td,
+  .table-density-compact > tfoot > tr > td {
+    padding-block: 0.4rem;
+    padding-inline: 0.65rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+  /*
+    Register / list grids: nowrap headers must never paint over the next column.
+    table-layout:auto + TH min-width sizes columns to the label; overflow:hidden
+    is the paint fence if a viewport still squeezes a cell.
+  */
+  .table-header-clip {
+    table-layout: auto;
+  }
+  .table-header-clip > thead > tr > th {
+    overflow: hidden;
+    text-overflow: clip;
+    vertical-align: middle;
+  }
+  /*
+    Voucher sheet body: thead stays visible while lines scroll.
+    Sticky is on TH (thead {position:sticky} is incomplete in some engines).
+  */
+  .table-sheet-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--neutral-50);
+  }
+  /*
+    Scroll-edge affordance (Lea Verou background-attachment:local technique):
+    when a grid overflows horizontally, a soft shadow appears at the edge that
+    still has hidden content (e.g. the Actions column), and fades once scrolled
+    to that edge. Pure CSS — no JS scroll listeners.
+  */
+  .tt-table-scroll,
+  .table-sheet-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .tt-table-scroll {
+    background-image:
+      linear-gradient(to right, var(--color-card) 30%, hsl(0 0% 100% / 0)),
+      linear-gradient(to left, var(--color-card) 30%, hsl(0 0% 100% / 0)),
+      radial-gradient(farthest-side at 0 50%, color-mix(in hsl, var(--color-umbra) 18%, transparent), hsl(0 0% 100% / 0)),
+      radial-gradient(farthest-side at 100% 50%, color-mix(in hsl, var(--color-umbra) 18%, transparent), hsl(0 0% 100% / 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 2rem 100%, 2rem 100%, 0.65rem 100%, 0.65rem 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  /* Quiet until you need them — thumb appears on hover / keyboard focus. */
+  .tt-table-scroll,
+  .table-sheet-scroll {
+    scrollbar-color: transparent transparent;
+  }
+  .tt-table-scroll:hover,
+  .tt-table-scroll:focus-within,
+  .table-sheet-scroll:hover,
+  .table-sheet-scroll:focus-within {
+    scrollbar-color: color-mix(in hsl, var(--neutral-400) 75%, transparent) transparent;
+  }
+  .tt-table-scroll::-webkit-scrollbar-thumb,
+  .table-sheet-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    background-clip: content-box;
+    border: 2px solid transparent;
+  }
+  .tt-table-scroll:hover::-webkit-scrollbar-thumb,
+  .tt-table-scroll:focus-within::-webkit-scrollbar-thumb,
+  .table-sheet-scroll:hover::-webkit-scrollbar-thumb,
+  .table-sheet-scroll:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in hsl, var(--neutral-400) 75%, transparent);
+    background-clip: content-box;
+  }
+  @media (hover: none) {
+    /* Touch: keep thumbs visible — hover never fires. */
+    .tt-table-scroll,
+    .table-sheet-scroll {
+      scrollbar-color: color-mix(in hsl, var(--neutral-400) 70%, transparent) transparent;
+    }
+    .tt-table-scroll::-webkit-scrollbar-thumb,
+    .table-sheet-scroll::-webkit-scrollbar-thumb {
+      background: color-mix(in hsl, var(--neutral-400) 65%, transparent);
+      background-clip: content-box;
+    }
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+    gap: var(--space-4);
+    min-width: 0;
+  }
+  /* Shimmer primitive shared by all skeleton placeholders. Layout-matched
+     variants live in components/ui/skeleton.tsx (NN/g: wireframe the real layout). */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--color-skeleton) 25%,
+      var(--color-skeleton-shine) 50%,
+      var(--color-skeleton) 75%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-skeleton-shimmer);
+  }
+  /*
+    Recharts global ink: axis ticks and grid lines follow the theme tokens.
+    SVG presentation attributes never resolve var(), so these CSS rules
+    (which outrank presentation attributes) are the only theme-safe path.
+  */
+  .recharts-cartesian-axis-tick text {
+    fill: var(--color-muted-foreground);
+  }
+  .recharts-cartesian-grid line {
+    stroke: var(--color-border);
   }
 }
 
 @layer utilities {
+  /* Gradients are theme tokens: every stop keeps white text ≥ 4.5:1
+     (verified numerically per theme in the design-system contract). */
   .gradient-hero {
-    background: linear-gradient(135deg, hsl(243 75% 59%) 0%, hsl(262 83% 58%) 55%, hsl(292 72% 51%) 100%);
+    background: var(--gradient-hero);
   }
   .gradient-sidebar {
-    background: linear-gradient(180deg, hsl(222 47% 9%) 0%, hsl(231 45% 12%) 100%);
-  }
-  .text-gradient {
-    background: linear-gradient(90deg, hsl(243 75% 59%), hsl(262 83% 58%));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    background: var(--gradient-sidebar);
   }
   .glass {
     background: hsl(0 0% 100% / 0.75);
     backdrop-filter: blur(12px);
   }
+}
+
+/*
+  Phones. Unlayered on purpose: these rules must beat Tailwind utilities (min-w-[54rem], px-4,
+  text-sm) and the sticky-first column, which all live in cascade layers.
+  Refs: WCAG 2.2 SC 1.4.10 Reflow (320 CSS px) and 2.5.8 Target Size (24 px);
+  NN/g mobile tables (rows that are records become cards; comparison grids keep scrolling);
+  iOS Safari zooms into any focused field under 16px.
+*/
+@media (max-width: 639.98px) {
+  .table-cards {
+    display: block;
+    width: 100%;
+    min-width: 0 !important;
+    table-layout: auto;
+  }
+  .table-cards > thead {
+    display: block;
+    background: transparent;
+    border: 0;
+  }
+  .table-cards > thead > tr {
+    display: flex;
+    background: transparent;
+  }
+  .table-cards > thead > tr > th {
+    display: none;
+  }
+  .table-cards > thead > tr > th[data-cell="select"] {
+    display: flex;
+    align-items: center;
+    height: auto;
+    padding: 0 0 var(--space-2) var(--space-3);
+    background: transparent;
+    box-shadow: none;
+    position: static;
+    min-width: 0;
+  }
+  .table-cards > tbody {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .table-cards > tbody > tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    column-gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-card);
+    box-shadow: var(--shadow-xs, 0 1px 2px hsl(0 0% 0% / 0.05));
+  }
+  /* Label in column 1; everything the cell holds stacks in column 2. */
+  .table-cards > tbody > tr > td {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 40%) minmax(0, 1fr);
+    align-items: center;
+    justify-items: end;
+    column-gap: var(--space-3);
+    row-gap: 0;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    padding: var(--space-1) 0;
+    background: transparent;
+    box-shadow: none;
+    border: 0;
+    text-align: end;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .table-cards > tbody > tr:hover > td {
+    background: transparent;
+  }
+  .table-cards > tbody > tr > td > * {
+    grid-column: 2;
+  }
+  .table-cards > tbody > tr > td[data-label=""]:not([data-cell]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .table-cards > tbody > tr > td[data-label=""]:not([data-cell]) > * {
+    grid-column: 1;
+  }
+  .table-cards > tbody > tr > td::before {
+    content: attr(data-label);
+    grid-column: 1;
+    grid-row: 1 / span 8;
+    justify-self: start;
+    align-self: start;
+    padding-top: 0.125rem;
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: start;
+    color: var(--color-muted-foreground);
+  }
+  .table-cards > tbody > tr > td:is([data-label=""], [data-cell])::before {
+    content: none;
+  }
+  .table-cards > tbody > tr > td[data-cell] {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .table-cards > tbody > tr > td[data-cell="select"] {
+    order: -2;
+    width: auto;
+    padding-top: 0.125rem;
+  }
+  .table-cards > tbody > tr > td[data-cell="title"] {
+    order: -1;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    text-align: start;
+    padding-bottom: var(--space-2);
+    font-weight: 600;
+  }
+  .table-cards > tbody > tr > td[data-cell="actions"] {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-cards > tbody > tr > td[data-cell="actions"] > * {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    max-width: 100%;
+  }
+  .table-cards > tbody > tr > td[data-cell="full"] {
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (max-width: 767.98px) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Touch screens: checkboxes + action controls (WCAG 2.5.8 ≥24px; prefer ~44px for actions). */
+@media (pointer: coarse) {
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+  button:not([data-status-pill]):not([data-chip]),
+  [role="button"]:not([data-status-pill]):not([data-chip]),
+  a[href].inline-flex {
+    touch-action: manipulation;
+  }
+  /* Row action clusters — enhanced target size without colliding chips. */
+  .table-cards td[data-cell="actions"] button,
+  [data-testid^="ticket-actions-"] button,
+  .tt-table-scroll td.text-right button,
+  .tt-table-scroll td.text-end button,
+  .tt-table-scroll td > .flex.justify-end button,
+  .tt-table-scroll td > .inline-flex.justify-end button {
+    min-height: 2.75rem;
+    min-width: 2.5rem;
+  }
+}
+
+/* Desk money columns — visual balance + cognitive scan (tabular figures, end-aligned). */
+.desk-num {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  white-space: nowrap;
+}
+
+/*
+  Ticket register (Allocation → Waiting for approval / payment).
+  Pattern: Flair HR + Maersk + Visa PDS — fixed columns, nowrap headers matching
+  cell alignment, money end-aligned with tabular nums, identity truncates, horizontal
+  scroll when the viewport is narrower than the sheet (never crush columns).
+*/
+/*
+  GitHub Primer DataTable pattern: condensed cells, sticky row header (identity),
+  short numeric cells, horizontal scroll for the rest — never lose the name.
+*/
+.ticket-register {
+  table-layout: fixed;
+  width: 100%;
+  /* Fit typical desktop content pane without H-scroll (Route lives under Full name). */
+  min-width: 56rem;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.ticket-register > colgroup > col[data-col="select"] {
+  width: 2.25rem;
+}
+.ticket-register > colgroup > col[data-col="name"] {
+  width: 18rem;
+}
+.ticket-register > colgroup > col[data-col="money"] {
+  width: 5rem;
+}
+.ticket-register > colgroup > col[data-col="pay"] {
+  width: 5.5rem;
+}
+.ticket-register > colgroup > col[data-col="actions"] {
+  /* 4× icon-sm (~2.25rem) + gaps — never % or buttons spill into Net amount. */
+  width: 10.5rem;
+}
+.ticket-register > thead > tr > th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  vertical-align: bottom;
+  line-height: 1.2;
+  padding-block: 0.4rem;
+  font-size: 0.625rem;
+}
+.ticket-register > tbody > tr > td {
+  overflow: hidden;
+  vertical-align: middle;
+  padding-block: 0.45rem;
+  font-size: 0.8125rem;
+}
+.ticket-register > tbody > tr > td[data-cell="title"] {
+  overflow: visible;
+  white-space: normal;
+}
+.ticket-register > thead > tr > th:last-child,
+.ticket-register > tbody > tr > td[data-cell="actions"] {
+  overflow: visible;
+  min-width: 10.5rem;
+  width: 10.5rem;
+  text-align: end;
+  vertical-align: middle;
+}
+.ticket-register .desk-num {
+  overflow: hidden;
+  text-overflow: clip;
+  font-size: 0.8125rem;
+}
+/*
+  Fluid compact register — fits laptop → ultrawide → tablet.
+  Logic:
+    1) Shell is a container query parent (inline size).
+    2) Table is always width:100% of the shell (fills the pane — good look).
+    3) Fixed % column shares keep Name from eating the row (no canyon).
+    4) min-width floor → horizontal scroll on narrow shells; sticky Name stays.
+    5) Phone (<640): existing .table-cards card stack wins (min-width:0).
+*/
+.ticket-register-shell {
+  container-type: inline-size;
+  container-name: ticket-register;
+  width: 100%;
+  min-width: 0;
+}
+.ticket-register--compact {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 48rem;
+  max-width: none;
+  border-spacing: 0;
+}
+.ticket-register--compact > colgroup > col[data-col="select"] {
+  width: 2rem;
+}
+.ticket-register--compact > colgroup > col[data-col="name"] {
+  width: 20%;
+}
+.ticket-register--compact > colgroup > col[data-col="money"] {
+  width: 7.5%;
+}
+.ticket-register--compact > colgroup > col[data-col="pay"] {
+  width: 8%;
+}
+.ticket-register--compact > colgroup > col[data-col="actions"] {
+  width: 10.5rem;
+}
+.ticket-register--compact > thead > tr > th {
+  padding-block: clamp(0.15rem, 0.1rem + 0.2cqw, 0.35rem);
+  padding-inline: clamp(0.2rem, 0.15rem + 0.25cqw, 0.5rem);
+  font-size: clamp(0.5rem, 0.42rem + 0.2cqw, 0.625rem);
+  line-height: 1.15;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: clip;
+  letter-spacing: 0.01em;
+  hyphens: auto;
+}
+.ticket-register--compact > tbody > tr > td {
+  padding-block: clamp(0.2rem, 0.15rem + 0.2cqw, 0.4rem);
+  padding-inline: clamp(0.2rem, 0.15rem + 0.25cqw, 0.5rem);
+  font-size: clamp(0.6875rem, 0.62rem + 0.15cqw, 0.8125rem);
+  line-height: 1.2;
+}
+.ticket-register--compact > tbody > tr > td[data-cell="title"] {
+  max-width: none;
+  width: auto;
+}
+.ticket-register--compact > thead > tr > th:nth-child(n + 3),
+.ticket-register--compact > tbody > tr > td:nth-child(n + 3) {
+  white-space: nowrap;
+}
+.ticket-register--compact .desk-num {
+  font-size: clamp(0.6875rem, 0.62rem + 0.15cqw, 0.8125rem);
+  padding-inline: clamp(0.2rem, 0.15rem + 0.25cqw, 0.5rem) !important;
+}
+.ticket-register--compact > thead > tr > th:nth-child(2),
+.ticket-register--compact > tbody > tr > td:nth-child(2) {
+  left: 2rem;
+}
+.ticket-register--compact > thead > tr > th:last-child,
+.ticket-register--compact > tbody > tr > td[data-cell="actions"] {
+  min-width: 10.5rem;
+  width: 10.5rem;
+  overflow: visible;
+  text-align: end;
+}
+.ticket-register--compact [data-testid^="ticket-actions-"] {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  max-width: none;
+  overflow: visible;
+}
+
+/* Wide pane: one-line headers, slightly roomier name. */
+@container ticket-register (min-width: 70rem) {
+  .ticket-register--compact > colgroup > col[data-col="name"] {
+    width: 22%;
+  }
+  .ticket-register--compact > colgroup > col[data-col="money"] {
+    width: 7.25%;
+  }
+  .ticket-register--compact > thead > tr > th {
+    white-space: nowrap;
+  }
+}
+
+/* Mid pane: tighten name, denser money — keep Action rem width. */
+@container ticket-register (max-width: 56rem) {
+  .ticket-register--compact {
+    min-width: 52rem;
+  }
+  .ticket-register--compact > colgroup > col[data-col="name"] {
+    width: 16%;
+  }
+  .ticket-register--compact > colgroup > col[data-col="money"] {
+    width: 7.5%;
+  }
+  .ticket-register--compact > colgroup > col[data-col="pay"] {
+    width: 7.5%;
+  }
+}
+
+@container ticket-register (max-width: 48rem) {
+  .ticket-register--compact > thead > tr > th,
+  .ticket-register--compact > tbody > tr > td {
+    padding-inline: 0.25rem;
+  }
+}
+/* Sticky identity: checkbox + name stay while money columns scroll (Primer row header). */
+.ticket-register > thead > tr > th:nth-child(1),
+.ticket-register > tbody > tr > td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-card);
+}
+.ticket-register > thead > tr > th:nth-child(2),
+.ticket-register > tbody > tr > td:nth-child(2) {
+  position: sticky;
+  left: 2.5rem;
+  z-index: 2;
+  background: var(--color-card);
+  box-shadow: 6px 0 10px -6px color-mix(in hsl, var(--color-umbra) 16%, transparent);
+}
+.ticket-register > thead > tr > th:nth-child(1),
+.ticket-register > thead > tr > th:nth-child(2) {
+  z-index: 4;
+  background: var(--neutral-50);
+}
+.ticket-register > tbody > tr:hover > td:nth-child(1),
+.ticket-register > tbody > tr:hover > td:nth-child(2) {
+  background: var(--brand-50);
+}
+.ticket-register.table-zebra > tbody > tr:nth-child(even):not(:hover) > td:nth-child(1),
+.ticket-register.table-zebra > tbody > tr:nth-child(even):not(:hover) > td:nth-child(2) {
+  background: color-mix(in hsl, var(--neutral-50) 92%, var(--color-card));
+}
+@media (max-width: 639.98px) {
+  .ticket-register,
+  .ticket-register--compact {
+    min-width: 0 !important;
+    table-layout: auto;
+    width: 100%;
+  }
+  .ticket-register > tbody > tr > td {
+    overflow: visible;
+  }
+  .ticket-register > thead > tr > th:nth-child(1),
+  .ticket-register > thead > tr > th:nth-child(2),
+  .ticket-register > tbody > tr > td:nth-child(1),
+  .ticket-register > tbody > tr > td:nth-child(2) {
+    position: static;
+    left: auto;
+    box-shadow: none;
+  }
+}
+
+/* Desktop registers (Table wrap): keep action clusters on one line like Leave Tracker. */
+.tt-table-scroll td.text-right > .flex,
+.tt-table-scroll td.text-end > .flex,
+.tt-table-scroll td > .flex.justify-end,
+.tt-table-scroll td > .inline-flex.justify-end {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  gap: 0.375rem;
+}
+/* Ticket register Action: never clamp the cluster — narrow max-width caused LTR overflow into Net amount. */
+.ticket-register td[data-cell="actions"] > .inline-flex,
+.ticket-register [data-testid^="ticket-actions-"] {
+  max-width: none;
+  overflow: visible;
+  flex-wrap: nowrap;
+}
+
+/*
+  ATLAS A4 print system (IQ200 / research-aligned):
+  - @page owns paper size + margins; content must NOT claim full 210mm under margined pages
+  - Default portrait A4; reports use named landscape page
+  - Hide chrome only for the active print mode (allocation slip vs report)
+  Refs: css.dev/learn/print, MDN @page, Chrome print margins
+*/
+@page {
+  size: A4 portrait;
+  margin: 12mm 14mm 16mm 14mm;
+}
+@page atlas-report-landscape {
+  size: A4 landscape;
+  margin: 10mm;
 }
 
 @media print {
@@ -119,14 +896,15 @@
     background: white !important;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
+    width: auto !important;
+    color: black;
   }
 
   .no-print {
     display: none !important;
   }
 
-  /* Sidebar is hidden but main still had ms-64 — that pushed the slip right. */
+  /* Sidebar offset must not shove the printable sheet. */
   [data-testid="app-shell"],
   [data-testid="app-main"],
   main,
@@ -136,7 +914,7 @@
     margin-inline: 0 !important;
     padding: 0 !important;
     max-width: none !important;
-    width: 100% !important;
+    width: auto !important;
     min-height: 0 !important;
   }
 
@@ -145,24 +923,59 @@
     border: none !important;
   }
 
-  /* Only show the A4 slip; pull it to the page origin so it is centered in @page. */
-  body * {
+  /* ---- Reports > Print (wide grids → landscape A4) ---- */
+  body.print-report * {
     visibility: hidden;
   }
-  .allocation-print-a4,
-  .allocation-print-a4 * {
+  body.print-report [data-print-root],
+  body.print-report [data-print-root] * {
+    visibility: visible;
+  }
+  body.print-report [data-print-root] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    page: atlas-report-landscape;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  body.print-report [data-print-root] [data-status-pill],
+  body.print-report [data-print-root] [data-testid="travel-summary-one-way-status"] {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  body.print-report [data-print-root] .no-print {
+    display: none !important;
+  }
+  body.print-report [data-print-root] thead {
+    display: table-header-group;
+  }
+  body.print-report [data-print-root] tr {
+    break-inside: avoid;
+  }
+
+  /* ---- Allocation A4 slip (only when the slip is in the DOM) ---- */
+  body:has(.allocation-print-a4):not(.print-report) * {
+    visibility: hidden;
+  }
+  body:has(.allocation-print-a4):not(.print-report) .allocation-print-a4,
+  body:has(.allocation-print-a4):not(.print-report) .allocation-print-a4 * {
     visibility: visible !important;
   }
-  .allocation-print-a4 {
+  body:has(.allocation-print-a4):not(.print-report) .allocation-print-a4 {
     position: absolute !important;
     inset: 0 auto auto 0 !important;
     left: 0 !important;
-    right: 0 !important;
+    right: auto !important;
     top: 0 !important;
+    /* Fill the @page content box — do NOT force 210mm (overflow under margins). */
     width: 100% !important;
     max-width: 100% !important;
-    min-height: auto !important;
-    margin: 0 auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
     background: white !important;
@@ -177,7 +990,7 @@
   }
 
   /* Dialog chrome must not offset the slip */
-  [role="dialog"] {
+  body:has(.allocation-print-a4):not(.print-report) [role="dialog"] {
     position: static !important;
     inset: auto !important;
     padding: 0 !important;
@@ -185,10 +998,10 @@
     display: block !important;
     background: transparent !important;
   }
-  [role="dialog"] > .absolute {
+  body:has(.allocation-print-a4):not(.print-report) [role="dialog"] > .absolute {
     display: none !important;
   }
-  [role="dialog"] > .relative {
+  body:has(.allocation-print-a4):not(.print-report) [role="dialog"] > .relative {
     position: static !important;
     max-width: none !important;
     max-height: none !important;
@@ -200,17 +1013,122 @@
     border-radius: 0 !important;
     background: transparent !important;
   }
-
-  @page {
-    size: A4 portrait;
-    margin: 12mm;
-  }
 }
 
 .allocation-print-a4 {
-  width: 210mm;
+  /* Screen preview: A4 frame, never wider than the viewport. */
+  width: min(100%, 210mm);
+  max-width: 100%;
   min-height: 297mm;
-  padding: 10mm 10mm;
+  padding: 12mm 14mm 16mm 14mm;
   box-sizing: border-box;
   overflow: hidden;
+}
+
+/* Sidebar: the active row fades toward the reading direction; text stays on the tested active-bg pair. */
+.nav-active-row {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-sidebar-active-bg) 0%,
+    var(--color-sidebar-active-bg) 55%,
+    color-mix(in srgb, var(--color-sidebar-active-bg) 70%, var(--color-sidebar)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-sidebar-active) 14%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-sidebar-indicator) 35%, transparent),
+    0 8px 20px -12px color-mix(in srgb, var(--color-sidebar-indicator) 55%, transparent);
+}
+[dir="rtl"] .nav-active-row {
+  background-image: linear-gradient(
+    270deg,
+    var(--color-sidebar-active-bg) 0%,
+    var(--color-sidebar-active-bg) 55%,
+    color-mix(in srgb, var(--color-sidebar-active-bg) 70%, var(--color-sidebar)) 100%
+  );
+}
+.nav-indicator {
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--color-sidebar-indicator) 65%, transparent);
+  animation: nav-indicator-in 0.25s ease-out;
+}
+@keyframes nav-indicator-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+.nav-section-rule {
+  background: linear-gradient(90deg, var(--color-sidebar-border), transparent);
+}
+[dir="rtl"] .nav-section-rule {
+  background: linear-gradient(270deg, var(--color-sidebar-border), transparent);
+}
+
+/*
+  Bars and sheet headers. Solid card colour first, so a browser without
+  backdrop-filter (and a dark theme) keeps readable text. Glass is only these
+  bars — never forms or tables.
+*/
+.surface-bar {
+  background: var(--color-card);
+}
+@supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px))) {
+  .surface-bar {
+    background: color-mix(in srgb, var(--color-card) 78%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .surface-bar {
+    background: var(--color-card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@keyframes field-shake {
+  0%,
+  100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.field-invalid {
+  animation: field-shake 0.3s ease-in-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .field-invalid { animation: none; }
+}
+
+/* Phone: the last footer control is the primary. It leads, full width; the rest read as text actions under it. */
+@media (max-width: 767.98px) {
+  .dialog-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dialog-footer > * {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+  .dialog-footer > :last-child {
+    order: -1;
+    min-height: 48px;
+  }
+  .dialog-footer > :not(:last-child) {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+/* Clear the bottom tab bar. Unlayered so it wins over the page's own padding utility. */
+@media (max-width: 1023.98px) {
+  [data-testid="app-main"] > .page-stack {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
 }

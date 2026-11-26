@@ -500,14 +500,14 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
           ) : !(docs.data?.documents?.length) ? (
             <EmptyState title="No documents yet" message="Issue the first letter from New." />
           ) : (
-            <Table>
+            <Table cards className="min-w-[52rem]">
               <THead>
                 <TR>
                   <TH>Voucher</TH>
                   <TH>Title</TH>
                   <TH>Status</TH>
                   <TH>Issued</TH>
-                  <TH className="text-right">Actions</TH>
+                  <TH className="text-end">Actions</TH>
                 </TR>
               </THead>
               <TBody>
@@ -528,23 +528,28 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
                     <TD className="text-xs text-[var(--color-muted-foreground)]">
                       {d.issued_at ? fmtDateTime(d.issued_at) : "—"}
                     </TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-1.5">
+                    <TD className="text-end">
+                      <div
+                        className="inline-flex flex-nowrap justify-end gap-1.5"
+                        role="group"
+                        aria-label={`Actions for ${d.voucher_no || d.title}`}
+                      >
                         {writable ? (
                           <Button
                             variant="outline"
                             size="sm"
                             data-testid={`btn-edit-lifecycle-${d.id}`}
+                            aria-label={`Edit ${d.voucher_no || d.title}`}
                             onClick={() => void loadForEdit(d)}
                           >
-                            <Pencil size={14} /> Edit
+                            <Pencil size={14} aria-hidden /> Edit
                           </Button>
                         ) : null}
                         {d.has_pdf ? (
                           <Button
                             variant="outline"
                             size="sm"
-                            aria-label="Download PDF"
+                            aria-label={`Download PDF ${d.voucher_no || d.title}`}
                             onClick={() =>
                               void download(
                                 `/documents/${d.id}/pdf`,
@@ -552,7 +557,7 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
                               )
                             }
                           >
-                            <FileDown size={14} /> PDF
+                            <FileDown size={14} aria-hidden /> PDF
                           </Button>
                         ) : null}
                         {writable && d.has_pdf ? (
@@ -560,12 +565,13 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
                             variant="outline"
                             size="sm"
                             data-testid={`btn-lifecycle-send-whatsapp-${d.id}`}
+                            aria-label={`Send WhatsApp ${d.voucher_no || d.title}`}
                             onClick={() => {
                               setWaSendTarget(d);
                               setWaSendNumbers(managerWhatsapp);
                             }}
                           >
-                            <MessageCircle size={14} /> WhatsApp
+                            <MessageCircle size={14} aria-hidden /> WhatsApp
                           </Button>
                         ) : null}
                         {writable && kind === "mistake_with_fine" && d.has_pdf && !d.loan_id ? (
@@ -574,9 +580,10 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
                             size="sm"
                             data-testid={`btn-lifecycle-convert-loan-${d.id}`}
                             disabled={convertToLoanMut.isPending}
+                            aria-label={`Convert ${d.voucher_no || d.title} to loan`}
                             onClick={() => convertToLoanMut.mutate(d)}
                           >
-                            <HandCoins size={14} /> To Loan
+                            <HandCoins size={14} aria-hidden /> To Loan
                           </Button>
                         ) : null}
                         {kind === "mistake_with_fine" && d.loan_id ? (
@@ -585,11 +592,12 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
                         {writable ? (
                           <Button
                             variant="ghost"
-                            size="icon"
-                            aria-label="Delete"
+                            size="icon-sm"
+                            aria-label={`Delete ${d.voucher_no || d.title}`}
+                            title="Delete"
                             onClick={() => remove.mutate({ id: d.id, version: d.version })}
                           >
-                            <Trash2 size={14} className="text-[var(--color-destructive)]" />
+                            <Trash2 size={14} className="text-[var(--color-destructive)]" aria-hidden />
                           </Button>
                         ) : null}
                       </div>
@@ -606,6 +614,7 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
         open={open}
         onClose={closeDialog}
         size="full"
+        scroll="content"
         title={
           editing
             ? `Edit — ${editing.voucherNo || KIND_LABELS[kind]}`
@@ -664,8 +673,8 @@ export function HrLifecycleStudio({ kind }: { kind: LifecycleKind }) {
           </div>
         }
       >
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
-          <div className="space-y-3 overflow-y-auto pr-1">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain lg:grid-cols-2 lg:overflow-hidden">
+          <div className="space-y-3 overscroll-contain lg:overflow-y-auto lg:pr-1">
             {editing ? (
               <p className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
                 Editing voucher <strong className="font-mono text-[var(--color-foreground)]">{editing.voucherNo}</strong>

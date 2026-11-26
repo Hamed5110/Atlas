@@ -13,19 +13,23 @@ export function Tabs({
 }) {
   return (
     <div
+      role="tablist"
       className={cn(
-        "inline-flex items-center gap-1 rounded-[var(--radius-md)] bg-[var(--color-secondary)] p-1",
+        "inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-[var(--radius-md)] bg-[var(--color-secondary)] p-1",
         className
       )}
     >
       {tabs.map((tab) => (
         <button
           key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            "flex items-center gap-1.5 rounded-[var(--radius-sm)] px-3.5 py-1.5 text-sm font-semibold transition-all cursor-pointer",
+            "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-sm)] px-3.5 py-1.5 text-sm font-semibold transition-all cursor-pointer",
             active === tab.id
-              ? "bg-white text-[var(--color-primary)] shadow-sm"
+              ? "bg-[var(--color-card)] text-[var(--color-primary)] shadow-sm"
               : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
           )}
         >

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
+import { appPath } from "@/lib/paths";
 
 export default function Home() {
   const router = useRouter();
@@ -10,7 +11,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    router.replace(session ? "/dashboard" : "/login");
+    router.replace(session ? appPath("/dashboard") : appPath("/login"));
   }, [hydrated, session, router]);
 
   return (

@@ -12,6 +12,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { ExcelToolbar } from "@/components/excel-toolbar";
 
 interface EntitlementRule {
   id: string;
@@ -88,20 +89,23 @@ export default function EntitlementRulesPage() {
         title={t("page.rules.title")}
         subtitle={t("page.rules.subtitle")}
         actions={
-          <Button
-            variant="gradient"
-            data-testid="btn-add-rule"
-            onClick={() => {
-              setEditingId(null);
-              setForm(emptyForm);
-            }}
-          >
-            <Plus size={15} /> Add rule
-          </Button>
+          <>
+            <ExcelToolbar dataset="entitlement-rules" />
+            <Button
+              variant="gradient"
+              data-testid="btn-add-rule"
+              onClick={() => {
+                setEditingId(null);
+                setForm(emptyForm);
+              }}
+            >
+              <Plus size={15} /> Add rule
+            </Button>
+          </>
         }
       />
 
-      <Card className="mb-4 border-[var(--color-warning)]/40 bg-[hsl(38_92%_50%/0.08)]" data-testid="rules-deprecated-banner">
+      <Card className="mb-4 border-[var(--color-warning)]/40 bg-[var(--color-warning-muted)]" data-testid="rules-deprecated-banner">
         <CardContent className="p-4 text-sm">
           Base airfare uses the <strong>Entitlement Rates</strong> hierarchy (employee → pay group → company →
           global). This matrix is kept for advanced experiments only — see{" "}
@@ -109,12 +113,12 @@ export default function EntitlementRulesPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>{editingId ? "Edit rule" : "New rule"}</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3">
+          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Grade">
               <Select
                 data-testid="select-grade"
@@ -189,7 +193,7 @@ export default function EntitlementRulesPage() {
                 Cancel
               </Button>
               <Button variant="gradient" data-testid="btn-save-rule" disabled={save.isPending} onClick={() => save.mutate()}>
-                {save.isPending ? "Saving…" : "Save rule"}
+                {save.isPending ? t("state.saving") : "Save rule"}
               </Button>
             </div>
           </CardContent>
@@ -197,15 +201,17 @@ export default function EntitlementRulesPage() {
 
         <Card className="xl:col-span-3">
           <CardContent className="p-0">
-            <Table data-testid="table-rules-matrix">
+            <Table stickyFirst data-testid="table-rules-matrix">
               <THead>
                 <TR>
                   <TH>Grade</TH>
                   <TH>Location</TH>
                   <TH>Family</TH>
                   <TH>LOS</TH>
-                  <TH>Amount</TH>
-                  <TH />
+                  <TH className="desk-num">Amount</TH>
+                  <TH className="text-end">
+                    <span className="sr-only">Actions</span>
+                  </TH>
                 </TR>
               </THead>
               <TBody>
@@ -217,13 +223,14 @@ export default function EntitlementRulesPage() {
                     <TD>
                       {r.los_band_from}–{r.los_band_to}
                     </TD>
-                    <TD className="font-semibold">{Number(r.annual_amount).toFixed(2)}</TD>
-                    <TD>
-                      <div className="flex justify-end gap-1">
+                    <TD className="desk-num font-semibold">{Number(r.annual_amount).toFixed(2)}</TD>
+                    <TD className="text-end">
+                      <div className="inline-flex flex-nowrap justify-end gap-1.5" role="group" aria-label="Rule actions">
                         <Button
                           variant="ghost"
                           size="sm"
                           data-testid="btn-edit-rule"
+                          aria-label={`Edit rule ${r.grade || ""} ${r.location || ""}`}
                           onClick={() => {
                             setEditingId(r.id);
                             setForm({
@@ -239,8 +246,14 @@ export default function EntitlementRulesPage() {
                         >
                           Edit
                         </Button>
-                        <Button variant="ghost" size="sm" data-testid="btn-delete-rule" onClick={() => setDeleting(r)}>
-                          <Trash2 size={14} className="text-[var(--color-destructive)]" />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          data-testid="btn-delete-rule"
+                          aria-label={`Delete rule ${r.grade || ""} ${r.location || ""}`}
+                          onClick={() => setDeleting(r)}
+                        >
+                          <Trash2 size={14} className="text-[var(--color-destructive)]" aria-hidden />
                         </Button>
                       </div>
                     </TD>

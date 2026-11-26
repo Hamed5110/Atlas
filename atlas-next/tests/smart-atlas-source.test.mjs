@@ -22,9 +22,11 @@ test("AI Insights exposes smart agent and ML anomaly surfaces", () => {
   assert.match(source, /Data Agent/);
 });
 
-test("Reports page includes designer, excess-recovery, and Crystal status", () => {
+test("Reports page includes designer, amount-balance, and Crystal status", () => {
   const source = read("app/(app)/reports/page.tsx");
-  assert.match(source, /excess-recovery/);
+  assert.match(source, /airfare-amount-balance/);
+  assert.doesNotMatch(source, /name:\s*"airfare-payable-summary"/);
+  assert.doesNotMatch(source, /name:\s*"excess-recovery"/);
   assert.match(source, /Crystal/);
   assert.match(source, /\/report-templates|report-templates|designer/i);
   assert.match(source, /\/crystal\/status/);

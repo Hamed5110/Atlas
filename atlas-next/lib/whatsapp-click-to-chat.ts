@@ -5,6 +5,7 @@
 
 const MIN_DIGITS = 8;
 const MAX_DIGITS = 15;
+/** Managers + employee master number (deduped). */
 const MAX_RECIPIENTS = 5;
 
 /** Strip to digits only. Returns empty string if outside E.164 length bounds. */
@@ -16,7 +17,7 @@ export function normalizeWhatsAppNumber(value: string): string {
 
 /**
  * Parse one-or-many WhatsApp numbers from free text / list.
- * Accepts comma, semicolon, newline, pipe, or slash separators. Dedupes; max 5.
+ * Accepts comma, semicolon, newline, pipe, or slash separators. Dedupes; max MAX_RECIPIENTS (5).
  */
 export function parseWhatsAppNumbers(value: string | string[] | null | undefined): string[] {
   const chunks: string[] = [];

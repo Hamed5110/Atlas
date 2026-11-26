@@ -38,13 +38,13 @@ export const SETTINGS_CATALOG: SettingGroup[] = [
         default: "daily",
       },
       {
-        key: "accrual_cap_multiple",
+        key: "accrual_cap_multiplier",
         label: "Accrual cap (× rate)",
         description:
-          "Stops accrual when the unused balance reaches this multiple of the annual rate. 0 or empty = capped at 1× rate (legacy).",
+          "Multiple of the annual airfare rate (e.g. 2 = 2× rate). This is NOT opening days — use Opening Balances (0–60 days) for carry-forward. Empty/0 = no multi-year liability cap.",
         type: "number",
         default: "",
-        placeholder: "e.g. 2 for 2× rate",
+        placeholder: "e.g. 2 (not 60)",
       },
     ],
   },

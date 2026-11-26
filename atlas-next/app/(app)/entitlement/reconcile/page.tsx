@@ -61,7 +61,13 @@ export default function EntitlementReconcilePage() {
               <option value="AIRFARE">Airfare</option>
             </Select>
           </Field>
-          <Button variant="gradient" data-testid="btn-run-reconciliation" disabled={run.isPending} onClick={() => run.mutate()}>
+          <Button
+            variant="gradient"
+            className="h-10"
+            data-testid="btn-run-reconciliation"
+            disabled={run.isPending}
+            onClick={() => run.mutate()}
+          >
             Run reconciliation
           </Button>
         </CardContent>
@@ -73,41 +79,45 @@ export default function EntitlementReconcilePage() {
             <span data-testid="text-total-variance">Total variance: {Number(data.total_variance).toFixed(2)}</span>
             <span data-testid="text-is-balanced">{data.is_balanced ? "Yes" : "No"}</span>
           </div>
-          <Table data-testid="table-reconciliation">
-            <THead>
-              <TR>
-                <TH>Employee</TH>
-                <TH>Expected</TH>
-                <TH>Current</TH>
-                <TH>Variance</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {data.records.length === 0 ? (
-                <TR>
-                  <TD colSpan={4}>No ledger accounts for this year — run annual accrual first.</TD>
-                </TR>
-              ) : null}
-              {data.records.map((r) => (
-                <TR key={r.employee_id} data-testid={`row-reconcile-${r.employee_id}`}>
-                  <TD>{r.employee_name}</TD>
-                  <TD data-testid="text-expected-balance">{Number(r.expected_balance).toFixed(2)}</TD>
-                  <TD data-testid="text-current-balance">{Number(r.current_balance).toFixed(2)}</TD>
-                  <TD data-testid="text-variance">
-                    {Number(r.variance) === 0 ? (
-                      <Badge variant="success" data-testid="badge-variance-zero">
-                        0
-                      </Badge>
-                    ) : (
-                      <Badge variant="destructive" data-testid="badge-variance-nonzero">
-                        {Number(r.variance).toFixed(2)}
-                      </Badge>
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+          <Card>
+            <CardContent className="p-0">
+              <Table stickyFirst data-testid="table-reconciliation">
+                <THead>
+                  <TR>
+                    <TH>Employee</TH>
+                    <TH>Expected</TH>
+                    <TH>Current</TH>
+                    <TH>Variance</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {data.records.length === 0 ? (
+                    <TR>
+                      <TD colSpan={4}>No ledger accounts for this year — run annual accrual first.</TD>
+                    </TR>
+                  ) : null}
+                  {data.records.map((r) => (
+                    <TR key={r.employee_id} data-testid={`row-reconcile-${r.employee_id}`}>
+                      <TD>{r.employee_name}</TD>
+                      <TD data-testid="text-expected-balance">{Number(r.expected_balance).toFixed(2)}</TD>
+                      <TD data-testid="text-current-balance">{Number(r.current_balance).toFixed(2)}</TD>
+                      <TD data-testid="text-variance">
+                        {Number(r.variance) === 0 ? (
+                          <Badge variant="success" data-testid="badge-variance-zero">
+                            0
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" data-testid="badge-variance-nonzero">
+                            {Number(r.variance).toFixed(2)}
+                          </Badge>
+                        )}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
         </>
       ) : null}
     </div>

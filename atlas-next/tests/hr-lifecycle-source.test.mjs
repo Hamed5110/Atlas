@@ -61,6 +61,8 @@ test("form builder soft-deletes fields via DELETE .../fields/{key}", () => {
   const src = read("app/(app)/hr-forms/page.tsx");
   assert.match(src, /\/hr-lifecycle\/forms\/\$\{selected!\.id\}\/fields\/\$\{key\}/);
   assert.match(src, /Seed defaults/);
+  assert.match(src, /hasRole\(me, "admin", "system_admin", "hr", "hr_manager"\)/);
+  assert.doesNotMatch(src, /const writable = canManage\(me\)/);
 });
 
 test("form builder asks for print layout placement on add", () => {

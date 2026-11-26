@@ -8,6 +8,7 @@ import { Input, Label } from "@/components/ui/input";
 import { login } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { appPath } from "@/lib/paths";
 import { LanguageSwitcher } from "@/components/language-switcher";
 
 export default function LoginPage() {
@@ -26,7 +27,7 @@ export default function LoginPage() {
     try {
       const session = await login(username.trim(), password);
       setSession(session);
-      router.replace("/dashboard");
+      router.replace(appPath("/dashboard"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
     } finally {
@@ -42,14 +43,14 @@ export default function LoginPage() {
             <Plane size={22} className="text-white" />
           </div>
           <div>
-            <p className="text-lg font-extrabold tracking-tight text-white">ATLAS HCM</p>
+            <p className="text-lg font-extrabold tracking-tight text-[var(--color-sidebar-active)]">ATLAS HCM</p>
             <p className="text-xs font-medium text-[var(--color-sidebar-foreground)]">
               {t("login.subtitle")}
             </p>
           </div>
         </div>
         <div className="space-y-8">
-          <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white">
+          <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-[var(--color-sidebar-active)]">
             {t("login.hero")}
           </h1>
           <p className="max-w-md text-sm leading-relaxed text-[var(--color-sidebar-foreground)]">
@@ -62,15 +63,15 @@ export default function LoginPage() {
               { icon: Plane, text: "End-to-end ticket workflow: issue → approve → post" },
             ].map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[hsl(243_75%_59%/0.2)]">
-                  <Icon size={15} className="text-[hsl(243_90%_75%)]" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)]/25">
+                  <Icon size={15} className="text-[var(--color-sidebar-indicator)]" />
                 </div>
                 <span className="text-sm text-[var(--color-sidebar-foreground)]">{text}</span>
               </div>
             ))}
           </div>
         </div>
-        <p className="text-xs text-[hsl(220_14%_45%)]">
+        <p className="text-xs text-[var(--color-sidebar-label)]">
           Powered by FastAPI · Next.js · Microsoft SQL Server
         </p>
       </div>
@@ -119,7 +120,8 @@ export default function LoginPage() {
             </div>
             {error ? (
               <div
-                className="rounded-[var(--radius-sm)] border border-[hsl(0_72%_51%/0.3)] bg-[hsl(0_72%_97%)] px-3 py-2 text-sm font-medium text-[var(--color-destructive)]"
+                role="alert"
+                className="rounded-[var(--radius-sm)] border border-[var(--color-destructive-ring)] bg-[var(--color-destructive-muted)] px-3 py-2 text-sm font-medium text-[var(--color-destructive-emphasis)]"
                 data-testid="login-error"
               >
                 {error}
@@ -131,9 +133,10 @@ export default function LoginPage() {
               size="lg"
               className="w-full"
               disabled={busy}
+              aria-busy={busy}
               data-testid="btn-sign-in"
             >
-              {busy ? "…" : t("login.submit")}
+              {busy ? t("login.signingIn") : t("login.submit")}
             </Button>
           </form>
         </div>

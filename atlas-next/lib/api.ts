@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "./auth";
+import { apiPath } from "./paths";
 import type { Session } from "./types";
 
 const API_ROOT = "/v1";
@@ -20,7 +21,7 @@ export class ApiError extends Error {
   }
 }
 
-async function parseError(resp: Response): Promise<ApiError> {
+export async function parseError(resp: Response): Promise<ApiError> {
   let code = `http_${resp.status}`;
   let detail = resp.statusText || "Request failed";
   let correlationId: string | undefined;
@@ -87,6 +88,14 @@ export function errorMessage(err: unknown, fallback = "Unexpected error"): strin
 async function refreshTokens(): Promise<Session | null> {
   const { session, setSession, clear } = useAuth.getState();
   if (!session?.refresh_token) return null;
+  // Idle gate: do not silent-refresh after 20 min with no real user activity
+  // (Skycloak/Auth0 pattern — background refresh must not defeat idle logout).
+  const { allowTokenRefresh, clearSessionActivity } = await import("./session-idle");
+  if (!allowTokenRefresh()) {
+    clearSessionActivity();
+    clear();
+    return null;
+  }
   try {
     const resp = await fetch(`${API_ROOT}/auth/refresh`, {
       method: "POST",
@@ -125,11 +134,16 @@ export interface ApiOptions {
 }
 
 export async function api<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
+  const normalized = apiPath(path);
   const doFetch = async (token: string | undefined) => {
     const headers: Record<string, string> = { ...(options.headers ?? {}) };
     if (token) headers.Authorization = `Bearer ${token}`;
     let body: BodyInit | undefined;
     if (options.body instanceof FormData) {
+      body = options.body;
+    } else if (typeof options.body === "string") {
+      // Already serialized — never JSON.stringify again (double-encode → Pydantic 422).
+      headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
       body = options.body;
     } else if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -143,7 +157,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     if (options.timeoutMs && options.timeoutMs > 0) {
       init.signal = AbortSignal.timeout(options.timeoutMs);
     }
-    return fetch(`${API_ROOT}${path}`, init);
+    return fetch(`${API_ROOT}${normalized}`, init);
   };
 
   const { session } = useAuth.getState();
@@ -168,10 +182,30 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
 
 /** Authenticated fetch with the same 401 refresh path as `api()`. */
 export async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  // Never attach Bearer tokens to absolute third-party URLs (open-redirect / SSRF footgun).
+  if (/^https?:\/\//i.test(path)) {
+    let absolute: URL;
+    try {
+      absolute = new URL(path);
+    } catch {
+      throw new ApiError(400, "bad_request", "Invalid absolute URL for authenticated fetch.");
+    }
+    const sameOrigin =
+      typeof window !== "undefined" &&
+      absolute.origin === window.location.origin;
+    if (!sameOrigin) {
+      throw new ApiError(
+        400,
+        "bad_request",
+        "Authenticated fetch refuses cross-origin absolute URLs."
+      );
+    }
+  }
+  const url = path.startsWith("http") ? path : `${API_ROOT}${apiPath(path)}`;
   const doFetch = async (token: string | undefined) => {
     const headers = new Headers(init.headers);
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    return fetch(path.startsWith("http") || path.startsWith("/") ? path : `${API_ROOT}${path}`, {
+    return fetch(url, {
       ...init,
       headers,
     });
@@ -201,7 +235,7 @@ async function saveDownloadResponse(resp: Response, fallbackName: string): Promi
 }
 
 export async function download(path: string, fallbackName: string): Promise<void> {
-  const resp = await authedFetch(`${API_ROOT}${path}`);
+  const resp = await authedFetch(apiPath(path));
   if (!resp.ok) throw await parseError(resp);
   await saveDownloadResponse(resp, fallbackName);
 }
@@ -212,13 +246,39 @@ export async function downloadPost(
   body: unknown,
   fallbackName: string
 ): Promise<void> {
-  const resp = await authedFetch(`${API_ROOT}${path}`, {
+  const resp = await authedFetch(apiPath(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!resp.ok) throw await parseError(resp);
   await saveDownloadResponse(resp, fallbackName);
+}
+
+/** Authenticated GET that returns the response body (e.g. merged allocation PDF) as a Blob. */
+export async function getBlob(path: string): Promise<Blob> {
+  const resp = await authedFetch(apiPath(path));
+  if (!resp.ok) throw await parseError(resp);
+  const blob = await resp.blob();
+  const headerType = (resp.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+  const pathLower = apiPath(path).toLowerCase();
+  const type =
+    headerType && headerType !== "application/octet-stream"
+      ? headerType
+      : pathLower.endsWith(".pdf")
+        ? "application/pdf"
+        : headerType || blob.type || "application/octet-stream";
+  return type && type !== blob.type ? new Blob([blob], { type }) : blob;
+}
+
+export async function postBlob(path: string, body: unknown): Promise<Blob> {
+  const resp = await authedFetch(apiPath(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return resp.blob();
 }
 
 export async function login(username: string, password: string): Promise<Session> {

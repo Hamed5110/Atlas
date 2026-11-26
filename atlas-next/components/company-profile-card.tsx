@@ -44,6 +44,9 @@ export function CompanyProfileCard() {
   const [arabicName, setArabicName] = useState("");
   const [crNo, setCrNo] = useState("");
   const [address, setAddress] = useState("");
+  const [poBox, setPoBox] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -70,6 +73,9 @@ export function CompanyProfileCard() {
     setArabicName("");
     setCrNo("");
     setAddress("");
+    setPoBox("");
+    setPhone("");
+    setEmail("");
     setLogoFile(null);
     setEditingId(null);
     setMode("list");
@@ -84,6 +90,9 @@ export function CompanyProfileCard() {
     setArabicName("");
     setCrNo("");
     setAddress("");
+    setPoBox("");
+    setPhone("");
+    setEmail("");
     setLogoFile(null);
     setMode("create");
   };
@@ -95,6 +104,9 @@ export function CompanyProfileCard() {
     setArabicName(company.arabic_name || "");
     setCrNo(company.cr_no || "");
     setAddress(company.address || "");
+    setPoBox(company.po_box || "");
+    setPhone(company.phone || "");
+    setEmail(company.email || "");
     setLogoFile(null);
     setMode("edit");
   };
@@ -116,6 +128,9 @@ export function CompanyProfileCard() {
           currency: "BHD",
           cr_no: crNo.trim() || null,
           address: address.trim() || null,
+          po_box: poBox.trim() || null,
+          phone: phone.trim() || null,
+          email: email.trim() || null,
         },
       });
       if (logoFile) {
@@ -141,7 +156,9 @@ export function CompanyProfileCard() {
           arabic_name: arabicName.trim(),
           cr_no: crNo.trim(),
           address: address.trim(),
-          currency: "BHD",
+          po_box: poBox.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
         },
       });
       if (logoFile) {
@@ -200,8 +217,9 @@ export function CompanyProfileCard() {
           <div>
             <CardTitle>Company Profile</CardTitle>
             <CardDescription>
-              Companies, Arabic name, CR No., address, and logos are stored in MSSQL. Offer letters
-              and contracts update letterhead when you switch company or logo.
+              Companies, Arabic name, CR No., address, P.O. Box, phone, email, and logos
+              are stored in MSSQL. Letter PDFs update letterhead when you change company
+              branding.
             </CardDescription>
           </div>
           {mode === "list" ? (
@@ -223,38 +241,39 @@ export function CompanyProfileCard() {
                 No companies yet. Click Add company to create the first one.
               </p>
             ) : (
-              <Table>
+              <Table stickyFirst cards>
                 <THead>
                   <TR>
-                    <TH>Logo</TH>
                     <TH>Company</TH>
                     <TH>CR No.</TH>
                     <TH>Address</TH>
                     <TH>Currency</TH>
-                    <TH className="text-right">Actions</TH>
+                    <TH className="text-end">Actions</TH>
                   </TR>
                 </THead>
                 <TBody>
                   {list.map((company) => (
                     <TR key={company.id}>
                       <TD>
-                        <CompanyLogoThumb company={company} />
-                      </TD>
-                      <TD>
-                        <div className="font-semibold">{company.name}</div>
-                        {company.arabic_name ? (
-                          <div className="text-xs" dir="rtl">
-                            {company.arabic_name}
+                        <div className="flex items-center gap-3">
+                          <CompanyLogoThumb company={company} />
+                          <div className="min-w-0">
+                            <div className="font-semibold">{company.name}</div>
+                            {company.arabic_name ? (
+                              <div className="text-xs" dir="rtl">
+                                {company.arabic_name}
+                              </div>
+                            ) : null}
+                            <div className="text-xs text-[var(--color-muted-foreground)]">
+                              {company.code}
+                              <Badge
+                                className="ml-2"
+                                variant={company.active ? "success" : "secondary"}
+                              >
+                                {company.active ? "active" : "inactive"}
+                              </Badge>
+                            </div>
                           </div>
-                        ) : null}
-                        <div className="text-xs text-[var(--color-muted-foreground)]">
-                          {company.code}
-                          <Badge
-                            className="ml-2"
-                            variant={company.active ? "success" : "secondary"}
-                          >
-                            {company.active ? "active" : "inactive"}
-                          </Badge>
                         </div>
                       </TD>
                       <TD className="text-xs">{company.cr_no || "—"}</TD>
@@ -262,19 +281,25 @@ export function CompanyProfileCard() {
                         {company.address || "—"}
                       </TD>
                       <TD className="text-xs">{company.currency || "BHD"}</TD>
-                      <TD className="text-right">
-                        <div className="flex justify-end gap-1.5">
+                      <TD className="text-end">
+                        <div
+                          className="inline-flex flex-nowrap justify-end gap-1.5"
+                          role="group"
+                          aria-label={`Actions for ${company.name}`}
+                        >
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => startEdit(company)}
+                            aria-label={`Edit ${company.name}`}
                             data-testid={`btn-edit-company-${company.code}`}
                           >
-                            <Pencil size={14} /> Edit
+                            <Pencil size={14} aria-hidden /> Edit
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
+                            aria-label={`Upload logo for ${company.name}`}
                             onClick={() => {
                               const input = document.createElement("input");
                               input.type = "file";
@@ -284,13 +309,14 @@ export function CompanyProfileCard() {
                               input.click();
                             }}
                           >
-                            <Upload size={14} /> Logo
+                            <Upload size={14} aria-hidden /> Logo
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             disabled={deleteCompany.isPending || list.length <= 1}
                             onClick={() => confirmDelete(company)}
+                            aria-label={`Delete ${company.name}`}
                             data-testid={`btn-delete-company-${company.code}`}
                             title={
                               list.length <= 1
@@ -298,7 +324,7 @@ export function CompanyProfileCard() {
                                 : "Soft-delete company in MSSQL"
                             }
                           >
-                            <Trash2 size={14} /> Delete
+                            <Trash2 size={14} aria-hidden /> Delete
                           </Button>
                         </div>
                       </TD>
@@ -411,6 +437,30 @@ export function CompanyProfileCard() {
                   />
                 </Field>
               </div>
+              <Field label="P.O. Box">
+                <Input
+                  value={poBox}
+                  onChange={(e) => setPoBox(e.target.value)}
+                  placeholder="e.g. 21808, Manama, Kingdom of Bahrain"
+                  data-testid="input-company-po-box"
+                />
+              </Field>
+              <Field label="Phone / Showroom">
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+973 …"
+                  data-testid="input-company-phone"
+                />
+              </Field>
+              <Field label="Email">
+                <Input
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="reception@example.com"
+                  data-testid="input-company-email"
+                />
+              </Field>
             </div>
 
             <div className="mt-4 flex gap-2">
@@ -454,7 +504,8 @@ export function CompanyProfileCard() {
 
         <p className="text-[11px] text-[var(--color-muted-foreground)]">
           Profile fields and logo binary are stored in MSSQL <code>companies</code> (
-          <code>cr_no</code>, <code>address</code>, <code>logo_data</code>). Delete is a soft-delete
+          <code>cr_no</code>, <code>address</code>, <code>po_box</code>, <code>phone</code>,{" "}
+          <code>email</code>, <code>logo_data</code>). Delete is a soft-delete
           (<code>deleted_at</code>). The AI Data Agent also learns this in its product knowledge
           store. Offer letters use the company selected on the document screen.
         </p>

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, authedFetch } from "./api";
+import { pickPrimaryCompany } from "./company";
 import type { Company } from "./types";
 
 export interface CompanyBranding extends Company {
@@ -48,7 +49,7 @@ export function useAuthedImage(url: string | null | undefined): string {
 
 export function usePrimaryCompany(): { company?: CompanyBranding; logo: string } {
   const companies = useCompanies();
-  const company = (companies.data ?? []).find((c) => c.active) ?? (companies.data ?? [])[0];
+  const company = pickPrimaryCompany(companies.data ?? []);
   const logo = useAuthedImage(company?.has_logo ? company.logo_url : null);
   return { company, logo };
 }

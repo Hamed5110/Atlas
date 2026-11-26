@@ -14,6 +14,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, authedFetch, download, ApiError, errorMessage } from "@/lib/api";
 import { usePrimaryCompany } from "@/lib/branding";
+import { pickPrimaryCompanyId } from "@/lib/company";
 import { fmtDate, fmtDateTime, titleCase, todayLocal } from "@/lib/format";
 import type { Company, Employee } from "@/lib/types";
 import {
@@ -87,9 +88,11 @@ const DEFAULTS: Record<string, string> = {
   duration_months: "24",
   traveling_airfare: "true",
   narration: "",
+  narration_ar: "",
   employee_name_arabic: "",
   cpr_no: "",
   additional_details: "",
+  additional_details_ar: "",
   address_villa: "",
   address_street: "",
   address_block: "",
@@ -131,6 +134,11 @@ function fieldLabel(key: string): string {
     joining_date: "Joining date",
     document_date: "Document date",
     traveling_airfare: "Traveling / Airfare",
+    additional_details: "Additional details (English)",
+    additional_details_ar: "Additional details (Arabic)",
+    narration: "Notes (English)",
+    narration_ar: "Notes (Arabic)",
+    special_terms: "Special terms (English fallback)",
   };
   return labels[key] ?? titleCase(key);
 }
@@ -148,6 +156,7 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
   );
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(false);
   const [managerWhatsapp, setManagerWhatsapp] = useState("");
+  const [waDefaultsHydrated, setWaDefaultsHydrated] = useState(false);
   const [waSendTarget, setWaSendTarget] = useState<DocumentRow | null>(null);
   const [waSendNumbers, setWaSendNumbers] = useState("");
   const { logo: brandLogo } = usePrimaryCompany();
@@ -164,10 +173,36 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
     queryKey: ["document-templates"],
     queryFn: () => api<{ templates: TemplateInfo[] }>("/documents/templates"),
   });
+  const formSchema = useQuery({
+    queryKey: ["hr-lifecycle-forms", kind],
+    queryFn: () =>
+      api<{
+        forms: {
+          kind: string;
+          fields: { key: string; label: string; type?: string; required?: boolean }[];
+        }[];
+      }>(`/hr-lifecycle/forms?kind=${kind}`),
+  });
   const history = useQuery({
     queryKey: ["documents", kind],
     queryFn: () => api<{ documents: DocumentRow[] }>(`/documents?kind=${kind}&limit=100`),
   });
+  const waPrefs = useQuery({
+    queryKey: ["preferences", "effective", "whatsapp"],
+    queryFn: () => api<Record<string, unknown>>("/preferences/effective"),
+  });
+
+  useEffect(() => {
+    if (waDefaultsHydrated || !waPrefs.data) return;
+    const raw = waPrefs.data.whatsapp_default_recipients;
+    let next = "";
+    if (typeof raw === "string") next = raw;
+    else if (Array.isArray(raw)) next = raw.map(String).join("\n");
+    if (next.trim() && !managerWhatsapp.trim()) {
+      setManagerWhatsapp(next);
+    }
+    setWaDefaultsHydrated(true);
+  }, [waPrefs.data, waDefaultsHydrated, managerWhatsapp]);
 
   const kindTemplates = (templates.data?.templates ?? []).filter((t) => t.kind === kind);
   const template = kindTemplates.find((t) => t.key === templateKey) ?? kindTemplates[0];
@@ -177,8 +212,9 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
   }, [template, templateKey]);
 
   useEffect(() => {
-    const list = (companies.data ?? []).filter((c) => c.active);
-    if (!companyId && list.length) setCompanyId(list[0].id);
+    if (companyId) return;
+    const id = pickPrimaryCompanyId(companies.data);
+    if (id) setCompanyId(id);
   }, [companies.data, companyId]);
 
   const filteredEmployees = useMemo(() => {
@@ -235,6 +271,17 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
     if (!template) return [] as string[];
     return [...template.required_params, ...template.optional_params];
   }, [template]);
+
+  const formFieldLabels = useMemo(() => {
+    const form = (formSchema.data?.forms ?? []).find((f) => f.kind === kind);
+    const map: Record<string, string> = {};
+    for (const f of form?.fields ?? []) {
+      if (f.key && f.label) map[f.key] = f.label;
+    }
+    return map;
+  }, [formSchema.data, kind]);
+
+  const labelFor = (key: string) => formFieldLabels[key] || fieldLabel(key);
 
   const missingRequired = useMemo(() => {
     if (!template) return ["template"];
@@ -462,8 +509,11 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
       "document_date",
       "joining_date",
       "narration",
+      "narration_ar",
       "nature_of_employment",
       "nature_of_employment_arabic",
+      "additional_details",
+      "additional_details_ar",
     ].includes(k)
   );
   const moneyFields = fieldKeys.filter((k) => MONEY_KEYS.has(k));
@@ -491,14 +541,28 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
       );
     }
     return (
-      <Field key={key} label={`${fieldLabel(key)}${required ? " *" : ""}`}>
-        <Input
-          type={paramInputType(key)}
-          step="any"
-          value={params[key] ?? ""}
-          data-testid={`field-document-${key}`}
-          onChange={(e) => setParams((p) => ({ ...p, [key]: e.target.value }))}
-        />
+      <Field key={key} label={`${labelFor(key)}${required ? " *" : ""}`}>
+        {key === "narration" ||
+        key === "narration_ar" ||
+        key === "additional_details" ||
+        key === "additional_details_ar" ||
+        key === "special_terms" ? (
+          <Textarea
+            rows={3}
+            value={params[key] ?? ""}
+            data-testid={`field-document-${key}`}
+            dir={key.endsWith("_ar") || key.includes("arabic") ? "rtl" : "ltr"}
+            onChange={(e) => setParams((p) => ({ ...p, [key]: e.target.value }))}
+          />
+        ) : (
+          <Input
+            type={paramInputType(key)}
+            step="any"
+            value={params[key] ?? ""}
+            data-testid={`field-document-${key}`}
+            onChange={(e) => setParams((p) => ({ ...p, [key]: e.target.value }))}
+          />
+        )}
       </Field>
     );
   };
@@ -626,7 +690,7 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
             </div>
 
             <div
-              className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[hsl(243_40%_98%)] p-3"
+              className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-muted)] p-3"
               data-testid="panel-document-whatsapp"
             >
               <label className="flex items-start gap-2 text-sm">
@@ -758,7 +822,7 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
           </CardTitle>
           <CardDescription>Stored with Focus-style voucher numbers (OFL / CO)</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {history.isPending ? (
             <TableSkeleton />
           ) : (history.data?.documents ?? []).length === 0 ? (
@@ -766,17 +830,17 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
               No documents issued yet.
             </p>
           ) : (
-            <Table>
+            <Table stickyFirst cards>
               <THead>
                 <TR>
                   <TH>Voucher No.</TH>
                   <TH>Date</TH>
                   <TH>Party</TH>
                   <TH>Position</TH>
-                  <TH>Basic</TH>
-                  <TH>Net</TH>
+                  <TH className="desk-num">Basic</TH>
+                  <TH className="desk-num">Net</TH>
                   <TH>Status</TH>
-                  <TH className="text-right">Actions</TH>
+                  <TH className="text-end">Actions</TH>
                 </TR>
               </THead>
               <TBody>
@@ -793,22 +857,32 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
                     </TD>
                     <TD className="font-semibold">{doc.employee_name || doc.title}</TD>
                     <TD className="text-xs">{doc.nature_of_employment || "—"}</TD>
-                    <TD className="text-xs">{doc.basic ?? "—"}</TD>
-                    <TD className="text-xs">{doc.net ?? "—"}</TD>
+                    <TD className="desk-num text-xs">{doc.basic ?? "—"}</TD>
+                    <TD className="desk-num text-xs">{doc.net ?? "—"}</TD>
                     <TD>
                       <Badge variant={doc.status === "issued" ? "success" : "secondary"}>
                         {doc.status}
                       </Badge>
                     </TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-1.5">
-                        <Button variant="outline" size="sm" onClick={() => loadForEdit(doc)}>
-                          <Pencil size={14} /> Edit
+                    <TD className="text-end">
+                      <div
+                        className="inline-flex flex-nowrap justify-end gap-1.5"
+                        role="group"
+                        aria-label={`Actions for ${doc.voucher_no || doc.title}`}
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Edit ${doc.voucher_no || doc.title}`}
+                          onClick={() => loadForEdit(doc)}
+                        >
+                          <Pencil size={14} aria-hidden /> Edit
                         </Button>
                         {doc.has_pdf ? (
                           <Button
                             variant="outline"
                             size="sm"
+                            aria-label={`Download PDF ${doc.voucher_no || doc.title}`}
                             onClick={() =>
                               download(
                                 `/documents/${doc.id}/pdf`,
@@ -816,7 +890,7 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
                               )
                             }
                           >
-                            <FileDown size={14} /> PDF
+                            <FileDown size={14} aria-hidden /> PDF
                           </Button>
                         ) : null}
                         {doc.has_pdf ? (
@@ -824,16 +898,23 @@ export function DocumentStudio({ kind }: { kind: DocumentKind }) {
                             variant="outline"
                             size="sm"
                             data-testid="btn-document-send-whatsapp"
+                            aria-label={`Send WhatsApp ${doc.voucher_no || doc.title}`}
                             onClick={() => {
                               setWaSendTarget(doc);
                               setWaSendNumbers(managerWhatsapp);
                             }}
                           >
-                            <MessageCircle size={14} /> WhatsApp
+                            <MessageCircle size={14} aria-hidden /> WhatsApp
                           </Button>
                         ) : null}
-                        <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(doc)}>
-                          <Trash2 size={14} className="text-[var(--color-destructive)]" />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${doc.voucher_no || doc.title}`}
+                          title="Delete"
+                          onClick={() => setDeleteTarget(doc)}
+                        >
+                          <Trash2 size={14} className="text-[var(--color-destructive)]" aria-hidden />
                         </Button>
                       </div>
                     </TD>

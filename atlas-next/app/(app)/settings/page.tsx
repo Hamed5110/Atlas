@@ -8,6 +8,7 @@ import {
   Layers,
   RotateCcw,
   Save,
+  Scale,
   ShieldCheck,
   Timer,
   Wallet,
@@ -20,10 +21,13 @@ import { Input, Select } from "@/components/ui/input";
 import { ErrorState, PageHeader } from "@/components/ui/primitives";
 import { toast } from "@/components/ui/toast";
 import { CompanyProfileCard } from "@/components/company-profile-card";
+import { ThemeOptions } from "@/components/theme-picker";
 import { WhatsAppConnectionPanel } from "@/components/whatsapp-connection-panel";
 import { api, ApiError } from "@/lib/api";
+import { isAdmin, useAuth } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { ExcelToolbar } from "@/components/excel-toolbar";
 
 interface SettingOption {
   value: string;
@@ -33,7 +37,7 @@ interface SettingOption {
 interface SettingItem {
   key: string;
   label: string;
-  type: "boolean" | "integer" | "decimal" | "select";
+  type: "boolean" | "integer" | "decimal" | "select" | "date";
   value: string | number | boolean;
   default: string | number | boolean;
   description: string;
@@ -54,6 +58,7 @@ interface SettingGroup {
 type DraftMap = Record<string, string | number | boolean>;
 
 const GROUP_ICONS: Record<string, typeof Timer> = {
+  entitlement: Scale,
   accrual: Timer,
   vesting: ShieldCheck,
   carryforward: RotateCcw,
@@ -77,7 +82,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-6 w-11 shrink-0 rounded-full transition-colors cursor-pointer",
-        checked ? "bg-[var(--color-primary)]" : "bg-[hsl(220_13%_82%)]"
+        checked ? "bg-[var(--color-primary)]" : "bg-[var(--neutral-300)]"
       )}
     >
       <span
@@ -92,8 +97,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 function SettingsPage() {
   const t = useT();
+  const { me } = useAuth();
+  const canSaveRules = isAdmin(me);
   const queryClient = useQueryClient();
-  const [activeGroup, setActiveGroup] = useState("accrual");
+  const [activeGroup, setActiveGroup] = useState("entitlement");
   const [draft, setDraft] = useState<DraftMap>({});
   const [dirty, setDirty] = useState(false);
 
@@ -177,30 +184,50 @@ function SettingsPage() {
         subtitle={t("page.settings.subtitle")}
         actions={
           <>
-            <Button variant="ghost" disabled={!dirty || save.isPending} onClick={discard}>
-              <RotateCcw size={15} /> Discard
-            </Button>
-            <Button
-              variant="gradient"
-              disabled={!dirty || save.isPending}
-              onClick={() => save.mutate()}
-            >
-              <Save size={15} />
-              {save.isPending
-                ? "Saving…"
-                : dirtyCount
-                  ? `Save ${dirtyCount} change${dirtyCount === 1 ? "" : "s"}`
-                  : "All saved"}
-            </Button>
+            <ExcelToolbar dataset="companies" />
+            {canSaveRules ? (
+              <>
+                <Button variant="ghost" disabled={!dirty || save.isPending} onClick={discard}>
+                  <RotateCcw size={15} /> Discard
+                </Button>
+                <Button
+                  variant="gradient"
+                  data-testid="btn-save-settings"
+                  disabled={!dirty || save.isPending}
+                  onClick={() => save.mutate()}
+                >
+                  <Save size={15} />
+                  {save.isPending
+                    ? t("state.saving")
+                    : dirtyCount
+                      ? `Save ${dirtyCount} change${dirtyCount === 1 ? "" : "s"}`
+                      : "All saved"}
+                </Button>
+              </>
+            ) : (
+              <Badge variant="outline" data-testid="settings-read-only">
+                Read only — an administrator changes these rules
+              </Badge>
+            )}
           </>
         }
       />
+
+      <Card data-testid="card-appearance">
+        <CardHeader>
+          <CardTitle>{t("theme.title")}</CardTitle>
+          <CardDescription>{t("theme.hint")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ThemeOptions columns={3} />
+        </CardContent>
+      </Card>
 
       <CompanyProfileCard />
 
       <WhatsAppConnectionPanel />
 
-      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Card className="h-fit lg:sticky lg:top-6">
           <CardContent className="p-2">
             {groups.map((g) => {
@@ -253,10 +280,10 @@ function SettingsPage() {
                 <div
                   key={item.key}
                   className={cn(
-                    "flex items-start justify-between gap-6 rounded-[var(--radius-md)] border p-4 transition-colors",
+                    "flex flex-col items-stretch justify-between gap-3 rounded-[var(--radius-md)] border p-4 transition-colors sm:flex-row sm:items-start sm:gap-6",
                     dirtyItem
-                      ? "border-[hsl(243_75%_59%/0.45)] bg-[var(--color-primary-muted)]"
-                      : "border-[var(--color-border)] bg-white"
+                      ? "border-[var(--color-primary)]/45 bg-[var(--color-primary-muted)]"
+                      : "border-[var(--color-border)] bg-[var(--color-card)]"
                   )}
                 >
                   <div className="min-w-0 flex-1">
@@ -277,7 +304,7 @@ function SettingsPage() {
                       {item.unit ? ` ${item.unit}` : ""}
                     </p>
                   </div>
-                  <div className="w-64 shrink-0">
+                  <fieldset disabled={!canSaveRules} className="w-full min-w-0 shrink-0 border-0 p-0 sm:w-64 disabled:opacity-70">
                     {item.type === "boolean" ? (
                       <div className="flex justify-end pt-0.5">
                         <Toggle
@@ -287,6 +314,7 @@ function SettingsPage() {
                       </div>
                     ) : item.type === "select" ? (
                       <Select
+                        aria-label={item.label}
                         value={String(draft[item.key] ?? item.default)}
                         onChange={(e) => setValue(item.key, e.target.value)}
                       >
@@ -296,9 +324,17 @@ function SettingsPage() {
                           </option>
                         ))}
                       </Select>
+                    ) : item.type === "date" ? (
+                      <Input
+                        aria-label={item.label}
+                        type="date"
+                        value={String(draft[item.key] ?? "")}
+                        onChange={(e) => setValue(item.key, e.target.value)}
+                      />
                     ) : (
                       <div className="flex items-center gap-2">
                         <Input
+                          aria-label={item.label}
                           type="number"
                           step={item.type === "decimal" ? "0.01" : "1"}
                           min={item.minimum ?? undefined}
@@ -320,7 +356,7 @@ function SettingsPage() {
                         ) : null}
                       </div>
                     )}
-                  </div>
+                  </fieldset>
                 </div>
               );
             })}

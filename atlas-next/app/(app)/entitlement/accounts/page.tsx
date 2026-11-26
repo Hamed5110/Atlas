@@ -43,7 +43,7 @@ export default function EntitlementAccountsPage() {
     <div className="animate-[fade-in_0.3s_ease-out]" data-testid="page-entitlement-accounts">
       <PageHeader title={t("page.accounts.title")} subtitle={t("page.accounts.subtitle")} />
       <Card className="mb-4">
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:items-end">
           <Field label="Employee">
             <Select data-testid="select-employee" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
               <option value="">Select…</option>

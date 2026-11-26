@@ -2,13 +2,13 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { FileSpreadsheet, Loader2, Upload, CircleCheck, CircleAlert } from "lucide-react";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
-import { api, download } from "@/lib/api";
+import { api, download, downloadPost, errorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export interface ImportRow {
@@ -21,6 +21,14 @@ export interface ImportRow {
   [key: string]: unknown;
 }
 
+export interface LookupImportPlanRow {
+  lookup_type: string;
+  code: string;
+  name: string;
+  action: string;
+  message?: string;
+}
+
 export function ImportPanel({
   title,
   description,
@@ -29,6 +37,11 @@ export function ImportPanel({
   commitPath,
   columns,
   onCommitted,
+  commitExtra,
+  onDuplicateWarning,
+  templatePath,
+  errorReportPath,
+  toolbar,
 }: {
   title: string;
   description: string;
@@ -37,16 +50,31 @@ export function ImportPanel({
   commitPath: string;
   columns: Array<{ key: string; label: string }>;
   onCommitted: () => void;
+  /** Extra fields merged into the commit body (e.g. default period_month, status). */
+  commitExtra?: Record<string, unknown>;
+  /** When the commit answers with a duplicate warning, offer a confirmed retry. */
+  onDuplicateWarning?: (retry: () => void, message: string) => void;
+  /** API path of the template; defaults to `/templates/{templateName}.xlsx`. */
+  templatePath?: string;
+  /** POST `{rows}` here to download the failed rows as a workbook with an Error column. */
+  errorReportPath?: string;
+  /** Extra controls shown next to the upload buttons (e.g. import mode). */
+  toolbar?: ReactNode;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const allowDuplicateRef = useRef(false);
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [lookupPlan, setLookupPlan] = useState<LookupImportPlanRow[] | null>(null);
 
   const previewMutation = useMutation({
     mutationFn: (workbook: File) => {
       const form = new FormData();
       form.append("file", workbook);
-      return api<{ rows?: ImportRow[] } | ImportRow[]>(previewPath, {
+      return api<
+        | { rows?: ImportRow[]; lookups?: LookupImportPlanRow[]; lookups_summary?: Record<string, number> }
+        | ImportRow[]
+      >(previewPath, {
         method: "POST",
         body: form,
       });
@@ -57,11 +85,19 @@ export function ImportPanel({
         selected: r.severity === "READY" && r.selected !== false,
       }));
       setRows(list);
+      const lookups = Array.isArray(data) ? [] : (data.lookups ?? []);
+      setLookupPlan(lookups.length ? lookups : null);
       const ready = list.filter((r) => r.severity === "READY").length;
       const errors = list.filter((r) => r.severity !== "READY").length;
+      const lookupInserts = lookups.filter((l) => l.action === "INSERT").length;
+      const lookupUpdates = lookups.filter((l) => l.action === "UPDATE").length;
       toast.info(
         "Workbook verified",
-        `${ready} ready · ${errors} with errors. Review selection, then import.`
+        `${ready} ready · ${errors} with errors${
+          lookupInserts || lookupUpdates
+            ? ` · lookups ${lookupInserts} new / ${lookupUpdates} update`
+            : ""
+        }. Review selection, then import.`
       );
     },
     onError: (err) =>
@@ -70,23 +106,70 @@ export function ImportPanel({
 
   const commitMutation = useMutation({
     mutationFn: (selected: ImportRow[]) =>
-      api<{ imported: number; updated?: number }>(commitPath, {
+      api<{
+        imported: number;
+        updated?: number;
+        unchanged?: number;
+        vouchers?: number;
+        committed?: boolean;
+        duplicate_warning?: boolean;
+        message?: string;
+        rows?: ImportRow[];
+        lookups_created?: number;
+        lookups_updated?: number;
+      }>(commitPath, {
         method: "POST",
-        body: { rows: selected },
+        body: {
+          rows: selected,
+          ...commitExtra,
+          ...(allowDuplicateRef.current ? { allow_duplicate: true } : {}),
+        },
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, selected) => {
+      if (result.duplicate_warning && onDuplicateWarning) {
+        onDuplicateWarning(
+          () => {
+            allowDuplicateRef.current = true;
+            commitMutation.mutate(selected);
+          },
+          result.message || "Some rows already exist."
+        );
+        return;
+      }
+      allowDuplicateRef.current = false;
+      if (result.committed === false) {
+        if (result.rows?.length) {
+          setRows(
+            result.rows.map((r) => ({ ...r, selected: r.severity === "READY" && r.selected !== false }))
+          );
+        }
+        toast.error("Nothing was imported", result.message || "Fix the rows marked Error and retry.");
+        return;
+      }
       const updated = result.updated ?? 0;
+      const unchanged = result.unchanged ?? 0;
+      const lookupsCreated = result.lookups_created ?? 0;
+      const lookupsUpdated = result.lookups_updated ?? 0;
       toast.success(
         "Import complete",
-        `${result.imported} inserted${updated ? ` · ${updated} updated` : ""}.`
+        `${result.imported} inserted${updated ? ` · ${updated} updated` : ""}${
+          unchanged ? ` · ${unchanged} unchanged` : ""
+        }${result.vouchers ? ` into ${result.vouchers} voucher(s)` : ""}${
+          lookupsCreated || lookupsUpdated
+            ? ` · lookups ${lookupsCreated} new / ${lookupsUpdated} updated`
+            : ""
+        }.`
       );
       setRows(null);
+      setLookupPlan(null);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       onCommitted();
     },
-    onError: (err) =>
-      toast.error("Import failed", err instanceof Error ? err.message : undefined),
+    onError: (err) => {
+      allowDuplicateRef.current = false;
+      toast.error("Import failed", err instanceof Error ? err.message : undefined);
+    },
   });
 
   const toggleRow = (rowNumber: number, checked: boolean) => {
@@ -110,16 +193,22 @@ export function ImportPanel({
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <CardTitle>{title}</CardTitle>
             <CardDescription>{description}</CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            {toolbar}
             <Button
               variant="outline"
-              size="sm"
-              onClick={() => download(`/templates/${templateName}.xlsx`, `${templateName}-template.xlsx`)}
+              className="h-10"
+              onClick={() =>
+                download(
+                  templatePath ?? `/templates/${templateName}.xlsx`,
+                  `${templateName}-template.xlsx`
+                ).catch((err) => toast.error("Template download failed", errorMessage(err)))
+              }
             >
               <FileSpreadsheet size={15} /> Excel template
             </Button>
@@ -131,13 +220,14 @@ export function ImportPanel({
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null);
                 setRows(null);
+                setLookupPlan(null);
               }}
             />
-            <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>
+            <Button variant="secondary" className="h-10" onClick={() => fileRef.current?.click()}>
               <Upload size={15} /> {file ? file.name : "Choose Excel workbook"}
             </Button>
             <Button
-              size="sm"
+              className="h-10"
               disabled={!file || previewMutation.isPending}
               onClick={() => file && previewMutation.mutate(file)}
             >
@@ -153,6 +243,48 @@ export function ImportPanel({
       </CardHeader>
       {rows ? (
         <CardContent className="space-y-4">
+          {lookupPlan && lookupPlan.some((l) => l.action !== "UNCHANGED") ? (
+            <div
+              className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-background)] p-3"
+              data-testid="import-lookup-plan"
+            >
+              <p className="text-sm font-semibold text-[var(--color-foreground)]">
+                Lookups from this workbook
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                Departments, designations, nationalities, pay groups, sub sections and repair
+                centers are created or updated from the same Excel before employees are saved.
+              </p>
+              <div className="mt-2 max-h-40 overflow-auto">
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>List</TH>
+                      <TH>Code</TH>
+                      <TH>Name</TH>
+                      <TH>Action</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {lookupPlan
+                      .filter((l) => l.action !== "UNCHANGED")
+                      .map((l) => (
+                        <TR key={`${l.lookup_type}-${l.code}-${l.action}`}>
+                          <TD className="font-mono text-xs">{l.lookup_type}</TD>
+                          <TD className="font-mono text-xs">{l.code}</TD>
+                          <TD>{l.name}</TD>
+                          <TD>
+                            <Badge variant={l.action === "INSERT" ? "success" : "secondary"}>
+                              {l.action}
+                            </Badge>
+                          </TD>
+                        </TR>
+                      ))}
+                  </TBody>
+                </Table>
+              </div>
+            </div>
+          ) : null}
           <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)]">
             <Table>
               <THead>
@@ -176,7 +308,7 @@ export function ImportPanel({
               </THead>
               <TBody>
                 {rows.map((r) => (
-                  <TR key={r.row} className={cn(r.severity !== "READY" && "bg-[hsl(0_72%_98%)]")}>
+                  <TR key={r.row} className={cn(r.severity !== "READY" && "bg-[var(--color-destructive-muted)]")}>
                     <TD>
                       <input
                         type="checkbox"
@@ -224,13 +356,25 @@ export function ImportPanel({
               </TBody>
             </Table>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-[var(--color-muted-foreground)]">
               {selectedRows.length} of {rows.length} rows selected for import
               {readySelectable.length < rows.length
                 ? ` · ${rows.length - readySelectable.length} errors excluded`
                 : ""}
             </p>
+            {errorReportPath && readySelectable.length < rows.length ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  downloadPost(errorReportPath, { rows }, `${templateName}-errors.xlsx`).catch((err) =>
+                    toast.error("Download failed", errorMessage(err))
+                  )
+                }
+              >
+                <FileSpreadsheet size={15} /> Download errors
+              </Button>
+            ) : null}
             <Button
               variant="gradient"
               disabled={!selectedRows.length || commitMutation.isPending}

@@ -6,7 +6,14 @@ import { useEffect } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { appPath } from "@/lib/paths";
+import {
+  clearSessionActivity,
+  startSessionIdleWatcher,
+  touchSessionActivity,
+} from "@/lib/session-idle";
 import type { Me } from "@/lib/types";
+import { toast } from "@/components/ui/toast";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { session, me, hydrated, setMe, clear } = useAuth();
@@ -20,7 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (hydrated && !session) router.replace("/login");
+    if (hydrated && !session) router.replace(appPath("/login"));
   }, [hydrated, session, router]);
 
   useEffect(() => {
@@ -30,9 +37,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (meQuery.isError) {
       clear();
-      router.replace("/login");
+      router.replace(appPath("/login"));
     }
   }, [meQuery.isError, clear, router]);
+
+  useEffect(() => {
+    if (!hydrated || !session) return;
+    touchSessionActivity();
+    return startSessionIdleWatcher(() => {
+      clearSessionActivity();
+      clear();
+      toast.warning("Signed out", "Idle for 20 minutes — please sign in again.");
+      router.replace(appPath("/login"));
+    });
+  }, [hydrated, session, clear, router]);
 
   if (!hydrated || !session || !me) {
     return (

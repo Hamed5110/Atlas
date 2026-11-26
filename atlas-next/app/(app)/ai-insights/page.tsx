@@ -33,6 +33,7 @@ import { EmptyState, PageHeader, StatCard } from "@/components/ui/primitives";
 import { toast } from "@/components/ui/toast";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { api, errorMessage } from "@/lib/api";
+import { isAdmin, useAuth } from "@/lib/auth";
 import { forecastMonthLabel, money, num, titleCase } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ const SEVERITY_STYLE: Record<string, { ring: string; badge: "destructive" | "war
 
 const SMART_CHIPS = [
   "Teach me everything",
+  "Explain systematic verification and validation V&V",
   "Whole airfare process step by step",
   "Support me step by step",
   "How do ESS requests work",
@@ -66,6 +68,12 @@ const SMART_CHIPS = [
   "Show schema",
   "preview SQL for locked users",
 ] as const;
+
+interface HelpLibrary {
+  documents: number;
+  chunks: number;
+  last_synced_at: string | null;
+}
 
 interface AgentReply {
   intent: string;
@@ -135,6 +143,7 @@ interface SaaBaseline {
 function AiInsightsPage() {
   const queryClient = useQueryClient();
   const tAi = useT();
+  const me = useAuth((s) => s.me);
   const [prompt, setPrompt] = useState("");
   const [agentLog, setAgentLog] = useState<AgentReply[]>([]);
   const [autoRepairMode, setAutoRepairMode] = useState(false);
@@ -147,10 +156,16 @@ function AiInsightsPage() {
     queryKey: ["ai-learning"],
     queryFn: () => api<LearningStats>("/ai/support/learning"),
   });
+  const helpLibrary = useQuery({
+    queryKey: ["ai-help-library"],
+    queryFn: () => api<HelpLibrary>("/ai/knowledge/help"),
+  });
   const llmStatus = useQuery({
     queryKey: ["ai-llm-status"],
     queryFn: () => api<LlmStatus>("/ai/llm/status"),
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    staleTime: 5_000,
   });
   const forecast = useQuery({
     queryKey: ["forecast-budget"],
@@ -261,6 +276,46 @@ function AiInsightsPage() {
     onError: (err) => toast.error("Silent fixes blocked", err instanceof Error ? err.message : undefined),
   });
 
+  const trainMutation = useMutation({
+    mutationFn: () =>
+      api<{
+        trained: boolean;
+        knowledge_version: string;
+        product_knowledge_upserts: number;
+        llm?: LlmStatus;
+      }>("/ai/support/train", { method: "POST", body: {} }),
+    onSuccess: (result) => {
+      toast.success(
+        "Local AI trained",
+        `${result.knowledge_version} · ${result.product_knowledge_upserts} knowledge upserts`
+      );
+      queryClient.invalidateQueries({ queryKey: ["ai-learning"] });
+      queryClient.invalidateQueries({ queryKey: ["ai-llm-status"] });
+      queryClient.invalidateQueries({ queryKey: ["ai-help-library"] });
+    },
+    onError: (err) => toast.error("Train failed", errorMessage(err)),
+  });
+
+  const helpSyncMutation = useMutation({
+    mutationFn: () =>
+      api<HelpLibrary & { added: number; updated: number; removed: number }>("/ai/knowledge/sync", {
+        method: "POST",
+        body: {},
+      }),
+    onSuccess: (result) => {
+      toast.success(
+        tAi("ai.helpSynced"),
+        tAi("ai.helpSyncedDetail")
+          .replace("{docs}", String(result.documents))
+          .replace("{added}", String(result.added))
+          .replace("{updated}", String(result.updated))
+          .replace("{removed}", String(result.removed))
+      );
+      queryClient.invalidateQueries({ queryKey: ["ai-help-library"] });
+    },
+    onError: (err) => toast.error(tAi("ai.syncHelp"), errorMessage(err)),
+  });
+
   const findings =
     diagnoseMutation.data?.findings ??
     saaBaseline?.data_quality?.top_flags ??
@@ -284,7 +339,8 @@ function AiInsightsPage() {
     saaBaselineMutation.isPending ||
     diagnoseMutation.isPending ||
     agentMutation.isPending ||
-    saaSilentMutation.isPending;
+    saaSilentMutation.isPending ||
+    trainMutation.isPending;
   const ollama = llmStatus.data?.ollama;
   const ollamaOnline = Boolean(ollama?.online);
   const activeLlm = llmStatus.data?.active_provider ?? "none";
@@ -302,12 +358,22 @@ function AiInsightsPage() {
       const model = result.data?.ollama?.model ?? "—";
       if (online) {
         toast.success("Local Ollama online", model);
-        ask("What can you do? List capabilities and local AI brain.");
+        trainMutation.mutate(undefined, {
+          onSettled: () =>
+            ask(
+              "Teach me everything from systematic verification and validation (V&V): " +
+                "IEEE 1012 verification vs validation, OWASP red-team, Employee Master and " +
+                "Opening Balance edit/delete with If-Match, MSSQL integrity, " +
+                "and how Local AI learns the product."
+            ),
+        });
       } else {
         toast.error(
           "Ollama offline",
           "Start Ollama locally (ollama serve) and pull qwen2.5:3b-instruct"
         );
+        // Still refresh MSSQL knowledge brain even if chat LLM is down.
+        trainMutation.mutate();
       }
     });
   }
@@ -387,9 +453,17 @@ function AiInsightsPage() {
             </Button>
             <Button
               variant="outline"
-              disabled={busy || !ollamaOnline}
+              disabled={busy}
               data-testid="btn-ollama-teach"
-              onClick={() => ask("Teach me everything — what was built and how to use it.")}
+              onClick={() => {
+                trainMutation.mutate(undefined, {
+                  onSettled: () =>
+                    ask(
+                      "Teach me everything — what was built, systematic V&V (verification and validation), " +
+                        "and how to use Employee Master, Opening Balances, finance, and Local AI."
+                    ),
+                });
+              }}
             >
               <BookOpen size={15} />
               {tAi("ai.teachEverything")}
@@ -416,6 +490,49 @@ function AiInsightsPage() {
               <BrainCircuit size={15} />
               {tAi("ai.whatCanYouDo")}
             </Button>
+            <Button
+              variant="secondary"
+              disabled={busy || trainMutation.isPending}
+              data-testid="btn-ollama-train"
+              onClick={() => trainMutation.mutate()}
+            >
+              {trainMutation.isPending ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <BookOpen size={15} />
+              )}
+              Train brain
+            </Button>
+          </div>
+          <div
+            className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-3"
+            data-testid="section-help-library"
+          >
+            <Badge variant="info">{tAi("ai.helpLibrary")}</Badge>
+            <span className="text-sm" data-testid="text-help-library-count">
+              {tAi("ai.helpLibraryCount")
+                .replace("{docs}", String(helpLibrary.data?.documents ?? 0))
+                .replace("{chunks}", String(helpLibrary.data?.chunks ?? 0))}
+            </span>
+            <span className="text-xs text-[var(--color-muted-foreground)]">
+              {tAi("ai.helpLibraryHint")}
+            </span>
+            {isAdmin(me) ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy || helpSyncMutation.isPending}
+                data-testid="btn-sync-help"
+                onClick={() => helpSyncMutation.mutate()}
+              >
+                {helpSyncMutation.isPending ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <BookOpen size={14} />
+                )}
+                {tAi("ai.syncHelp")}
+              </Button>
+            ) : null}
           </div>
           {!ollamaOnline && !llmStatus.isLoading ? (
             <p className="text-xs text-[var(--color-warning)]" data-testid="text-ollama-help">
@@ -761,7 +878,7 @@ function AiInsightsPage() {
                       </div>
                     ) : null}
                     {entry.sql?.length ? (
-                      <pre className="mt-2 max-h-28 overflow-auto rounded bg-[hsl(220_20%_12%)] p-2 text-[11px] text-[hsl(210_20%_92%)]">
+                      <pre className="mt-2 max-h-28 overflow-auto rounded bg-[var(--neutral-800)] p-2 text-[11px] text-[var(--neutral-100)]">
                         {entry.sql.join("\n\n")}
                       </pre>
                     ) : null}
@@ -799,14 +916,14 @@ function AiInsightsPage() {
                     <AreaChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                       <defs>
                         <linearGradient id="aiForecastFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="hsl(210 70% 42%)" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="hsl(210 70% 42%)" stopOpacity={0.02} />
+                          <stop offset="0%" style={{ stopColor: "var(--color-chart-primary)" }} stopOpacity={0.35} />
+                          <stop offset="100%" style={{ stopColor: "var(--color-chart-primary)" }} stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis
                         dataKey="month"
-                        tick={{ fontSize: 10, fill: "hsl(220 9% 46%)" }}
+                        tick={{ fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
                       />
@@ -816,13 +933,13 @@ function AiInsightsPage() {
                         contentStyle={{
                           borderRadius: 12,
                           fontSize: 12,
-                          border: "1px solid hsl(220 13% 91%)",
+                          border: "1px solid var(--color-border)",
                         }}
                       />
                       <Area
                         type="monotone"
                         dataKey="projected"
-                        stroke="hsl(210 70% 42%)"
+                        style={{ stroke: "var(--color-chart-primary)" }}
                         strokeWidth={2.5}
                         fill="url(#aiForecastFill)"
                       />

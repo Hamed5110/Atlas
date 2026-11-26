@@ -15,7 +15,8 @@ import { EmptyState, ErrorState, PageHeader } from "@/components/ui/primitives";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { api, errorMessage } from "@/lib/api";
-import { canManage, useAuth } from "@/lib/auth";
+import { hasRole, useAuth } from "@/lib/auth";
+import { ExcelToolbar } from "@/components/excel-toolbar";
 
 interface FormField {
   key: string;
@@ -80,6 +81,7 @@ interface PrintPreset {
 interface FormsResponse {
   forms: FormDef[];
   template_bound_by_kind?: Record<string, string[]>;
+  form_kinds?: Opt[];
   print_zones?: Opt[];
   print_aligns?: Opt[];
   print_widths?: Opt[];
@@ -96,6 +98,35 @@ interface FormsResponse {
   print_bgs?: Opt[];
   print_empty_as?: Opt[];
   print_presets?: PrintPreset[];
+}
+
+const KIND_ORDER = [
+  "offer_letter",
+  "contract",
+  "warning_letter",
+  "salary_increment",
+  "promotion_notice",
+  "disciplinary_notice",
+  "mistake_with_fine",
+  "experience_certificate",
+  "relieving_certificate",
+];
+
+function kindLabel(kind: string, catalog?: Opt[]): string {
+  const fromCat = catalog?.find((k) => k.key === kind)?.label;
+  if (fromCat) return fromCat;
+  const fallback: Record<string, string> = {
+    offer_letter: "Offer Letter",
+    contract: "Contracts",
+    warning_letter: "Official Warning Letter",
+    salary_increment: "Salary Revision Letter",
+    experience_certificate: "Experience Certificate",
+    relieving_certificate: "Relieving Certificate",
+    disciplinary_notice: "Disciplinary Notice",
+    promotion_notice: "Promotion Notice",
+    mistake_with_fine: "Mistake with Fine Notice",
+  };
+  return fallback[kind] || kind.replace(/_/g, " ");
 }
 
 const FIELD_TYPES = ["text", "textarea", "number", "date", "dropdown", "file", "signature"];
@@ -893,7 +924,7 @@ function PrintControls({
 
 function FormBuilderPage() {
   const { me } = useAuth();
-  const writable = canManage(me);
+  const writable = hasRole(me, "admin", "system_admin", "hr", "hr_manager");
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState("");
   const [draftFields, setDraftFields] = useState<FormField[] | null>(null);
@@ -930,7 +961,10 @@ function FormBuilderPage() {
   const seed = useMutation({
     mutationFn: () => api("/hr-lifecycle/forms/seed", { method: "POST" }),
     onSuccess: () => {
-      toast.success("Seeded", "Default form schemas created.");
+      toast.success(
+        "Seeded",
+        "Offer Letter, Contracts, and lifecycle form schemas ready."
+      );
       void qc.invalidateQueries({ queryKey: ["hr-lifecycle-forms"] });
     },
     onError: (e) => toast.error("Seed failed", errorMessage(e)),
@@ -1064,13 +1098,16 @@ function FormBuilderPage() {
     <div className="space-y-6 animate-[fade-in_0.25s_ease-out]" data-testid="hr-form-builder-page">
       <PageHeader
         title="HR Form Schema Builder"
-        subtitle="Design each field’s print layout yourself — zone, width, align, format, presets, and more"
+        subtitle="Offer Letter, Contracts, and lifecycle letters — print zones, logo letterhead, presets"
         actions={
-          writable ? (
-            <Button variant="outline" onClick={() => seed.mutate()} disabled={seed.isPending}>
-              Seed defaults
-            </Button>
-          ) : null
+          <>
+            <ExcelToolbar dataset="hr-documents" />
+            {writable ? (
+              <Button variant="outline" onClick={() => seed.mutate()} disabled={seed.isPending}>
+                Seed defaults
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -1081,7 +1118,7 @@ function FormBuilderPage() {
       ) : !(forms.data?.forms?.length) ? (
         <EmptyState
           title="No form schemas"
-          message="Seed the default schemas for warning, increment, certificates, and notices."
+          message="Seed defaults for Offer Letter, Contracts, warnings, increments, certificates, and notices."
           action={
             writable ? (
               <Button variant="gradient" onClick={() => seed.mutate()}>
@@ -1091,13 +1128,20 @@ function FormBuilderPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[15rem_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Forms</CardTitle>
+              <CardDescription>Print format per document kind</CardDescription>
             </CardHeader>
             <CardContent className="space-y-1 p-2">
-              {(forms.data?.forms ?? []).map((f) => (
+              {[...(forms.data?.forms ?? [])]
+                .sort((a, b) => {
+                  const ia = KIND_ORDER.indexOf(a.kind);
+                  const ib = KIND_ORDER.indexOf(b.kind);
+                  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+                })
+                .map((f) => (
                 <button
                   key={f.id}
                   type="button"
@@ -1112,7 +1156,9 @@ function FormBuilderPage() {
                     setOpenKey(null);
                   }}
                 >
-                  <span>{f.name}</span>
+                  <span className="min-w-0 truncate">
+                    {f.name || kindLabel(f.kind, forms.data?.form_kinds)}
+                  </span>
                   <Badge variant="outline">{f.fields.length}</Badge>
                 </button>
               ))}
@@ -1141,9 +1187,12 @@ function FormBuilderPage() {
                 <CardHeader>
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <div>
-                      <CardTitle>{selected.name}</CardTitle>
+                      <CardTitle>
+                        {selected.name || kindLabel(selected.kind, forms.data?.form_kinds)}
+                      </CardTitle>
                       <CardDescription>
-                        {selected.kind} · v{selected.version}
+                        {kindLabel(selected.kind, forms.data?.form_kinds)} · {selected.kind} · v
+                        {selected.version}
                         {draftFields ? " · unsaved changes" : ""}
                         {" · "}
                         expand a field to edit its print layout
@@ -1179,7 +1228,7 @@ function FormBuilderPage() {
                         <div className="flex flex-wrap items-center gap-2 px-3 py-2">
                           <button
                             type="button"
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                            className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-start"
                             onClick={() => setOpenKey(open ? null : f.key)}
                             data-testid={`btn-toggle-print-${f.key}`}
                           >

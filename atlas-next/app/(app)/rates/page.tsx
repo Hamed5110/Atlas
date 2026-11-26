@@ -16,6 +16,7 @@ import { api, errorMessage } from "@/lib/api";
 import { fmtDate, money, titleCase, todayLocal } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import type { EntitlementRate } from "@/lib/types";
+import { ExcelToolbar } from "@/components/excel-toolbar";
 
 const SCOPE_ORDER = ["employee", "pay_group", "company", "global"];
 
@@ -124,9 +125,12 @@ function RatesPage() {
         title={t("page.rates.title")}
         subtitle={t("page.rates.subtitle")}
         actions={
-          <Button variant="gradient" onClick={openCreate} data-testid="btn-new-rate">
-            <Plus size={15} /> New rate
-          </Button>
+          <>
+            <ExcelToolbar dataset="entitlement-rates" />
+            <Button variant="gradient" onClick={openCreate} data-testid="btn-new-rate">
+              <Plus size={15} /> New rate
+            </Button>
+          </>
         }
       />
 
@@ -159,7 +163,7 @@ function RatesPage() {
         </CardHeader>
         <CardContent className="p-0">
           {rates.isPending ? (
-            <TableSkeleton />
+            <TableSkeleton label={t("state.loading")} />
           ) : rates.isError ? (
             <ErrorState error={rates.error} onRetry={rates.refetch} />
           ) : sorted.length === 0 ? (
@@ -169,16 +173,16 @@ function RatesPage() {
               message="Add at least a global rate for entitlement calculations."
             />
           ) : (
-            <Table data-testid="table-rate-schedule">
+            <Table stickyFirst cards data-testid="table-rate-schedule">
               <THead>
                 <TR>
                   <TH>Scope</TH>
                   <TH>Target</TH>
-                  <TH>Amount</TH>
-                  <TH>Cap</TH>
+                  <TH className="desk-num">Amount</TH>
+                  <TH className="desk-num">Cap</TH>
                   <TH>Effective</TH>
                   <TH>Status</TH>
-                  <TH className="text-right">Actions</TH>
+                  <TH className="text-end">Actions</TH>
                 </TR>
               </THead>
               <TBody>
@@ -193,10 +197,10 @@ function RatesPage() {
                         </Badge>
                       </TD>
                       <TD className="font-mono text-xs">{r.scope_id || "—"}</TD>
-                      <TD className="font-bold" data-testid="rate-amount">
+                      <TD className="desk-num font-bold" data-testid="rate-amount">
                         {money(r.amount)}
                       </TD>
-                      <TD>{r.cap_amount ? money(r.cap_amount) : "—"}</TD>
+                      <TD className="desk-num">{r.cap_amount ? money(r.cap_amount) : "—"}</TD>
                       <TD>
                         {fmtDate(r.effective_from)} → {r.effective_to ? fmtDate(r.effective_to) : "open"}
                       </TD>
@@ -205,25 +209,27 @@ function RatesPage() {
                           {active ? "Active" : "Inactive"}
                         </Badge>
                       </TD>
-                      <TD className="text-right">
-                        <div className="flex justify-end gap-1">
+                      <TD className="text-end">
+                        <div className="inline-flex flex-nowrap justify-end gap-1.5" role="group" aria-label="Rate actions">
                           <Button
                             variant="ghost"
-                            size="icon"
+                            size="icon-sm"
                             onClick={() => openEdit(r)}
                             title="Edit"
+                            aria-label={`Edit rate ${r.id}`}
                             data-testid="btn-edit-rate"
                           >
-                            <Pencil size={15} />
+                            <Pencil size={15} aria-hidden="true" />
                           </Button>
                           <Button
                             variant="ghost"
-                            size="icon"
+                            size="icon-sm"
                             onClick={() => setDeleting(r)}
                             title="Delete"
+                            aria-label={`Delete rate ${r.id}`}
                             data-testid="btn-delete-rate"
                           >
-                            <Trash2 size={15} className="text-[var(--color-destructive)]" />
+                            <Trash2 size={15} className="text-[var(--color-destructive)]" aria-hidden="true" />
                           </Button>
                         </div>
                       </TD>
@@ -256,7 +262,7 @@ function RatesPage() {
               onClick={() => saveMutation.mutate()}
               data-testid="btn-save-rate"
             >
-              {saveMutation.isPending ? "Saving…" : editing ? "Save changes" : "Save rate"}
+              {saveMutation.isPending ? t("state.saving") : editing ? "Save changes" : "Save rate"}
             </Button>
           </>
         }
